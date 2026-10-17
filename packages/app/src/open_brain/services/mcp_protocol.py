@@ -257,6 +257,7 @@ def _call_tool_response(
             "session_review_decision_limit",
             "session_review_response_limit",
             "not_found",
+            "reapproval_required",
             "cursor_invalid",
             "cursor_stale",
             "revision_changed",

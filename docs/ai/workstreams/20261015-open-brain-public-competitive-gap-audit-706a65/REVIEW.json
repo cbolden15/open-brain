@@ -1,0 +1,20 @@
+{
+  "status": "approved",
+  "model": "gpt-6-astra",
+  "report_sha256": "cd0833408e4794733d7f8a8ef39ff46c87e8b87d1f92882b8e75b80c366aefb3",
+  "unresolved_findings": 0,
+  "review_artifact": {
+    "path": "/tmp/ob-gap-audit-vptdt4c2/review.md",
+    "sha256": "d50f7431733b98104bbd50d60ef49ded797d350e5278a709e8747c527258460a"
+  },
+  "ledger": {
+    "total_children": 3,
+    "active_children": 0,
+    "nested": 0,
+    "research_models": [
+      "gpt-6.1-sol",
+      "gpt-6.1-sol"
+    ]
+  },
+  "verification_scope": "independent source review, not runtime acceptance"
+}

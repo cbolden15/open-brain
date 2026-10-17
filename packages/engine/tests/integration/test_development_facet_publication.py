@@ -33,4 +33,4 @@ def test_development_facet_confirmation_publishes_and_exports(tmp_path: Path) ->
     engine.portability.export(
         exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4"
     )
-    assert validate_portable_root(exported)["schema_version"] == 11
+    assert validate_portable_root(exported)["schema_version"] == 15

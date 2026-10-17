@@ -38,6 +38,16 @@ def _identity(value: object) -> str:
     return value
 
 
+def require_unreserved_consumer_namespace(
+    connection: sqlite3.Connection, namespace: Mapping[str, str]
+) -> None:
+    """Schema20 consumer source names belong only to checked grouped admission."""
+    if connection.execute("PRAGMA user_version").fetchone()[0] >= 20 and (
+        namespace.get("connector_name") == "consumer_chat"
+    ):
+        raise T03Error("invalid_arguments")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SourceRevisionSubmission:
     capture: CaptureSubmission
@@ -518,6 +528,7 @@ class PublicJobRevisionSink:
             self._engine._writer_lease.acquire_shared_writer(),
             self._engine._store.transaction() as connection,
         ):
+            require_unreserved_consumer_namespace(connection, delivery.submission.namespace)
             identity = connection.execute(
                 "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
             ).fetchone()
@@ -906,6 +917,7 @@ def register_intake(
 ) -> None:
     """Complete the source linkage in the same commit as capture stage three."""
     plan = json.loads(intake["plan_json"])
+    require_unreserved_consumer_namespace(connection, json.loads(plan["namespace_json"]))
     epoch = connection.execute("SELECT control_epoch FROM engine_generations").fetchone()[0]
     if epoch != plan["control_epoch"]:
         raise T03Error("operation_pending")

@@ -26,18 +26,23 @@ from open_brain_engine.portable.v8_custody import CUSTODY_PATH
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
+from packages.engine.tests.test_consumer_intake_engine import _commit, _plan
+from packages.engine.tests.test_consumer_intake_engine import active_profiles as active_profiles
 
 
-@pytest.fixture(params=(8, 9, 10, 11))
+@pytest.fixture(params=(8, 9, 10, 11, 12, 13, 14, 15))
 def closure(
-    tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch,
+    active_profiles: None,
 ) -> RecoveryClosure:
-    if request.param in (8, 9, 10):
+    if request.param in (8, 9, 10, 11, 12, 13, 14):
         schema_version = request.param + 5
         monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", schema_version)
         monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:schema_version])
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "primary"))
     engine.capture.accept(TextPayload("Synthetic baseline body"), delivery_id="baseline.owner")
+    if request.param == 15:
+        _commit(engine, _plan())
     archive = tmp_path / "baseline"
     engine.portability.export(archive, export_id="export_" + str(uuid4()))
     files = tuple(sorted(validated_portable_snapshot(archive).files.items()))

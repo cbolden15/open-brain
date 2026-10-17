@@ -77,7 +77,7 @@ def migrate_developments(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 16:
+        if state.state in {"current", "supported_old"} and state.version in {16, 17, 18, 19, 20}:
             return
         if state.state != "supported_old" or state.version != 15:
             raise T03Error("operation_pending")
@@ -88,10 +88,11 @@ def migrate_developments(
         apply_migrations(
             connection,
             clock=_MigrationClock(clock),
-            migrations=LOCAL_MIGRATIONS,
+            migrations=LOCAL_MIGRATIONS[:16],
             schema_version=16,
         )
-        if classify_local_schema(connection).state != "current":
+        upgraded = classify_local_schema(connection)
+        if upgraded.state not in {"current", "supported_old"} or upgraded.version != 16:
             raise T03Error("operation_pending")
         checkpoint("development_before_commit")
         require_historical_snapshot_settled(connection, profile)

@@ -2,10 +2,14 @@
 
 from open_brain_engine.storage.migrations import Migration, _migration
 
+from .capture_lifecycle_schema import CAPTURE_LIFECYCLE_MIGRATION
+from .consumer_schema import CONSUMER_INTAKE_MIGRATION
 from .development_schema import DEVELOPMENT_MIGRATION
 from .facet_schema_migration import FACET_MIGRATION
 from .historical_compatibility_schema import HISTORICAL_STORED_V2_BOUNDS
 from .historical_schema import HISTORICAL_AUTHORITY_SCHEMA
+from .owner_retraction_schema import OWNER_RETRACTION_MIGRATION
+from .slack_sharing_schema import SLACK_SHARING_MIGRATION
 from .source_schema import SOURCE_HISTORY_SCHEMA
 
 BASELINE = (
@@ -1567,3 +1571,11 @@ LOCAL_MIGRATIONS += (
 LOCAL_MIGRATIONS += (FACET_MIGRATION,)
 
 LOCAL_MIGRATIONS += (DEVELOPMENT_MIGRATION,)
+
+LOCAL_MIGRATIONS += (SLACK_SHARING_MIGRATION,)
+
+LOCAL_MIGRATIONS += (CAPTURE_LIFECYCLE_MIGRATION,)
+
+LOCAL_MIGRATIONS += (OWNER_RETRACTION_MIGRATION,)
+
+LOCAL_MIGRATIONS += (CONSUMER_INTAKE_MIGRATION,)

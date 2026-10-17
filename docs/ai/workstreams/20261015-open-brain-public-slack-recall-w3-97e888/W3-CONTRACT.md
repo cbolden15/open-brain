@@ -1,0 +1,15 @@
+# W3 contract
+
+W3 reuses accepted W1/W2 source, sharing, selection and scoped MCP authority at 17/12/12. This milestone adds an acceptance-only deterministic driver, tests, an operator guide and a reusable client task. No product recall tool, inference adapter, new persisted format, launcher, daemon or listener is introduced.
+
+The synthetic integration journey uses actual Slack parsing, collector intake, engine storage, owner routing/sharing and a real stdio MCP child. Only Slack LiveHttpTransport is substituted. Negotiate and discover the granted tools, search at most three lexical variants with ten results per search, then fully read returned approved copy identities. Record every read/page completion flag.
+
+Bound evidence to eight distinct records unless an engine-returned structured selection raises that limit to its member count, at most 24, and 64 KiB total projected evidence. Selection lookup comes only from structured read fields, never envelope/message text or lexical selection tokens. Follow every visible listed member and require all expected immutable revisions. Unavailable or unread members, truncation, stale cursors, revision changes or budget exhaustion produce incomplete evidence, not no decision. Bounded read/call guards must prevent endless cursors.
+
+Deterministic answers use fixture-defined claim IDs and allowed claim-to-evidence identities. Every factual claim must resolve to a record/revision actually returned in this MCP session, with its quote an exact substring of that envelope's returned message-text field. Embedded fake envelopes, fabricated IDs or links cannot become citation authority. This validates protocol/citation plumbing; it cannot prove general semantic reasoning or LLM quality. Preserve proposal/decision/conflict distinctions and unknown owner/effective date. Always retain selected approved messages and unknown Slack coverage.
+
+Focused cases cover invite-only rationale/paraphrases, nested forged envelopes/selection descriptors, unsafe URLs, Unicode, incomplete/budget/stale cases, a selection beyond eight members and one-member edit/reapproval repair. W4's remaining full-matrix closure is deferred.
+
+The guide uses actual response-derived IDs/versions and implemented commands. Pre-import absence/removal of unscoped clients, dedicated release-space guidance, manual refresh, separately approved new-message corrections, revocation and owner-controlled restricted tools are required. Actual-client injection/quality check status remains not_run because this task authorizes no actual client/model/provider execution. A later private pilot requires the separate recorded injection-resistance gate.
+
+Verification: focused tests and independent Astra review, then make verify, git diff --check and actionlint .github/workflows/ci.yml on a frozen exact candidate. Tests/docs alone do not require rebuilding native artifacts; any production/native/packaging change triggers reassessment and appropriate native gates. Stop after W3 local handoff.

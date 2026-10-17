@@ -23,6 +23,7 @@ _CODES = frozenset(
         "preview_expired",
         "binding_mismatch",
         "response_too_large",
+        "reapproval_required",
     }
 )
 _PROVIDER = re.compile(r"[a-z][a-z0-9._-]{0,63}\Z")
@@ -126,6 +127,63 @@ class SharingPreviewRequest(_SharingRequest):
         if values != tuple(sorted(set(values))):
             raise SharingError("invalid_arguments")
         object.__setattr__(self, "provider_ids", values)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SlackSharingPreviewRequest(SharingPreviewRequest):
+    destination_space_id: str
+    sharing_kind: str = "slack_work_evidence"
+    selection_id: str | None = None
+    dto_version: int = 2
+
+    def __post_init__(self) -> None:
+        if type(self.dto_version) is not int or self.dto_version != 2:
+            raise SharingError("invalid_arguments")
+        SharingPreviewRequest(
+            **cast(
+                dict[str, Any],
+                {
+                    field.name: getattr(self, field.name) if field.name != "dto_version" else 1
+                    for field in fields(SharingPreviewRequest)
+                },
+            )
+        )
+        object.__setattr__(self, "provider_ids", tuple(self.provider_ids))
+        if self.sharing_kind != "slack_work_evidence":
+            raise SharingError("invalid_arguments")
+        _identity(self.destination_space_id, "space_")
+        if self.selection_id is not None:
+            _uuid(_identity(self.selection_id, "selection_").removeprefix("selection_"))
+
+    @property
+    def request_sha256(self) -> str:
+        return sha256(
+            b"open-brain-sharing-request.v2\0" + portable_canonical_json_bytes(self.value())
+        ).hexdigest()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SlackSelectionCreateRequest(_SharingRequest):
+    operation_id: str
+    brain_id: str
+    issuer_epoch: int
+    destination_space_id: str
+    member_source_ids: tuple[str, ...]
+    dto_version: int = 1
+
+    def __post_init__(self) -> None:
+        if type(self.dto_version) is not int or self.dto_version != 1:
+            raise SharingError("invalid_arguments")
+        _text(self.operation_id, pattern=_OPERATION)
+        _identity(self.brain_id, "brn_")
+        _version(self.issuer_epoch, minimum=1)
+        _identity(self.destination_space_id, "space_")
+        if type(self.member_source_ids) not in (tuple, list):
+            raise SharingError("invalid_arguments")
+        members = tuple(_identity(item, "source_") for item in self.member_source_ids)
+        if not 1 <= len(members) <= 24 or len(set(members)) != len(members):
+            raise SharingError("invalid_arguments")
+        object.__setattr__(self, "member_source_ids", members)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -238,6 +296,24 @@ class SharingPreview:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackSharingPreview(SharingPreview):
+    dto_version: int = 2
+
+    def __post_init__(self) -> None:
+        if type(self.dto_version) is not int or self.dto_version != 2:
+            raise SharingError("invalid_arguments")
+        SharingPreview(
+            **cast(
+                dict[str, Any],
+                {
+                    field.name: getattr(self, field.name) if field.name != "dto_version" else 1
+                    for field in fields(SharingPreview)
+                },
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SharingInspection:
     preview: SharingPreview
     decision: str | None
@@ -335,7 +411,7 @@ class SharingDecisionReceipt:
             if self.state not in {"pending", "captured", "history_only"}:
                 raise SharingError("invalid_arguments")
             delivery = _text(self.copy_delivery_id, limit=256).split(":")
-            if len(delivery) != 3 or delivery[0] != "sharing-copy.v1":
+            if len(delivery) != 3 or delivery[0] not in {"sharing-copy.v1", "sharing.copy.v2."}:
                 raise SharingError("invalid_arguments")
             if _uuid(delivery[1]) != self.approval_id:
                 raise SharingError("invalid_arguments")
@@ -395,7 +471,11 @@ def _validate_receipt(value: SharingDecisionReceipt | SharingRevokeReceipt) -> N
 
 
 SharingRequest = (
-    SharingPreviewRequest | SharingInspectRequest | SharingDecisionRequest | SharingRevokeRequest
+    SharingPreviewRequest
+    | SlackSelectionCreateRequest
+    | SharingInspectRequest
+    | SharingDecisionRequest
+    | SharingRevokeRequest
 )
 
 
@@ -418,6 +498,8 @@ def parse_sharing_request[T: SharingRequest](raw: bytes, kind: type[T]) -> T:
         value = json.loads(
             raw.decode("utf-8", "strict"), object_pairs_hook=pairs, parse_constant=constant
         )
+        if kind is SharingPreviewRequest and type(value) is dict and value.get("dto_version") == 2:
+            return cast(T, parse_sharing_request(raw, SlackSharingPreviewRequest))
         if type(value) is not dict or set(value) != {field.name for field in fields(kind)}:
             raise SharingError("invalid_arguments")
         return kind(**cast(dict[str, Any], value))
@@ -428,6 +510,9 @@ def parse_sharing_request[T: SharingRequest](raw: bytes, kind: type[T]) -> T:
 __all__ = [
     "SharingError",
     "SharingPreviewRequest",
+    "SlackSharingPreviewRequest",
+    "SlackSharingPreview",
+    "SlackSelectionCreateRequest",
     "SharingInspectRequest",
     "SharingDecisionRequest",
     "SharingRevokeRequest",

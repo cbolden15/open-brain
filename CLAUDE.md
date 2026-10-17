@@ -72,7 +72,10 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 The engine cannot import the app, connectors, archives, or workspace modules. The app depends
 exactly on `open-brain-engine==0.1.0`. The default dependency graph contains no server, service
 manager, cryptography, key-custody, or container dependency. The native audit rejects those module
-families if they enter the executable.
+families if they enter the executable. Native builds require the standard-library
+compiled Decimal implementation and omit its unused Python fallback; the build
+and installed self-check refuse an unavailable or substituted implementation.
+Artifact audit limits and reviewed standard-library payload hashes remain fixed.
 
 ## Release surface
 
@@ -137,8 +140,10 @@ Preview IDs bind configuration preimages and grants; only owned fragments may
 be changed. Review CLI/MCP operations share `services/review_publication.py`; the engine owns
 source-bound proposals and stable page revisions. See `docs/review-publication.md` and
 `docs/records-and-history.md` and `docs/portable-brain-v7.md`. Use synthetic client profiles for tests.
-Sharing was introduced at schema/runtime/Portable12/7/7. The current unreleased
-Slack capture candidate requires16/11/11; see `docs/portable-brain-v11.md`.
+Sharing was introduced at schema/runtime/Portable12/7/7. The current engine consumer-intake candidate requires20/15/15; see `docs/consumer-intake.md` and `docs/portable-brain-v15.md`. Both external parser profiles remain inactive. Owner retraction approval bytes retain their19/14/14 predecessor meaning; see `docs/owner-retraction.md` and `docs/portable-brain-v14.md`.
+The capture lifecycle predecessor requires18/13/13; see `docs/portable-brain-v13.md`.
+The Slack approved-evidence predecessor used17/12/12; see `docs/portable-brain-v12.md`.
+The Slack capture predecessor used16/11/11; see `docs/portable-brain-v11.md`.
 The frozen facet predecessor used15/10/10; see `docs/portable-brain-v10.md`.
 The historical-compatibility predecessor used14/9/9; its required mixed historical sidecar,
 forward recovery and retained import evidence are documented in `docs/portable-brain-v9.md`.

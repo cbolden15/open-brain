@@ -1,13 +1,42 @@
 # Open Brain
 
-Open Brain is a local-first second brain for capture, search, and full portable export. The default
-product is one local user, one local Brain, SQLite, and ordinary files. It runs only in the
-foreground. It requires no root access, operating-system capabilities, namespaces, daemon, service,
-container, storage choice, certificate, grant, or manual database setup.
+Open Brain gives your notes and AI agents one local memory: capture text, search it later, and
+export the complete Brain. Your records live in SQLite and ordinary files on your computer.
+The core runs in the foreground without a daemon or provider account.
 
-The first Secure Node implementation is preserved under `archive/open-brain-secure-node` as
-non-building history. It is not an Open Brain extra, entry point, dependency, or runtime profile.
-Portable Brain and shared record identities remain the boundary for any future separate product.
+## Try a synthetic note
+
+Install with `brew install cbolden15/tap/open-brain` on macOS or Linux with Homebrew.
+Then run these three commands in the same shell. They use a new temporary Brain, separate from
+your normal notes; keep `DEMO_BRAIN` set for the optional setup preview below.
+
+```sh
+export DEMO_BRAIN="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/open-brain-demo.XXXXXX")" && pwd -P)/brain"
+open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --data-dir "$DEMO_BRAIN" --json
+open-brain search 'Copper Orchard' --data-dir "$DEMO_BRAIN" --json
+```
+
+Capture creates the Brain automatically. Search should return the synthetic note. These core
+commands need no model or network request after installation. The tap supplies the published
+release; the candidate-only features described below may require a newer executable.
+
+Agent setup requires a candidate executable with `agent setup` in `open-brain --help`; the
+`v0.1.0` release lacks it. With that candidate, preview **search-only** access for Claude Code
+in an existing project. Replace the absolute project path before running:
+
+```sh
+open-brain agent setup --client claude-code --scope project \
+  --project-dir /absolute/path/to/project --data-dir "$DEMO_BRAIN" --allow-search --json
+```
+
+This command previews configuration; it does not apply it or start a client. Use `--client codex`
+for Codex. Inspect the executable, Brain path, grants and proposed files in the preview before
+following [agent setup](docs/agent-setup.md) to apply it. Search does not grant capture, complete
+reads, retained history or publication. A connected client may send search results to its model
+provider; treat retrieved text as untrusted data. Older releases may lack `agent setup`.
+
+For current compatibility and the preserved historical workflow, read [first use](docs/first-use.md).
+The [installation guide](docs/install.md) covers supported release resources.
 
 ## Candidate scope
 
@@ -17,8 +46,8 @@ The shared `0.1.0` version alone does not identify its features. Check `open-bra
 The [feature/version matrix](docs/core-v01-features.md) separates implementation, installed assets,
 authorization and acceptance. The candidate has no public acceptance certification.
 
-Start with the [executable first-use guide](docs/first-use.md) for synthetic capture and Markdown
-import through routing, proposal inspection, approval, managed vault, search and complete reads.
+The [first-use guide](docs/first-use.md) records current compatibility and preserves an exact-artifact
+historical journey through capture, import, routing, publication, managed vault and complete reads.
 [Doctor checks](docs/doctor.md) provide bounded local diagnostics. These local checks do not close
 Linux exact-candidate, Obsidian GUI or public-promotion gates.
 
@@ -64,13 +93,13 @@ require this candidate's surfaces; local verification does not publish a new Hom
 
 ## Use Open Brain
 
-Follow the [first-use guide](docs/first-use.md) in order. It derives IDs from actual responses and
-includes executable examples; reference pages use uppercase placeholders for your own IDs.
+The historical blocks in the [first-use guide](docs/first-use.md) require their pinned artifact.
+They derive IDs from actual responses; reference pages use uppercase placeholders for your own IDs.
 
 The first capture creates the private data directory, owner identity, Brain identity, and SQLite
 state automatically. Existing supported local databases upgrade transactionally when opened for
-writing. This candidate uses local state schema **9**, runtime session **4**, and Portable metadata
-**5**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
+writing. This candidate uses local state schema **17**, runtime session **12**, and Portable metadata
+**12**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
 and plugin bridge protocol 1. Stop older sessions before upgrading and update clients together;
 older runtimes must refuse incompatible state. See [schema migrations](docs/schema-migrations.md) for supported
 older layouts, refusal behavior, and interrupted-transaction recovery.

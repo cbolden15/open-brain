@@ -6,11 +6,11 @@ archive is relabeled or passed through a v5 manifest reader.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
-from typing import cast
+from typing import Any, cast
 
 from open_brain_engine.storage.filesystem import (
     RootConfinementError,
@@ -56,7 +56,12 @@ def manifest_v11(
     }
 
 
-def validate_portable_file_set_v11(files: Mapping[str, bytes], *, tenant_id: str) -> None:
+def validate_portable_file_set_v11(
+    files: Mapping[str, bytes],
+    *,
+    tenant_id: str,
+    _sharing_validator: Callable[[Mapping[str, bytes]], dict[str, Any]] | None = None,
+) -> None:
     """Validate base lossless evidence plus replay and v5 facet review bindings."""
     from .developments_v11 import (
         DEVELOPMENT_APPEND_PATH,
@@ -76,7 +81,12 @@ def validate_portable_file_set_v11(files: Mapping[str, bytes], *, tenant_id: str
             for path, payload in snapshot.items()
             if path not in {DEVELOPMENT_EVIDENCE_PATH, DEVELOPMENT_APPEND_PATH}
         }
-        validate_portable_file_set_v10(base, tenant_id=tenant_id, allow_development_bindings=True)
+        validate_portable_file_set_v10(
+            base,
+            tenant_id=tenant_id,
+            allow_development_bindings=True,
+            _sharing_validator=_sharing_validator,
+        )
         rows = validate_development_evidence(snapshot)
         validate_development_review_bindings(snapshot, rows)
         validate_append_operations(snapshot)

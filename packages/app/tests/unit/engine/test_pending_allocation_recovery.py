@@ -69,12 +69,14 @@ def _fail_next_materialization(engine: BrainEngine) -> None:
     def flaky(
         submission: CaptureSubmission, *, admitted_privacy: PrivacyDecision,
         recovery_plan: CaptureRecoveryPlan | None = None,
+        lifecycle_identity: CaptureReservationIdentity | None = None,
     ) -> CaptureReceipt:
         calls["count"] += 1
         if calls["count"] == 1:
             raise RuntimeError("synthetic transient failure")
         return original(
             submission, admitted_privacy=admitted_privacy, recovery_plan=recovery_plan,
+            lifecycle_identity=lifecycle_identity,
         )
 
     engine._materialize_capture_locked = flaky  # type: ignore[method-assign]

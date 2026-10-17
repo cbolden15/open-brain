@@ -11,17 +11,17 @@ Local documentation checks do not promote catalog acceptance.
 | Coordinate | Candidate value | Meaning |
 |---|---|---|
 | Core / engine package | `0.1.0` / exactly `0.1.0` | Core requires the matching engine |
-| Local state schema | `16` | Older incompatible writers must refuse |
-| Runtime session | `11` | Stop old sessions and upgrade clients together |
+| Local state schema | `20` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
+| Runtime session | `15` | Stop old sessions and upgrade clients together |
 | Task contract | `t03.v1` | Negotiated search/read/history/source-route DTOs |
 | Catalog schema | `2` | Joined implementation, package, authorization and acceptance metadata |
 | Plugin bridge | `1` | Existing bounded inherited-stdio envelope |
-| Portable metadata | `11` | Versioned evidence; distinct from live database schema |
+| Portable metadata | `15` | Versioned evidence; distinct from live database schema |
 
 Supported Portable 1–3 imports remain implementation compatibility; standalone Portable 4 import
 is refused. Portable 7 clean restore preserves current identity, privacy, issuer, managed source and sharing
 evidence. [Portable 9](portable-brain-v9.md) adds explicitly versioned retained import evidence
-and mixed historical operations. A catalog version is not a protocol or database upgrade instruction.
+and mixed historical operations. [Portable 12](portable-brain-v12.md) retains owner-approved Slack Work sharing and immutable recall selections. A catalog version is not a protocol or database upgrade instruction.
 
 ## Surface and claim boundaries
 
@@ -29,6 +29,7 @@ and mixed historical operations. A catalog version is not a protocol or database
 |---|---|---|
 | Core CLI | Local capture, Markdown import, spaces/inbox, source routing, proposals and inspected decisions | Locally verified; [first-use examples](first-use.md); no release promotion |
 | Capture admission | Engine-enforced envelope, body, and batch bounds, per-principal rate and concurrency gates, bounded writer waiters, absolute storage watermarks, owner explicit tiers, and destination-bound submission under a trusted launcher policy | Stable refusal results leave no partial state; defaults in the [capture contract](capture-contract.md); redaction boundary classifier off by default |
+| Engine conversation intake | Internal ChatGPT/Claude normalized plans, owner preview/commit/status/recover/halt, atomic conversations and Portable15 evidence | Synthetic engine acceptance; both external parsers inactive; no archive-import CLI or end-user importer claim |
 | Retrieval | Lexical search, paged filters, complete projected reads, retained history and explicit relationships | Independent content/history grants for MCP; cursors can become stale |
 | Managed vault | `workspace setup`, `status`, `refresh`; approved canonical pages | Sibling `Open Brain Vault`; routing alone does not publish; no `vault` CLI |
 | Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Nine independent grants, off by default; synthetic setup proof is not live client/provider acceptance |
@@ -37,6 +38,7 @@ and mixed historical operations. A catalog version is not a protocol or database
 | Graphify | Separately packaged structural helper | Paired resource; rebuildable graph is not source evidence |
 | Direct-provider graph refresh | Existing consent-gated adapters | Authorization/readiness unassessed; distinct from deferred semantic recall; no provider readiness claim |
 | Optional connectors | Fifteen source descriptors plus YouTube conformance extension metadata | Source-only; not installed in the core artifact; no public onboarding claim |
+| Slack cited recall | Optional selected-channel intake, owner-approved Work evidence copies, scoped existing stdio search/read and exact citation plumbing | Synthetic acceptance only; [operator and pilot guide](integrations/slack-decision-recall.md); actual-client/model/injection checks `not_run`; no live Slack or public integration claim |
 | Optional collector recovery | Durable receipts/quarantine/retry implementation, T09 local evidence | Optional source functionality; not public connected-source continuity or service acceptance |
 | Optional offline outbox | Bounded durable enqueue, one-cycle owner drain with an exclusive lease and batch bounds, receipt-verified body removal, quarantine with owner retry, confirmed discard, and lineage conversion | Optional connectors distribution, not in the core artifact; text payloads only; the synthetic transport is the only automated-test transport and real transports are private deployment acceptance |
 | Desktop companion | Existing contributor build and compatibility tests retained | Separate package; no Core v0.1 desktop release |

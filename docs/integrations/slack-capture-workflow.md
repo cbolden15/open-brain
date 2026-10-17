@@ -2,7 +2,7 @@
 
 The optional collector retains selected Slack observations, extracts separate developments, and prepares owner-reviewed page updates. Raw and derived captures stay unverified. Publication and facet vocabulary changes require an owner decision.
 
-This is a contributor implementation. The installed `0.1.0` executable may lack these interfaces. Check `open-brain catalog --json` on the candidate: state schema 16, runtime session 11 and Portable Brain 11. Read [compatibility and migration](../portable-brain-v11.md) before upgrading an existing Brain.
+This is a contributor implementation. The installed `0.1.0` executable may lack these interfaces. Check `open-brain catalog --json` on the candidate: state schema 17, runtime session 12 and Portable Brain 12. Read [compatibility and migration](../portable-brain-v12.md) before upgrading an existing Brain.
 
 ## Configure selected sources
 
@@ -41,6 +41,22 @@ open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRA
 Inspect the preview before `import --source-id slack.selected --preview-id REPLACE`. Configuration does not enable scheduling. Use `control --source-id slack.selected --action enable` only after approving recurring collection. One-shot and resident collectors must use the same explicit lease path.
 
 Source tiers are `public`, `work`, `personal`, `secret` and `unknown`. Owner-configured privacy stays local-only and binds the retained preview and selection generation. Unknown classification holds the preview without capture or ordinary retrieval. Invalid tiers refuse before fetch. A changed policy requires explicit selection reset, fences the old preview and does not reclassify accepted evidence. Accepted evidence uses the supported owner privacy repair workflow.
+
+## Capture identities and routing
+
+The configured `source_id` (for example `slack.selected`) is the collector's
+selection ID. Import counts and custody `receipt_ids` acknowledge retained
+collector submissions; they are not engine logical source IDs. A capture is an
+immutable retained record revision. An engine logical source groups those
+revisions and has its own current head, lifecycle and route versions.
+
+Discover imported records with owner-local `search-page`, inspect their returned
+`source_id` with `source inspect`, and route each selected logical source using
+its inspected head and route version. Re-imported revisions inherit that route;
+newly encountered messages start unrouted. Collector selection configuration
+cannot assign an engine space. Do not reinterpret old receipts or derive engine
+source IDs from custody IDs. The [cited-recall guide](slack-decision-recall.md)
+shows the exact commands and approved-copy boundary.
 
 ## Process developments
 

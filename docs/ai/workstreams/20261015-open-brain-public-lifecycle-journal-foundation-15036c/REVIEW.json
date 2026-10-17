@@ -1,0 +1,28 @@
+{
+  "reviewer": "gpt-6-astra",
+  "scope": "isolated contracts/journal, synthetic component tests; no production schema18 or Portable13/public-command acceptance",
+  "findings": [
+    {
+      "severity": "high",
+      "finding": "Halted revision could not be retried under newly approved operation; relaxed uniqueness alone could alias pending capture admission",
+      "resolution": "Permit abandoned revision retry with fresh capture IDs, prove exact admitted membership for history and retraction, preserve pending exclusion after restore",
+      "regression": "test_halted_revision_can_be_reapproved_without_admitting_old_pending_capture",
+      "status": "resolved"
+    },
+    {
+      "severity": "medium",
+      "finding": "Constructor read identity outside caller transaction",
+      "resolution": "Require explicit transaction before opening",
+      "regression": "test_journal_opener_requires_caller_transaction",
+      "status": "resolved"
+    },
+    {
+      "severity": "medium",
+      "finding": "Empty schema with existing SQLite metadata admitted as fresh store",
+      "resolution": "Refuse nonzero user_version or application_id before installation",
+      "regression": "test_install_refuses_existing_version_metadata_without_schema_objects",
+      "status": "resolved"
+    }
+  ],
+  "final_review": "No remaining findings in focused component review; root subsequently added regression for halted retry and both version metadata fields"
+}

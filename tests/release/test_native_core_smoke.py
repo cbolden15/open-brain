@@ -54,9 +54,9 @@ def _catalog() -> dict[str, object]:
         "compatibility": {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 11,
-            "runtime_session": 11,
-            "state_schema": 16,
+            "portable_metadata": 15,
+            "runtime_session": 15,
+            "state_schema": 20,
             "task_contract": "t03.v1",
         },
         "packages": [
@@ -71,6 +71,7 @@ def _catalog() -> dict[str, object]:
 
 def test_native_audit_requires_catalog_implementation() -> None:
     assert "open_brain.services.catalog" in base_native._REQUIRED_MODULES
+    assert "decimal" in base_native._REQUIRED_MODULES
     assert {
         "open_brain_engine.engine.portable_v8_authority",
         "open_brain_engine.engine.portable_v8_restore",
@@ -93,6 +94,15 @@ def test_native_audit_requires_catalog_implementation() -> None:
         "open_brain_engine.engine.development_schema",
         "open_brain_engine.engine.portable_v11_evidence",
         "open_brain_engine.engine.portable_v11_restore",
+        "open_brain_engine.portable.v12",
+        "open_brain_engine.portable.v12_catalog",
+        "open_brain_engine.portable.slack_v12",
+        "open_brain_engine.engine.portable_v12_evidence",
+        "open_brain_engine.engine.portable_v12_restore",
+        "open_brain_engine.engine.slack_selection_validation",
+        "open_brain_engine.engine.slack_sharing",
+        "open_brain_engine.engine.slack_sharing_projection",
+        "open_brain_engine.engine.slack_sharing_schema",
     } <= base_native._REQUIRED_MODULES
 
 
@@ -110,9 +120,28 @@ def test_native_portable_smoke_requires_sharing_and_all_retained_sidecars() -> N
         "content/facets/state-v1.json",
         "history/facets/operations-v1.json",
         "history/facets/events-v1.json",
-    "history/developments/evidence-v1.json",
-    "history/developments/append-v1.json",
+        "history/developments/evidence-v1.json",
+        "history/developments/append-v1.json",
     )
+
+    assert (
+        *base_native._PORTABLE_V11_SIDECARS,
+        "history/sharing/slack-recall-selections-v1.json",
+    ) == base_native._PORTABLE_V12_SIDECARS
+    assert (
+        *base_native._PORTABLE_V12_SIDECARS,
+        "history/capture-lifecycle/journal-v1.json",
+    ) == base_native._PORTABLE_V13_SIDECARS
+    assert (
+        *base_native._PORTABLE_V13_SIDECARS,
+        "history/retraction/approvals-v1.json",
+    ) == base_native._PORTABLE_V14_SIDECARS
+    assert (
+        *base_native._PORTABLE_V12_SIDECARS,
+        "history/capture-lifecycle/journal-v2.json",
+        "history/consumer-intake/evidence-v1.json",
+        "history/retraction/approvals-v1.json",
+    ) == base_native._PORTABLE_V15_SIDECARS
 
 
 def test_native_mcp_inventory_requires_catalog_and_exact_grant_set() -> None:
@@ -203,6 +232,14 @@ def test_grantless_catalog_probe_requires_core_coordinates_and_no_optional_claim
         with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
             base_native._smoke_catalog(tmp_path / "open-brain", environment)
         compatibility.update(current)
+    compatibility.update(portable_metadata=11, runtime_session=11, state_schema=16)
+    with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
+        base_native._smoke_catalog(tmp_path / "open-brain", environment)
+    compatibility.update(current)
+    compatibility.update(portable_metadata=16, runtime_session=16, state_schema=21)
+    with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
+        base_native._smoke_catalog(tmp_path / "open-brain", environment)
+    compatibility.update(current)
     compatibility.update(portable_metadata=10, runtime_session=10, state_schema=15)
     with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
         base_native._smoke_catalog(tmp_path / "open-brain", environment)

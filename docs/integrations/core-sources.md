@@ -25,6 +25,13 @@ candidate. Production OAuth/provider readiness, continuous source updates and re
 remain deferred or separately gated. Ordinary [agent memory setup](../agent-setup.md) only grants
 explicit MCP operations; it does not install hooks or collect transcripts.
 
+The [Slack capture guide](slack-capture-workflow.md) distinguishes collector selections,
+custody receipts, immutable captures and engine logical sources. The
+[cited-recall guide](slack-decision-recall.md) adds owner-approved Work copies and
+scoped stdio retrieval at `17/12/12`. Its synthetic protocol/citation acceptance does
+not establish live Slack, model reasoning or injection resistance. Its installed-binary
+backup/restore and restricted-client evidence gates precede any private pilot.
+
 The optional collector owns scheduling and recovery. Core capture/import/search is foreground-only
 and does not install, enable or require it. Installing an optional package would not prove that its
 service, credentials or sources are ready. Keep catalog installation, authorization, operational

@@ -11,8 +11,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
 use uuid::Uuid;
 
-const SUPPORTED_STATE_SCHEMA: u64 = 16;
-const SUPPORTED_RUNTIME_SESSION: u64 = 11;
+const SUPPORTED_STATE_SCHEMA: u64 = 20;
+const SUPPORTED_RUNTIME_SESSION: u64 = 15;
 const BASE_OPERATIONS: &[&str] = &[
     "system.status",
     "capture.create",
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn unknown_schema_and_relative_brain_are_rejected() {
-        for unsupported in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17] {
+        for unsupported in [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21] {
             let mut wrong_version = handshake();
             wrong_version["state_schema_version"] = json!(unsupported);
             assert!(validate_handshake(&wrong_version).is_err());
@@ -543,12 +543,28 @@ mod tests {
     fn desktop_admits_only_the_current_runtime() {
         let next = handshake();
         assert!(validate_handshake(&next).is_ok());
-        let raw = serde_json::to_string(&next).unwrap().replace(
-            "\"runtime_session_version\":11",
-            "\"runtime_session_version\":11.0",
-        );
-        let fractional = crate::strict_json::from_slice(raw.as_bytes()).unwrap();
-        assert!(validate_handshake(&fractional).is_err());
+        for (field, expected) in [
+            ("state_schema_version", SUPPORTED_STATE_SCHEMA),
+            ("runtime_session_version", SUPPORTED_RUNTIME_SESSION),
+        ] {
+            for invalid in [json!(expected.to_string()), json!(true), Value::Null] {
+                let mut malformed = next.clone();
+                malformed[field] = invalid;
+                assert!(validate_handshake(&malformed).is_err());
+            }
+            for numeric in [
+                format!("{expected}.0"),
+                format!("{expected}.5"),
+                format!("{expected}e0"),
+            ] {
+                let raw = serde_json::to_string(&next).unwrap().replace(
+                    &format!("\"{field}\":{expected}"),
+                    &format!("\"{field}\":{numeric}"),
+                );
+                let fractional = crate::strict_json::from_slice(raw.as_bytes()).unwrap();
+                assert!(validate_handshake(&fractional).is_err());
+            }
+        }
         for (state_schema, runtime_session) in [
             (5, 1),
             (6, 1),
@@ -561,6 +577,15 @@ mod tests {
             (13, 8),
             (14, 9),
             (15, 10),
+            (16, 11),
+            (17, 11),
+            (16, 12),
+            (17, 12),
+            (18, 13),
+            (19, 14),
+            (21, 16),
+            (18, 12),
+            (17, 13),
         ] {
             let mut old = next.clone();
             old["state_schema_version"] = json!(state_schema);

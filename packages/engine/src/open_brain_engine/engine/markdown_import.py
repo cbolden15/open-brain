@@ -59,6 +59,7 @@ from .markdown_import_fs import (
     roots_overlap,
     snapshot_directory,
 )
+from .mcp_eligibility import lifecycle_capture_visible
 from .normalization import _new_id, _portable_id, _timestamp
 
 if TYPE_CHECKING:
@@ -984,6 +985,8 @@ def capture_projection_is_active(
     capture_id: str,
 ) -> bool:
     """Return whether a source capture may enter the live search projection."""
+    if not lifecycle_capture_visible(connection, capture_id):
+        return False
     revision = connection.execute(
         """
         SELECT r.revision_id, r.capture_id, f.active_revision_id

@@ -1,0 +1,83 @@
+{
+  "source_baseline": "8889181e0589ebe6e684634c9a001d6080077204",
+  "artifact_evidence": [
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/semantic.md",
+      "sha256": "8d3eb0697b5a794399a18053badf78c20f65dcb70a5a06dd10944baa1d4dc820"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/imports-retract.md",
+      "sha256": "e5204838ac50688f21d73c31f561f698d9a1da4e22ee5953566b1763e80c5982"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/onboarding.md",
+      "sha256": "d380d0aca44b43c0524a08fa0fad384536a4449c681acae740840761c0604dc5"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/environment.log",
+      "sha256": "c5ae06bc7aa6b6d903955b8a0aed85252a08a2a8cfa0cb6e624624739a94aa0c"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/docs-tests.log",
+      "sha256": "65ad27cc5fba3041abc311fb4bce378fcc9c42508c7200582d1ed30ae4bd20a3"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/smoke-result.json",
+      "sha256": "392c66634063a00b46f5d7cd2c638bfdf5d33464fb469c328fd3cf041558a738"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/quickstart.stdout.jsonl",
+      "sha256": "9dbec0f8ec2ad01c3ec4bdb13401da2e45cc79534bfa5c4936f5fd7639e3c76f"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/setup-preview.stdout.json",
+      "sha256": "f7862106aa9be3bae56e221216361c819fc3d6adbad60e4bf35c33deb01d45d3"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/failed-first-capture.stdout.json",
+      "sha256": "63127c6ef6eccfe493686899a89c2253601ffc1a4afe58394834e5b3d6b0cd0d"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/frozen-proof-exact.json",
+      "sha256": "95be1a2ba791f6587bd58be2d5d8e91e2d5dec14e4afa9e2cc8068cfb5fef322"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/strict-historical-gate-failure.log",
+      "sha256": "9c7011d3fb5214dc856765ffd314513913dac657908fc8bd5c541cbd0379ee38"
+    },
+    {
+      "path": "/tmp/ob-gap-program-nho23_wx/integration-preview.json",
+      "sha256": "7896928d69f4704d610c1b1b459c69b00b1aea01b46f91c07be3aaa0621cee63"
+    }
+  ],
+  "milestone_scope": "G0 documentation implementation and program preparation, not complete gap closure",
+  "environment": {
+    "python": "3.14.7",
+    "path": "/tmp/obgap-env",
+    "worktree_imports_verified": true,
+    "ignored_venv_directory_with_bin_alias": true,
+    "python_workers": 2,
+    "cargo_jobs": 2,
+    "pytest_failed_retention": 1
+  },
+  "results": {
+    "documentation_tests": "10 passed in0.24s",
+    "exact_readme_source_cli_smoke": "capture/search/search-only setup preview passed; canonical temp path",
+    "historical_marked_bodies": "all11 unchanged against8889181",
+    "strict_historical_pin_gate": "FAILS before and after:pre-existing mcp-grant-isolation body/pin mismatch; preserved/not weakened",
+    "git_diff_check": "passed",
+    "actionlint": "passed"
+  },
+  "not_run": [
+    "make verify (no code changes)",
+    "native gates (no packaging changes)",
+    "model download/inference",
+    "real clients/providers/sources",
+    "real Brain",
+    "private exports/pilot",
+    "integration/merge/push/deployment"
+  ],
+  "failed_fixture_root_candidates": [
+    "/tmp/obgap-smoke-ybp4ks4y"
+  ]
+}

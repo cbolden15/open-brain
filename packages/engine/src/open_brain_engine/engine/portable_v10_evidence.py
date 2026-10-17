@@ -44,7 +44,7 @@ FACET_TABLES = (
 def require_facet_snapshot(
     connection: sqlite3.Connection, *, brain_id: str, expected_schema: int = 15
 ) -> None:
-    if expected_schema not in {15, 16}:
+    if expected_schema not in {15, 16, 17, 18, 19, 20}:
         raise PortableValidationError("unsupported facet state boundary")
     if not connection.in_transaction:
         raise PortableValidationError("Portable v10 facets require an active transaction")

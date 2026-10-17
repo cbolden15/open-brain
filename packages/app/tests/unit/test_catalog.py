@@ -84,14 +84,29 @@ def test_catalog_is_deterministic_json_safe_and_evidence_paths_exist() -> None:
     )
     assert first["schema_version"] == 2
     compatibility = cast(dict[str, object], first["compatibility"])
-    assert compatibility["portable_metadata"] == 11
-    assert compatibility["runtime_session"] == 11
-    assert compatibility["state_schema"] == 16
+    assert compatibility["portable_metadata"] == 15
+    assert compatibility["runtime_session"] == 15
+    assert compatibility["state_schema"] == 20
     assert cast(dict[str, object], first["acceptance"])["trusted_certifications"] == []
     root = Path(__file__).resolve().parents[4]
     evidence = cast(list[dict[str, str]], cast(dict[str, object], first["acceptance"])["evidence"])
     assert all((root / item["path"]).is_file() for item in evidence)
     assert all(item["scope"].startswith("historical_") for item in evidence)
+
+
+def test_slack_recall_capability_separates_synthetic_acceptance_from_model_proof() -> None:
+    notes = cast(dict[str, object], _catalog()["capability_notes"])
+    assert notes["slack_cited_recall"] == {
+        "acceptance": "developer_accepted",
+        "implementation": "implemented",
+        "scope": "core_with_optional_collector",
+        "readiness": "unassessed",
+        "evidence": "owner_approved_work_copies",
+        "transport": "stdio_existing_search_and_read",
+        "actual_client_check": "not_run",
+        "model_reasoning_proven": False,
+        "injection_resistance_proven": False,
+    }
 
 
 def test_cli_catalog_uses_parser_registration_before_root_selection(
@@ -107,6 +122,9 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
     assert commands == list(cli_registrations(_parser()))
     assert {tuple(item["command"]) for item in commands} >= {
         ("catalog",),
+        ("retract", "preview"),
+        ("retract", "commit"),
+        ("retract", "status"),
         ("historical", "recover"),
         ("restore",),
         ("obsidian-plugin", "install"),
@@ -133,7 +151,7 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
     }
     obsidian = next(item for item in commands if item["command"] == ["obsidian-plugin", "install"])
     assert obsidian["positional_choices"] == {"action": "install"}
-    assert len(commands) == 95
+    assert len(commands) == 98
     assert run_cli(("catalog", "--json", "--schema-version", "1")) == 2
     assert run_cli(("catalog", "--json", "--unknown")) == 2
 
@@ -149,7 +167,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
     assert parsed.command == "privacy"
     assert parsed.privacy_action == "repair"
     commands = cli_registrations(_parser())
-    assert len(commands) == 95
+    assert len(commands) == 98
     assert ("privacy", "repair") not in {
         tuple(cast(list[str], command["command"])) for command in commands
     }

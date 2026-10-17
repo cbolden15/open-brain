@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 import stat
+from dataclasses import replace
 from pathlib import Path
 
 from open_brain_engine.engine import EngineTaskSet
 from open_brain_engine.engine.consent_contracts import EgressMode
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SessionOrigin
 from open_brain_engine.storage.operational import (
     StorageError,
     capture_root_identity,
@@ -74,13 +75,14 @@ class TrustedSessionAuthority:
             authorization_generation = consent_state.authorization_generation
         elif self._consent_state_path is not None:
             raise LauncherPolicyError("invalid_policy")
-        return validate_startup_policy(
+        effective = validate_startup_policy(
             raw_policy,
             current_brain_id=brain_id,
             current_issuer_epoch=issuer_epoch,
             current_authorization_generation=authorization_generation,
             consent_state=consent_state,
         )
+        return replace(effective, session_origin=SessionOrigin.MCP_POLICY)
 
     def revalidate(self, expected: EffectiveAuthority) -> EffectiveAuthority:
         if not isinstance(expected, EffectiveAuthority):
@@ -119,5 +121,5 @@ def _read_policy(path: Path) -> bytes:
         return payload
     except LauncherPolicyError:
         raise
-    except (OSError, StorageError):
+    except OSError, StorageError:
         raise LauncherPolicyError("invalid_policy") from None

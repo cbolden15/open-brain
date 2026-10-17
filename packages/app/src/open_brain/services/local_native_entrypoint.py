@@ -24,7 +24,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _self_check() -> int:
     frozen = bool(getattr(sys, "frozen", False))
-    valid = frozen and _runtime_metadata_is_relocated()
+    valid = frozen and _runtime_metadata_is_relocated() and _compiled_decimal_is_available()
     payload = {
         "daemon_running": False,
         "frozen": frozen,
@@ -34,6 +34,21 @@ def _self_check() -> int:
     }
     print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     return 0 if valid else 1
+
+
+
+def _compiled_decimal_is_available() -> bool:
+    """The native closure requires working C decimal instead of its Python fallback."""
+    try:
+        import _decimal
+        from decimal import Decimal
+
+        return (
+            Decimal is _decimal.Decimal
+            and Decimal("0.1") + Decimal("0.2") == Decimal("0.3")
+        )
+    except ImportError, ArithmeticError, AttributeError, TypeError:
+        return False
 
 
 def _runtime_metadata_is_relocated() -> bool:

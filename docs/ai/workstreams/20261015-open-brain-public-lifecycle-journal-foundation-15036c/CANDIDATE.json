@@ -1,0 +1,17 @@
+{
+  "baseline": "9af2303a8b0bfd9ebfc15b4cde3889ab5aa47447",
+  "files": {
+    "packages/engine/src/open_brain_engine/engine/capture_lifecycle_contracts.py": "f9bdd273d594ea9f721756624f9541309b4e078882a4d098ca6926cf0285b1fa",
+    "packages/engine/src/open_brain_engine/engine/capture_lifecycle_journal.py": "a5365e0e3c86f434e84eef97577a07800610a87fc3695312c5db976208eb8b6b",
+    "packages/engine/tests/test_capture_lifecycle_contracts.py": "060e59db23d83dd9be982d42b24ccf7e75f7880007e690d1c2506821b55cb5d1",
+    "packages/engine/tests/test_capture_lifecycle_journal.py": "a7adad9c4cd7f8bdf4ba20d7fea0302105438fdee451cf7c46e829db491660f1",
+    "packages/engine/tests/fixtures/capture-lifecycle-journal-v1.json": "ac517ea3d556aeeb2bab4392a2463062a250e6e96c5f28d2c391427cb63e19b9"
+  },
+  "full_verify_files": {
+    "packages/engine/src/open_brain_engine/engine/capture_lifecycle_contracts.py": "f9bdd273d594ea9f721756624f9541309b4e078882a4d098ca6926cf0285b1fa",
+    "packages/engine/src/open_brain_engine/engine/capture_lifecycle_journal.py": "a5365e0e3c86f434e84eef97577a07800610a87fc3695312c5db976208eb8b6b",
+    "packages/engine/tests/test_capture_lifecycle_contracts.py": "060e59db23d83dd9be982d42b24ccf7e75f7880007e690d1c2506821b55cb5d1",
+    "packages/engine/tests/test_capture_lifecycle_journal.py": "5e7fbb7e4ed4f147ffb863926a7cb35e1d5bb2fc5f56c585c6164f947be2a0cc"
+  },
+  "addendum": "Pinned restore fixture and one regression added during full Python run;116 focused tests and targeted static checks pass; runtime sources unchanged"
+}

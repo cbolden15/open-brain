@@ -57,6 +57,7 @@ from .markdown_import_fs import (
     roots_overlap,
     snapshot_directory,
 )
+from .mcp_eligibility import graph_visible, implicit, install
 from .normalization import _delivery_id, _new_id, _portable_id
 from .t03_contracts import EffectiveAuthority
 
@@ -121,9 +122,23 @@ def _fingerprint(candidate: MarkdownCandidate) -> str:
 class ManagedWorkspaceTasks:
     """Owner-only mutations and bounded observations for one sibling Markdown projection."""
 
-    def __init__(self, engine: BrainEngine, *, scan_limits: ScanLimits | None = None) -> None:
+    def __init__(self, engine: BrainEngine, *, scan_limits: ScanLimits | None = None,
+                 authority: EffectiveAuthority | None = None) -> None:
         self._engine = engine
         self._scan_limits = scan_limits or ScanLimits()
+        self._authority = authority
+
+    def with_authority(self, authority: EffectiveAuthority) -> ManagedWorkspaceTasks:
+        return ManagedWorkspaceTasks(
+            self._engine, scan_limits=self._scan_limits, authority=authority,
+        )
+
+    def graph_note_visible(self, note_id: str) -> bool:
+        connection = self._engine._store.connect()
+        try:
+            return graph_visible(connection, note_id, self._authority)
+        finally:
+            connection.close()
 
     def graph_snapshot(self, workspace_id: str) -> ManagedGraphSnapshot:
         """Return one bounded accepted-revision snapshot for local structural extraction."""
@@ -131,6 +146,7 @@ class ManagedWorkspaceTasks:
         workspace = self._workspace(workspace_id)
         connection = self._engine._store.connect()
         try:
+            install(connection, self._authority)
             current = self._workspace_row(connection, workspace_id)
             self._assert_workspace_row(current, workspace)
             rows = tuple(
@@ -140,6 +156,7 @@ class ManagedWorkspaceTasks:
                     JOIN managed_note_revisions AS r
                       ON r.note_id = n.note_id AND r.revision_id = n.accepted_revision_id
                     WHERE n.workspace_id = ? AND n.active = 1
+                      AND mcp_graph_visible(n.note_id)=1
                     ORDER BY n.note_id""",
                     (workspace_id,),
                 )
@@ -199,9 +216,18 @@ class ManagedWorkspaceTasks:
                 len(source.body.encode("utf-8")) for source in sources
             ) > 16 * 1024:
                 raise ManagedWorkspaceFailure("ineligible_source")
+            observation_generation = int(current["observation_generation"])
+            if implicit(self._authority):
+                visible_sources = [(source.note_id, source.revision_id) for source in sources]
+                observation_generation = int(
+                    _digest(portable_canonical_json_bytes(visible_sources))[:12], 16,
+                )
+            policy_generation = (
+                0 if implicit(self._authority) else int(current["policy_generation"])
+            )
             identity = {
-                "observation_generation": int(current["observation_generation"]),
-                "policy_generation": int(current["policy_generation"]),
+                "observation_generation": observation_generation,
+                "policy_generation": policy_generation,
                 "sources": [
                     {
                         "body_sha256": source.body_sha256,
@@ -216,8 +242,8 @@ class ManagedWorkspaceTasks:
             }
             return ManagedGraphSnapshot(
                 workspace_id=workspace_id,
-                observation_generation=int(current["observation_generation"]),
-                policy_generation=int(current["policy_generation"]),
+                observation_generation=observation_generation,
+                policy_generation=policy_generation,
                 snapshot_sha256=_digest(portable_canonical_json_bytes(identity)),
                 sources=tuple(sources),
             )
@@ -231,6 +257,7 @@ class ManagedWorkspaceTasks:
     def status(self) -> ManagedWorkspaceStatus | None:
         connection = self._engine._store.connect()
         try:
+            install(connection, self._authority)
             rows = tuple(
                 connection.execute("SELECT * FROM managed_workspaces ORDER BY workspace_id")
             )
@@ -244,20 +271,35 @@ class ManagedWorkspaceTasks:
                 """SELECT
                     sum(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active_notes,
                     sum(CASE WHEN active = 0 THEN 1 ELSE 0 END) AS inactive_notes
-                FROM managed_notes WHERE workspace_id = ?""",
+                FROM managed_notes WHERE workspace_id = ?
+                  AND mcp_graph_visible(note_id)=1""",
                 (workspace_id,),
             ).fetchone()
             conflicts = connection.execute(
                 """SELECT count(*) FROM managed_conflicts AS c
                 JOIN managed_notes AS n ON n.note_id = c.note_id
-                WHERE n.workspace_id = ? AND c.status = 'open'""",
+                WHERE n.workspace_id = ? AND c.status = 'open'
+                  AND mcp_graph_visible(n.note_id)=1""",
                 (workspace_id,),
             ).fetchone()
             suggestions = connection.execute(
                 """SELECT count(*) FROM managed_suggestions
-                WHERE workspace_id = ? AND status = 'pending'""",
+                WHERE workspace_id = ? AND status = 'pending'
+                  AND mcp_graph_visible(source_note_id)=1
+                  AND mcp_graph_visible(target_note_id)=1""",
                 (workspace_id,),
             ).fetchone()
+            observation_generation = int(row["observation_generation"])
+            if implicit(self._authority):
+                visible = [tuple(item) for item in connection.execute(
+                    "SELECT note_id,accepted_revision_id,active FROM managed_notes "
+                    "WHERE workspace_id=? AND mcp_graph_visible(note_id)=1 "
+                    "ORDER BY note_id",
+                    (workspace_id,),
+                )]
+                observation_generation = int(
+                    _digest(portable_canonical_json_bytes(visible))[:12], 16,
+                )
         finally:
             connection.close()
         connected = False
@@ -271,8 +313,8 @@ class ManagedWorkspaceTasks:
         return ManagedWorkspaceStatus(
             workspace_id=workspace_id,
             connected=connected,
-            observation_generation=int(row["observation_generation"]),
-            policy_generation=int(row["policy_generation"]),
+            observation_generation=observation_generation,
+            policy_generation=0 if implicit(self._authority) else int(row["policy_generation"]),
             active_notes=int(counts["active_notes"] or 0),
             inactive_notes=int(counts["inactive_notes"] or 0),
             open_conflicts=int(conflicts[0]),

@@ -6,11 +6,11 @@ archive is relabeled or passed through a v5 manifest reader.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from hashlib import sha256
 from pathlib import Path
 from types import MappingProxyType
-from typing import cast
+from typing import Any, cast
 
 from open_brain_engine.storage.filesystem import (
     RootConfinementError,
@@ -57,7 +57,11 @@ def manifest_v10(
 
 
 def validate_portable_file_set_v10(
-    files: Mapping[str, bytes], *, tenant_id: str, allow_development_bindings: bool = False,
+    files: Mapping[str, bytes],
+    *,
+    tenant_id: str,
+    allow_development_bindings: bool = False,
+    _sharing_validator: Callable[[Mapping[str, bytes]], dict[str, Any]] | None = None,
 ) -> None:
     """Validate base lossless evidence plus replay and v5 facet review bindings."""
     from .v5 import validate_portable_file_set_v5
@@ -78,11 +82,13 @@ def validate_portable_file_set_v10(
             not in FACET_SIDECAR_PATHS | V6_SIDECAR_PATHS | V7_SIDECAR_PATHS | V9_SIDECAR_PATHS
         }
         validate_portable_file_set_v5(
-            base, tenant_id=tenant_id, allow_facet_bindings=True,
+            base,
+            tenant_id=tenant_id,
+            allow_facet_bindings=True,
             allow_development_bindings=allow_development_bindings,
         )
         validate_source_authority_v9(snapshot)
-        validate_sharing_authority(snapshot)
+        (validate_sharing_authority if _sharing_validator is None else _sharing_validator)(snapshot)
         validate_capture_metadata(snapshot)
         validate_capture_custody(snapshot)
         issuer = _portable_record(snapshot[ISSUER_MIGRATION_PATH], "issuer migration")

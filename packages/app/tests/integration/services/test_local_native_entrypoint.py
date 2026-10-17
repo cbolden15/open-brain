@@ -75,3 +75,36 @@ def test_runtime_metadata_checks_paths_and_pointer_abi(
     monkeypatch.setattr(sys, "exec_prefix", "/frozen")
     monkeypatch.setattr(sysconfig, "get_config_vars", lambda: variables)
     assert local_native_entrypoint._runtime_metadata_is_relocated() is (broken is None)
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_frozen_self_check_requires_working_compiled_decimal(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], compiled: bool
+) -> None:
+    import sys
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(local_native_entrypoint, "_runtime_metadata_is_relocated", lambda: True)
+    monkeypatch.setattr(local_native_entrypoint, "_compiled_decimal_is_available", lambda: compiled)
+    assert local_native_entrypoint.main(("__open-brain-self-check",)) == (0 if compiled else 1)
+    assert json.loads(capsys.readouterr().out)["status"] == ("ok" if compiled else "failed")
+
+
+def test_compiled_decimal_probe_preserves_current_context() -> None:
+    from decimal import getcontext
+
+    before = getcontext().copy()
+    assert local_native_entrypoint._compiled_decimal_is_available()
+    assert str(getcontext()) == str(before)
+
+
+@pytest.mark.parametrize("broken", ["missing", "different-type"])
+def test_compiled_decimal_probe_refuses_missing_or_substituted_implementation(
+    monkeypatch: pytest.MonkeyPatch, broken: str
+) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    module = None if broken == "missing" else SimpleNamespace(Decimal=object)
+    monkeypatch.setitem(sys.modules, "_decimal", module)
+    assert not local_native_entrypoint._compiled_decimal_is_available()

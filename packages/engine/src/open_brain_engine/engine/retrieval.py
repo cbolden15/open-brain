@@ -17,6 +17,7 @@ from .contracts import (
     _LocalEngineOperations,
 )
 from .local_store import rebuild_live_search_fts
+from .mcp_eligibility import install, record_visible
 from .normalization import _portable_id, _text
 from .search_projection import (
     canonical_source_rows,
@@ -134,6 +135,7 @@ class RetrievalOperations(_LocalEngineOperations):
         record_type: str | None,
         limit: int,
         allowed_space_ids: frozenset[str] | None = None,
+        authority: EffectiveAuthority | None = None,
     ) -> tuple[RetrievalResult, ...]:
         compiled = _compile_query(query)
         if space_id is not None:
@@ -174,7 +176,8 @@ class RetrievalOperations(_LocalEngineOperations):
                 FROM search_documents AS d
                 JOIN search_fts_identity AS i USING (result_id)
                 JOIN captures AS c ON c.capture_id = d.capture_id
-                WHERE (:scoped = 0 OR d.space_id IN (SELECT space_id FROM allowed))
+                WHERE mcp_record_visible(d.record_type,d.result_id)=1
+                  AND (:scoped = 0 OR d.space_id IN (SELECT space_id FROM allowed))
                   AND (:space_id IS NULL OR d.space_id = :space_id)
                   AND (:payload_family IS NULL OR d.payload_family = :payload_family)
                   AND (:record_type IS NULL OR d.record_type = :record_type)
@@ -252,6 +255,7 @@ class RetrievalOperations(_LocalEngineOperations):
         """
         connection = self._store.connect()
         try:
+            install(connection, authority)
             rows = tuple(connection.execute(sql, parameters))
         finally:
             connection.close()
@@ -268,9 +272,13 @@ class RetrievalOperations(_LocalEngineOperations):
         return tuple(results)
 
     def _fetch(
-        self, result_id: str, *, allowed_space_ids: frozenset[str] | None = None
+        self,
+        result_id: str,
+        *,
+        allowed_space_ids: frozenset[str] | None = None,
+        authority: EffectiveAuthority | None = None,
     ) -> RetrievalResult | None:
-        row = self._search_row(result_id, allowed_space_ids=allowed_space_ids)
+        row = self._search_row(result_id, allowed_space_ids=allowed_space_ids, authority=authority)
         if row is None:
             return None
         return self._retrieval_result(
@@ -284,8 +292,9 @@ class RetrievalOperations(_LocalEngineOperations):
         result_id: str,
         *,
         allowed_space_ids: frozenset[str] | None = None,
+        authority: EffectiveAuthority | None = None,
     ) -> PageResult | None:
-        row = self._search_row(result_id, allowed_space_ids=allowed_space_ids)
+        row = self._search_row(result_id, allowed_space_ids=allowed_space_ids, authority=authority)
         if row is None:
             return None
         document = self._resolved_document(row)
@@ -314,6 +323,7 @@ class RetrievalOperations(_LocalEngineOperations):
         result_id: str,
         *,
         allowed_space_ids: frozenset[str] | None,
+        authority: EffectiveAuthority | None = None,
     ) -> sqlite3.Row | None:
         _validate_allowed_spaces(allowed_space_ids)
         if allowed_space_ids is not None:
@@ -341,6 +351,8 @@ class RetrievalOperations(_LocalEngineOperations):
             parameters = (result_id,)
         connection = self._store.connect()
         try:
+            install(connection, authority)
+            sql += " AND mcp_record_visible(d.record_type,d.result_id)=1"
             row = connection.execute(sql, parameters).fetchone()
         finally:
             connection.close()
@@ -395,6 +407,8 @@ class RetrievalOperations(_LocalEngineOperations):
         explanation: str,
         require_current_projection: bool = False,
     ) -> RetrievalResult | None:
+        if not self._lifecycle_row_visible(row):
+            return None
         capture_id = cast(str, row["capture_id"])
         protected_source_reference = cast(str, row["protected_source_reference"])
         capture_ids, additional_references, source_origin = self._document_sources(row)
@@ -450,6 +464,8 @@ class RetrievalOperations(_LocalEngineOperations):
         )
 
     def _resolved_document(self, row: sqlite3.Row) -> tuple[str, str] | None:
+        if not self._lifecycle_row_visible(row):
+            return None
         title = cast(str, row["title"])
         body = cast(str, row["body"])
         canonical_path = cast(str | None, row["canonical_path"])
@@ -467,6 +483,13 @@ class RetrievalOperations(_LocalEngineOperations):
             return cast(str, parsed.fields["title"]), parsed.body
         except KeyError, MarkdownFormatError, TypeError:
             return None
+
+    def _lifecycle_row_visible(self, row: sqlite3.Row) -> bool:
+        connection = self._store.connect()
+        try:
+            return record_visible(connection, row["record_type"], row["result_id"], None)
+        finally:
+            connection.close()
 
     def _rebuild_live_search_index(self) -> None:
         self._assert_root()
@@ -525,8 +548,12 @@ def _validate_allowed_spaces(allowed_space_ids: frozenset[str] | None) -> None:
 
 
 class RetrievalTasks:
-    def __init__(self, engine: BrainEngine) -> None:
+    def __init__(self, engine: BrainEngine, *, authority: EffectiveAuthority | None = None) -> None:
         self._engine = engine
+        self._authority = authority
+
+    def with_authority(self, authority: EffectiveAuthority) -> RetrievalTasks:
+        return RetrievalTasks(self._engine, authority=authority)
 
     def search_page(
         self, request: SearchPageRequest, *, authority: EffectiveAuthority
@@ -566,13 +593,14 @@ class RetrievalTasks:
             payload_family=payload_family,
             record_type=record_type,
             limit=limit,
+            authority=self._authority,
         )
 
     def fetch(self, result_id: str) -> RetrievalResult | None:
-        return self._engine._fetch(result_id)
+        return self._engine._fetch(result_id, authority=self._authority)
 
     def read_page(self, result_id: str) -> PageResult | None:
-        return self._engine._read_page(result_id)
+        return self._engine._read_page(result_id, authority=self._authority)
 
     def scoped(self, *, allowed_space_ids: frozenset[str]) -> ScopedRetrieval:
         return ScopedRetrieval(self, allowed_space_ids=allowed_space_ids)
@@ -602,16 +630,19 @@ class ScopedRetrieval:
             record_type=record_type,
             limit=limit,
             allowed_space_ids=self._allowed_space_ids,
+            authority=self._retrieval._authority,
         )
 
     def fetch(self, result_id: str) -> RetrievalResult | None:
         return self._retrieval._engine._fetch(
             result_id,
             allowed_space_ids=self._allowed_space_ids,
+            authority=self._retrieval._authority,
         )
 
     def read_page(self, result_id: str) -> PageResult | None:
         return self._retrieval._engine._read_page(
             result_id,
             allowed_space_ids=self._allowed_space_ids,
+            authority=self._retrieval._authority,
         )

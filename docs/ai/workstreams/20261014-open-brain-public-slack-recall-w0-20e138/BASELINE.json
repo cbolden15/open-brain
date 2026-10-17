@@ -1,0 +1,173 @@
+{
+  "receipt_version": 1,
+  "milestone": "W0",
+  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67",
+  "branch": "feat/slack-cited-recall-w0-20261014-006b67",
+  "baseline_head": "01a904e2c310e9820ec083b480185cda846e6ebb",
+  "application_baseline": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",
+  "origin_main_observed": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",
+  "origin_main_freshness": "local remote-tracking observation; no fetch performed",
+  "input_sha256": {
+    "2026-10-14-slack-cited-decision-recall.md": "8f1cd3bd39e902c27233130ad82340355208be9df57b2f2279cb3e274e9c771b",
+    "2026-10-14-slack-cited-decision-recall.md.hardening.md": "00bb2a1f0c35e596713ee8a3b5f2b8437e6c43a464ac6444d69979e80cc65de9"
+  },
+  "candidate": {
+    "product": {
+      "version": "0.1.0",
+      "public_acceptance": "not_certified"
+    },
+    "compatibility": {
+      "bridge_protocol": 1,
+      "catalog_schema": 2,
+      "portable_metadata": 11,
+      "runtime_session": 11,
+      "state_schema": 16,
+      "task_contract": "t03.v1"
+    },
+    "catalog_sha256": "109b55a4ec156afbb5d3f0ee410d9ddede3cf96b2eaee800157dee8bf84d4e61"
+  },
+  "installed": {
+    "path": "/opt/homebrew/bin/open-brain",
+    "status": "catalog_unavailable",
+    "catalog_exit_code": 2,
+    "compatibility": "unknown; product version cannot prove feature parity",
+    "brain_opened": false
+  },
+  "help": {
+    "collector_sources": {
+      "exit_code": 0,
+      "sha256": "90c42471ef0afca0a808ac9595b6aa482a5411b98f094efa5af26cc59e0e1b2f"
+    },
+    "source_route": {
+      "exit_code": 0,
+      "sha256": "ed4a2d82f570d078742b34f4be78725a37e895d5603a245d1d05e384dbe93370"
+    },
+    "sharing_preview": {
+      "exit_code": 0,
+      "sha256": "a4e1c89459e2017af772cbf6ffe5adf497c5a3ee1723b3d63a2a7117db418ab3"
+    },
+    "agent_setup": {
+      "exit_code": 0,
+      "session_policy_option": false,
+      "consent_state_option": false,
+      "sha256": "cf1e3df6834dd2cfee6968aa7765d5919633a87cabc5cfd2ed4aa001e6b2609b"
+    },
+    "mcp": {
+      "exit_code": 0,
+      "session_policy_option": true,
+      "consent_state_option": true,
+      "sha256": "21fe311860150d986d6e8cc0ef0bb7638c23a73c4f6a454c45453d52c5f8b311"
+    }
+  },
+  "checks": {
+    "existing_focused_baseline": {
+      "status": "passed",
+      "tests": 281,
+      "pytest_seconds": 230.55,
+      "wall_seconds": 233.56,
+      "exit_code": 0
+    },
+    "full_verify_first_run": {
+      "tests_failed": 142,
+      "tests_passed": 7046,
+      "tests_skipped": 5,
+      "warnings": 1,
+      "pytest_seconds": 787.82,
+      "wall_seconds": 797.71,
+      "reason": "Host free bytes fell below two-GiB capture-admission watermark; connector/collector trees use real storage probe.",
+      "source_changed": false,
+      "exit_code": 2
+    },
+    "storage_recovery_retry": {
+      "status": "failed_storage_high",
+      "tests_passed": 123,
+      "tests_failed": 2,
+      "pytest_seconds": 161.22,
+      "wall_seconds": 162.03,
+      "workers": 2,
+      "passing_fixture_cleanup": true,
+      "disposable_test_bytes_after_run": 0,
+      "production_storage_limits_unchanged": true
+    },
+    "new_focused_tests": {
+      "journey_tests": 3,
+      "journey_pytest_seconds": 12.28,
+      "contract_tests": 6,
+      "contract_pytest_seconds": 0.19,
+      "status": "passed"
+    },
+    "future_red_probes": {
+      "status": "expected_failures_verified",
+      "tests_failed": 2,
+      "pytest_seconds": 12.89,
+      "wall_seconds": 13.35,
+      "missing_contracts": [
+        "Slack v2 CLI dispatch invalid_arguments",
+        "Scoped setup flags invalid_command"
+      ],
+      "green_fixture_restored": true,
+      "patch_unapplied": true
+    },
+    "storage_recovery_after_artifact_cleanup": {
+      "status": "passed",
+      "tests": 190,
+      "pytest_seconds": 295.75,
+      "wall_seconds": 296.4,
+      "workers": 2,
+      "includes_previously_failed_cases": 142,
+      "includes_storage_admission_tests": true
+    },
+    "full_verify_final": {
+      "status": "passed",
+      "exit_code": 0,
+      "candidate_head": "2bd071a884f3ceacbbb1d650a92fee61e8ff6ef8",
+      "python_tests_passed": 7188,
+      "platform_skips": 5,
+      "warnings": 1,
+      "pytest_seconds": 1703.45,
+      "wall_seconds": 1840.84,
+      "mypy_files": 646,
+      "plugin_tests": 673,
+      "desktop_javascript_tests": 259,
+      "desktop_python_tests": 30,
+      "desktop_rust_tests": 26,
+      "distributions_built": 4,
+      "workers": 4,
+      "passing_fixture_cleanup": true,
+      "cargo_build_jobs": 2,
+      "source_changed_during_gate": false
+    },
+    "actionlint": {
+      "status": "passed",
+      "exit_code": 0
+    },
+    "diff_check": {
+      "status": "passed",
+      "exit_code": 0
+    }
+  },
+  "ledger": {
+    "active_children": [],
+    "completed_children": [
+      "w0_fixture",
+      "w0_contract_review",
+      "open_brain_disk_cleanup"
+    ],
+    "total_children": 3,
+    "limit": 12
+  },
+  "owner_decisions": {
+    "status": "pending_before_W2",
+    "W0_authorized": true,
+    "W1_execution_authorized": false
+  },
+  "disk_recovery": {
+    "status": "user_approved_artifact_cleanup_completed",
+    "completed_run_cleanup_gib": 4.7,
+    "diagnostic_reports_retained": 1905,
+    "artifact_cleanup_gib": 5.38,
+    "available_after_cleanup_gib": 9.294,
+    "worktrees_and_branches_unchanged": true,
+    "full_gate_completed": true
+  }
+}

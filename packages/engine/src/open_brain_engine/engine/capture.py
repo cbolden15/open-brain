@@ -8,7 +8,7 @@ import sqlite3
 import threading
 from collections import deque
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import closing, contextmanager, nullcontext
 from dataclasses import replace
 from datetime import datetime, timedelta
 from hashlib import sha256
@@ -315,8 +315,15 @@ class CaptureOperations(_LocalEngineOperations):
             submission.privacy, narrowest_tier(submission.requested_tier, signal)
         )
 
-    def _prepare_journal_submission(self, submission: CaptureSubmission) -> JournalEnvelope:
+    def _prepare_journal_submission(
+        self, submission: CaptureSubmission, *, _lifecycle: bool = False
+    ) -> JournalEnvelope:
         """Perform all no-write capture admission before the journal transaction."""
+        if not _lifecycle:
+            from .capture_lifecycle import require_unreserved_lifecycle_delivery
+
+            with closing(self._store.connect()) as connection:
+                require_unreserved_lifecycle_delivery(connection, submission.delivery_id)
         # The Markdown import delivery namespace is private to a matching
         # pending revision.  Validate it before accepting durable custody so
         # an arbitrary caller cannot reserve an importer delivery in the
@@ -354,6 +361,7 @@ class CaptureOperations(_LocalEngineOperations):
         *,
         admitted_privacy: PrivacyDecision,
         recovery_plan: CaptureRecoveryPlan | None = None,
+        lifecycle_identity: CaptureReservationIdentity | None = None,
     ) -> CaptureReceipt:
         """Run the established capture stage machine under an already-held writer lease."""
         if self._recovery_protection_guard is not None:
@@ -364,6 +372,12 @@ class CaptureOperations(_LocalEngineOperations):
             or submission.submission_path is not CaptureSubmissionPath.OWNER
         ):
             raise ValueError("capture recovery plan does not match materialization")
+        if lifecycle_identity is not None:
+            from .capture_lifecycle import require_lifecycle_materialization
+
+            require_lifecycle_materialization(
+                cast("BrainEngine", self), submission, admitted_privacy, lifecycle_identity
+            )
         capture_submission_is_reserved(cast("BrainEngine", self), submission)
         validate_reserved_copy_submission(cast("BrainEngine", self), submission)
         payload = submission.payload
@@ -470,6 +484,8 @@ class CaptureOperations(_LocalEngineOperations):
                 identities = (
                     recovery_plan.identities
                     if recovery_plan is not None
+                    else lifecycle_identity
+                    if lifecycle_identity is not None
                     else CaptureReservationIdentity.allocate(
                         canonical=canonical,
                         accepted_at=_timestamp(self._clock()),
@@ -1212,6 +1228,15 @@ class CaptureTasks:
         )
 
     def get(self, capture_id: str) -> CaptureReceipt | None:
+        _portable_id(capture_id, "capture")
+        from .capture_lifecycle_policy import lifecycle_permits_capture
+
+        connection = self._engine._store.connect()
+        try:
+            if not lifecycle_permits_capture(connection, capture_id):
+                return None
+        finally:
+            connection.close()
         receipt = self._engine._capture_receipt(capture_id)
         return None if receipt is None else project_public_capture_receipt(receipt)
 
@@ -1221,7 +1246,13 @@ class CaptureTasks:
         *,
         delivery_id: str,
     ) -> tuple[ProposalRecord, ...]:
+        from .mcp_eligibility import lifecycle_capture_visible
+        from .t03_contracts import T03Error
+
         with self._engine._writer_lease.acquire_shared_writer():
+            with closing(self._engine._store.connect()) as connection:
+                if not lifecycle_capture_visible(connection, capture_id):
+                    raise T03Error("not_found")
             row = self._engine._capture_row(capture_id)
             if cast(str, row["enrichment_state"]) == EnrichmentState.ENRICHED.value:
                 proposal_set = self._engine._proposal_set_row(delivery_id)

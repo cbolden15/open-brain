@@ -38,6 +38,7 @@ from .facet_store import (
     replay_receipt,
     semantic_row,
 )
+from .mcp_eligibility import implicit
 from .paging import authority_binding, continuation, generations, read_snapshot
 from .t03_contracts import EffectiveAuthority, T03Error
 
@@ -439,8 +440,13 @@ class FacetTasks:
                 "ordering": ORDERING_VERSION,
             }
         )
-        # Facet mutations conservatively invalidate all continuations, including denied changes.
-        generation = generations(connection, profile=self._engine.profile)
+        # Implicit MCP commitments contain only eligible records and visible facet state.
+        generation = (
+            generations(connection, profile=self._engine.profile, authority=authority,
+                        visible_state={"items": items, "state": visible_state})
+            if implicit(authority)
+            else generations(connection, profile=self._engine.profile)
+        )
         store = CursorStore(self._engine.profile)
         now = self._engine._clock().timestamp()
         prior = continuation(

@@ -1,0 +1,30 @@
+{
+  "old": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d",
+  "new": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b",
+  "branch": "feat/slack-cited-recall-w4-20261015-6d407b",
+  "base": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
+  "files": [
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w3-97e888/ACCEPTANCE.json",
+      "sha256": "8291cbb74297467d39287ca1c7723124f1c474d990a9818e8522041a23d42b5f"
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w3-97e888/ACCEPTANCE.md",
+      "sha256": "7265317cdae2880164650913d7e0bc633672b3041f53d0b2c724604eb41bfe59"
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w3-97e888/HANDOFF.json",
+      "sha256": "2bad89e478fe344de7839a634c32d7463e09e276369368f28f017ed83b190c55"
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w3-97e888/HANDOFF.md",
+      "sha256": "a31ad848e8b0b17eb0358162ac510d97ec06e0280f2d672ede310c1adbd87c5b"
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-slack-recall-w3-97e888/STATE.md",
+      "sha256": "2d0ff2ec76ae2507b13126f830219af5cc6fbcf443a30e57336f0c95246cfecd"
+    }
+  ],
+  "origin_main_at_start": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",
+  "preservation_commit": "e6187798ab796811e86e2c58cd836a683f0ea96d"
+}

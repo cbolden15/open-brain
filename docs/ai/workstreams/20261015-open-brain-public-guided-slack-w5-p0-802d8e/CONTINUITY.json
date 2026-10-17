@@ -1,0 +1,16 @@
+{
+  "preservation_commit": "377d23849467bb33ec4bcb31dcd79b812b60fbbb",
+  "files": [
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-plan-984a07/HANDOFF.json",
+      "sha256": "0c47ecbcb1e3092511b67a05ab28ae4b3842a163d10ac0c8bdda6f06d1f74dc6",
+      "bytes": 2020
+    },
+    {
+      "path": "docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-plan-984a07/HANDOFF.md",
+      "sha256": "e7d3d098d6c1a7028cce6539fbfbd48b4722cce0b1ab9170517954842fef39e9",
+      "bytes": 1385
+    }
+  ],
+  "result": "committed byte-exact before P0 drafting; historical W4/W5 packets unchanged"
+}

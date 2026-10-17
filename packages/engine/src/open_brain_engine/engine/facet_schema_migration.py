@@ -131,7 +131,9 @@ def migrate_facets(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state in {"current", "supported_old"} and state.version in {15, 16}:
+        if state.state in {"current", "supported_old"} and state.version in {
+            15, 16, 17, 18, 19, 20,
+        }:
             if not facet_schema_available(connection):
                 raise T03Error("operation_pending")
             return

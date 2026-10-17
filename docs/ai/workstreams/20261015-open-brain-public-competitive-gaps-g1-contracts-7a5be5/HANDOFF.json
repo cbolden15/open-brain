@@ -1,0 +1,20 @@
+{
+  "packet_version": 1,
+  "status": "in_progress",
+  "workstream": "20261015-open-brain-public-competitive-gaps-g1-contracts-7a5be5",
+  "milestone": "G1-reviewed-design-preparation",
+  "branch": "feat/competitive-gap-reconciliation",
+  "head": "8ef1d069259c291e669341079806103c8fa90e86",
+  "last_verified": {
+    "command": "source verification; independent review and correction verification; Markdown artifacts; actionlint; git diff checks",
+    "result": "pass for documentation/design checkpoint only; runtime inputs unchanged; executable G1 freeze and feature acceptance remain pending"
+  },
+  "changes": [
+    "Shared persistence/session/retraction design and ADR21",
+    "Reconciled embedding/export contracts and checkpoint index",
+    "Undo impact paging, explicit halt, session discovery and global eligibility rebasing"
+  ],
+  "blocker": "Concrete SQL/DTO/Portable schemas and synthetic lifecycle foundation pending; both export profiles inactive; actual-model/platform proof pending",
+  "next_action": "Implement the shared compatibility/lifecycle foundation with golden schemas and synthetic staging/replay/restore acceptance; recheck migration allocation",
+  "safe_to_start_new_thread": false
+}

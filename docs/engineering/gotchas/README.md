@@ -4,6 +4,472 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-019: Native fallback modules consume the fixed archive audit budget
+
+Category: Dependencies; Build Pipeline.
+
+Consumer intake increased the harness archive to506301 marshal markers, above
+its fixed500000 limit. Full source verification and native smoke do not establish
+archive acceptance. Keep all scanner ceilings, content rules and reviewed stdlib
+payload hashes unchanged. Do not strip assertions or exempt the new engine code.
+
+The supported native interpreters already provide compiled decimal: a dynamic
+extension on the tested macOS build and a built-in compiled symbol in the prior
+Linux CI artifact. Require C decimal at build and installed self-check, prove
+exact decimal arithmetic and implementation identity, exclude `_pydecimal` from
+the core/harness closure, and forbid that fallback in the core module audit. The
+ordinary Python package retains its standard-library fallback behavior. Final
+Linux CI must prove the installed check works; symbol presence alone is not
+execution evidence.
+
+Graphify has a separate frozen dependency closure and does not require compiled
+decimal. Keep this core-only restriction out of the shared forbidden-prefix list:
+Graphify consumes that list too, and its unchanged fallback is not a core payload.
+
+Diagnostic metadata compaction and docstring removal were insufficient and were
+not shipped. This fix removes an unused alternative implementation while keeping
+all required engine modules and the complete strict artifact inspection.
+
+### LIFECYCLE-010: Consumer recovery must reconcile inside the writer fence
+
+Category: Database/Migrations; Type Safety; Build Pipeline.
+
+An optimistic accepted-operation lookup does not serialize duplicate commits.
+Repeat exact request reconciliation after obtaining the writer fence. A recovery
+runner may encounter a group another runner just activated; reconcile the exact
+completed manifest and custody before applying its now-old source preimage.
+Public owner lifecycle mutation entrypoints must reject typed consumer requests.
+Private consumer steps revalidate accepted proof/profile/session under the writer
+fence; generic activation must not bypass scope/archive/outcome publication.
+Predecessor restore audits must refuse all unexpected successor tables, even
+when the older serializer cannot see them. Pin each old test producer and add
+the new current version to recovery-closure and relationship catalog matrices.
+Audit parameterized producer pins and digest maps, not only numeric assertions.
+Current owner approvals require the explicit successor validator; the frozen
+predecessor validator must continue refusing journal2. Extend the separate
+managed-write recovery schema allowlist while preserving the current writer
+floor; ordinary bootstrap admission does not cover this owner recovery path.
+Privacy changes on identical text are conflicts, and a known noncurrent revision
+cannot be promised as a fresh replacement. Test these interleavings directly.
+
+Ordinary startup capture recovery must leave consumer reservations alone.
+Accepted delivery IDs need protection before custody exists. Every current
+member's route and effective privacy contributes to whole-conversation reads.
+Preserve predecessor owner-history behavior while withholding all staging.
+
+A halted capture can have a stage0–2 row or partial file. Portable15 validates
+these against retained custody and normalizes only a disposable export snapshot;
+never finish materialization on halt or delete source rows to make export pass.
+Stage3 history remains retained. Re-export and status must match after restore.
+
+Split exact-ID and normalized-text input objects. Hex-encoded maximum IDs plus
+JSON-escaped text can exceed32MiB even when both independent budgets are valid.
+Use strict booleans for scope/replacement flags; Python equality admits0/1 as
+False/True. Avoid shadowing dataclasses.field with a local validation field name;
+alias the import explicitly and run Ruff plus strict mypy before the full gate.
+
+### LIFECYCLE-009: Consumer identifiers and provenance need distinct admission
+
+Category: Type Safety; Database/Migrations.
+
+Portable canonical JSON NFC-normalizes strings, while provider identity is an
+exact UTF-8 scalar sequence. Encode provider-ID bytes in explicit hexadecimal
+wrappers before identity hashing; normalize transcript text separately. Do not
+let canonically equivalent provider IDs collapse to one conversation/message.
+Frozen owner lifecycle envelopes reject third-party captures. Use an explicit
+successor consumer envelope and shared replay adapter, preserving the original
+bytes and validators. Decoding a general capture envelope alone does not prove
+capture-only authority; require exactly the injected capture.accept role.
+
+Annotate extensible DDL tuples as tuple[str, ...] before appending generated
+triggers. In adversarial dataclass tests use typed replacement keywords or an
+explicit dynamic field name; formatter rewrites of literal setattr can turn an
+intentional runtime refusal into a static read-only-field error.
+
+### LIFECYCLE-008: Approval receipts need exact typed bytes and a bounded commit
+
+Category: Type Safety; Database/Migrations; Build Pipeline.
+
+Python dictionary equality treats1, True and1.0 as equal. Compare canonical
+receipt bytes to the derived receipt, so a changed count type cannot pass while
+retaining the old receipt ID. Test boolean/float substitutions through Portable
+validation. Keep source-module imports explicit in strict mypy tests; importing
+a private helper through another module is not a declared re-export.
+
+Session retraction commits an authoritative marker and receipt without scanning
+or deleting every search row first. Current read predicates must reject retained
+projection rows immediately. Preserve frozen predecessor semantics and test
+search, direct/history reads and Portable rebuilds with stale rows present.
+Compatibility cutovers also update both CLI verified-export receipt allowlists,
+native journey coordinates and migration/recovery no-op version sets. Update
+the executable documentation-example coordinate map, feature matrix, and its
+mutation test together; release tests bind them to the engine constants. Recovery
+closure validation and capture replay must admit the new Portable baseline via
+its exact catalog and validator. Parameterized predecessor producers must pin
+the old schema when a new current version is added. Include each owner CLI module
+in the explicit foreground architecture inventory.
+An opener that skips recovery must also skip constructor initialization and
+metadata publication. Verify filesystem publishers are never called for status
+or page reads; an unchanged SQLite dump alone does not prove a read-only open.
+
+### LIFECYCLE-007: Retraction effects extend beyond selected captures
+
+Category: Type Safety; Database/Migrations.
+
+Retraction inspection must include unselected current-group siblings and reverse
+historical, sharing and development dependencies. Graph eligibility also checks
+all retained managed revisions and follows inactive links. A current-head-only
+impact query understates the approval scope. Test the full closure and exact
+100/101-item boundary, then bind effective privacy and the whole selected
+membership to freshness checks. Explicitly annotate variable-length tuples:
+mypy otherwise infers a one-element capture tuple before the session branch.
+Keep public preview approval evidence separate from the frozen journal v1.
+Freshness needs more than the affected set: bind preserved newer heads and
+forward dependencies/co-provenance as well. A co-support's tombstone can change
+an affected object's eligibility while every displayed effect remains identical.
+
+### GIT-001: Recreating a merge can lose its manual edits
+
+Category: Git; Verification.
+
+In the competitive-gap rebase, W4's recreated merge lost README and first-use
+updates even though the rebase completed. Save a backup ref and compare the old
+and new trees against the incoming main diff. Restore feature edits in files that
+main did not change, and check production patches with range-diff. Preserving the
+merge graph does not guarantee that its manually resolved tree is preserved.
+
+### BUILD-016: Plugin handshake coordinates must follow engine cutovers
+
+Category: Dependencies; Build Pipeline.
+
+The schema18/runtime13 engine passed Python verification while the plugin still
+required17/12. Real-child facet tests correctly refused capability negotiation.
+Update the plugin contract constants and current-admission test wrappers together
+with engine and desktop coordinates. Keep frozen historical DTO corpus bytes
+unchanged; test refusal of both predecessor and future coordinates. Run the full
+plugin build/typecheck and live transport tests before packaging plugin assets.
+The full700-test plugin suite passed with one worker after two one-second
+readiness checks failed at default and two-worker concurrency on this workstation.
+Keep the assertions and deadlines intact; record the worker cap with the receipt.
+
+Follow-up, 2026-10-16: The same two one-second readiness waits failed once with
+one worker after a full Python run. Both affected files passed unchanged (33
+tests), followed by all700 plugin tests. Independent review found no branch
+change in the readiness or unload behavior. Record the failed aggregate and
+successful retries separately; a passing retry does not make the first run green.
+
+### BUILD-018: Acceptance source binding includes workstream notes
+
+Category: Build Pipeline.
+
+The harness acceptance fixture hashes every Git-visible repository input,
+including untracked workstream state and review notes. Updating those notes
+while `make verify` runs correctly fails with `source_changed_during_run`.
+Freeze bookkeeping as well as code for verification. Keep live logs outside
+the repository and write receipts after the bound acceptance run finishes.
+
+### LIFECYCLE-006: Lifecycle cutover spans capture wrappers and Portable proof readers
+
+Category: Database/Migrations; Type Safety.
+
+Schema18 adds a materializer reservation keyword. Full mypy caught an existing
+fault-injection wrapper that omitted it and a history predicate using the wrong
+connection variable. Keep typed wrapper signatures aligned with the materializer;
+run full typecheck after changing a shared capture signature.
+
+Portable13 also needs both verified-export receipt writer and reader allowlists.
+A valid archive can otherwise fail CLI `--verify` after export. Exercise the CLI
+proof path as well as engine roundtrips. Pending physical captures need retained
+history-only source metadata for frozen Portable source coverage; current and
+owner-history reads must still check journal admission before exposing them.
+
+
+### SQLITE-001: Context managers do not close SQLite connections
+
+Category: Config/Environment; Database/Migrations.
+
+Use `contextlib.closing` for owned read connections in capture admission.
+`with connection:` ends a transaction but leaves the connection open. New
+lifecycle checks initially leaked parent connections across plugin child writes.
+The child recreated WAL/SHM files; fresh parent reads then failed with extended
+SQLite error522 (`SQLITE_IOERR_SHORT_READ`) and appeared to have an invalid schema.
+
+A controlled synthetic A/B left two connections with raw context managers and
+reproduced the error; garbage collection restored reads. Explicit closing left
+zero connections and passed the live plugin, stdio and CLI facet regressions.
+Exercise multi-process foreground readers when adding an admission read.
+
+### DOCS-004: Passing documentation unit tests do not certify the pinned artifact journey
+
+Category: Documentation / Verification.
+
+Main at `8889181` has eleven marked first-use/doctor blocks, but its unchanged
+`mcp-grant-isolation` body SHA `8377509a…` differs from the pinned `adc3c687…` hash. The ten focused documentation tests
+pass while validate_example_contract rejects that pre-existing mismatch.
+Preserve both bodies and pins as evidence; renewing current guide/artifact
+proof is a reviewed candidate task, not a blind expected-hash update.
+
+A synthetic README smoke also found that macOS /tmp is a symlink and fails
+the existing no-follow data-directory admission. Resolve the newly created
+temporary parent with pwd -P before using it as --data-dir. The corrected
+capture/search/setup-preview source CLI smoke passes without changing any
+filesystem or production admission rule. Neither check launches a real
+client/provider or certifies an installed native artifact.
+
+### DOCS-003: Historical release statements and compatibility pins need source reconciliation
+
+Category: Documentation / Product evidence.
+
+At main d5cf64e, README still names schema/runtime/Portable9/4/5 and the
+first-use script asserts10/5/5, while active engine/runtime/catalog constants
+establish16/11/11. A historical successful documentation gate does not prove
+these literal examples target the current binary. Derive current claims from
+the actual source and preserve the distinction from older released resources.
+
+The September8 roadmap also says no release exists, but the public v0.1.0
+release was published September13 and the tap references its paired platform
+assets. Verify current public release metadata before treating an old roadmap
+sentence as absence. Release existence does not certify current main or an
+unmerged candidate. The October15 competitive-gap audit records source anchors
+and a fresh read-only release/formula metadata check; it claims no new install,
+provider, GUI or runtime acceptance.
+
+### COLLECTOR-008: Source health reads can initialize state and overstate evidence
+
+Category: Source status / Recovery.
+
+Existing source status dispatch constructs LiveSourceManager/LiveCaptureService;
+PrivateJsonStore construction and directory reads create absent directories and
+locks. A no-write status path must bypass those constructors, credential access,
+control IPC and engine bootstrap. Existing per-file atomic replacement does not
+provide a committed snapshot across source, preview and custody files. Source
+generation hashes configuration, not every mutation; stable reads support
+per-store evidence, with global consistency unknown.
+
+Direct foreground imports update source last_run without recording runner health.
+An overwritten failed last_run cannot prove a previous successful completion.
+Stored next_run may be a scheduling fallback, so it does not prove a provider
+retry deadline. Existing live_manager pending_retries also reads a nonexistent
+top-level custody.quarantined_count and defaults to zero; do not reuse that metric
+for selected-source health. W5 P0 records these source observations and specifies
+honest unavailable fields; no runtime metric fix is included in that phase.
+
+Source: packages/collector/src/open_brain_collector/live_capture.py:146,729,924;
+packages/collector/src/open_brain_collector/live_manager.py:529;
+packages/connectors/src/open_brain_connectors/runtime/live_storage.py:29,36,161.
+
+### TESTING-007: Scoped stdio fixtures need grants and complete source scans
+
+Category: Config/Environment / Verification.
+
+A launcher policy narrows authority; it does not enable the CLI tool facades.
+Synthetic MCP subprocess fixtures must pass explicit search/content-read grant
+flags as well as policy/consent. Diagnose EOF with the child status and stderr
+before classifying it as an oversized frame. Keep an overall line deadline:
+readability of the first byte does not bound a later blocking readline.
+
+A complete mocked Slack history scan must retain unchanged prior messages.
+Omitting them models an observed deletion and correctly invalidates their sharing
+approvals. Citation fixtures must also compare exact returned projected text:
+intake normalizes Unicode to NFC, so a decomposed spelling is not an exact quote
+of the returned composed text. These are acceptance-fixture corrections, not
+reasons to weaken runtime currentness or projection.
+
+A history-only Slack transport fixture must not advertise a positive `reply_count`
+unless it also implements `conversations.replies`. That count triggers real thread
+expansion; `latest_reply` alone does not. W4's first new reaction-refresh case failed at
+that transport assertion; narrowing it to reaction-only metadata exercised the
+intended revision-stability oracle and passed without a runtime change. Keep
+thread-refresh cases in fixtures that support the reply endpoint. The complete
+failed log and byte-preserved synthetic fixture are retained in the W4 receipts.
+
+The inherited journey fixture also left read-only connections alive because
+SQLite context exit does not close them. Explicitly close its identity/source
+reads before cross-process sessions; see SHARING-001 and COLLECTOR-002. Select
+a known non-anchor message for edit tests rather than a random source-ID order,
+so the still-approved anchor remains a valid external selection entry point.
+
+The plugin facet transport fixture launches checkout/.venv/bin/open-brain directly,
+so UV_PROJECT_ENVIRONMENT alone is insufficient in a fresh worktree. Provide its
+expected executable using the same task environment before a full gate. An actual
+ignored .venv directory with an external bin alias preserves the short environment
+path; a .venv symlink itself does not match the directory-only ignore pattern.
+Verify the alias is ignored and points to the current source environment. The
+first W3 full gate passed all 7,474 Python cases but failed eight plugin children
+until that local environment prerequisite was present; all eight then passed.
+On a reused worktree, check that the alias target still exists: a retained
+`.venv/bin` can point at a deleted temporary environment even after a separate
+`UV_PROJECT_ENVIRONMENT` has been synchronized successfully.
+
+Discovered: 2026-10-15, W3 real-stdio journey; failed logs/fixtures retained.
+
+### MCP-002: Source-only selection expansion must not receive canonical page IDs
+
+Category: Privacy / Compatibility.
+
+The complete record reader serves both captures and canonical pages. A source-copy
+selection helper historically returned no descriptor for page IDs. Adding a
+capture eligibility guard to that helper made ordinary canonical MCP reads fail
+with not_found after their canonical projection had succeeded. Call source-only
+selection expansion only for source records; retain canonical member eligibility
+before every current/history read. Cover ordinary canonical current and paginated
+history reads through real stdio alongside protected mixed-source refusals.
+
+Discovered: 2026-10-14, W2 full-suite history regression; failed fixture retained.
+
+### BUILD-014: New app modules must update the exact architecture inventory
+
+Category: Build Pipeline.
+
+The application package has an exact source-file allowlist in the architecture
+security tests. Adding the finite settings observer and scoped authority validator
+without registering those two foreground modules failed the full suite after
+focused behavior tests passed. Update the exact inventory for intended modules;
+keep the equality assertion and prohibited-surface checks intact. Include the
+architecture tests when adding an application source file.
+
+A later full run also found a W0 CLI baseline asserting that the planned policy
+flags were unrecognized. Once those flags exist, incomplete authority must still
+refuse, but through invalid_arguments rather than invalid_command. Update this
+pre-feature expectation while preserving the refusal/no-write assertions and all
+frozen wire resources.
+
+The complete run then found the exact cursor authority-field inventory omitted
+internal session_origin. When adding an authority dimension, update both the exact
+key set and a one-field mutation variant proving the cursor digest changes. Keep
+the exact-key assertion intact.
+
+Discovered: 2026-10-14, W2 full verification; failed logs and fixtures retained.
+
+### BUILD-013: Settings observation callbacks need explicit types
+
+Category: Type Safety.
+
+The W2 observation prototype used an untyped local lambda for a reusable snapshot
+check. Mypy rejected it under the repository's strict settings. Use a typed local
+function for the callback and check the observer together with scoped setup and
+agent setup, then run the complete build/typecheck gate. Shared callback contracts
+also affect CLI/plugin consumers; a single-file check cannot establish closure.
+
+The full gate subsequently caught dynamic fixture dictionary and nullable-ID
+annotations in new tests that production-only mypy had not checked. Include new
+test modules in focused typechecks; pytest success does not establish typing.
+Retain the failed full-gate log, fix the annotations and repeat the full gate.
+
+Discovered: 2026-10-14, W2 settings implementation and full candidate verification.
+
+### STORAGE-001: Review reads can borrow the active writer transaction
+
+Category: Database/Migrations.
+
+Bound proposal creation reads its newly reserved proposal before its writer
+transaction exits. The store can lend that transaction to the read path;
+unconditional `BEGIN` raises a nested-transaction error. Start a read snapshot
+only when `connection.in_transaction` is false. Preserve the existing owner's
+commit/rollback boundary, and run propose, show and terminal replay regressions
+alongside the full verification gate.
+
+Discovered: 2026-10-14, W2 final auxiliary authorization regression.
+
+### MCP-001: Global graph caches and counters bypass record filtering
+
+Category: Privacy / Authority.
+
+A filtered graph snapshot does not make a whole-workspace structural cache safe.
+The cache can retain denied endpoint IDs and diagnostics, while its global digest
+and failure state reflect hidden notes. A hidden duplicate basename can also
+change extraction of otherwise visible edges. Implicit MCP must refuse this cache
+before reading it unless extraction has independently scoped provenance. Continue
+using engine-filtered inferred suggestions. Suppress global workspace policy
+counters and bind facet continuations to visible state for implicit sessions.
+
+Discovered: 2026-10-14, W2 independent source review and synthetic graph/cursor tests.
+
+### CONFIG-001: Claude local MCP entries and OS aliases need finite handling
+
+Category: Config/Environment.
+
+Claude user JSON can store selected-project MCP entries inside
+`projects[absolute_project_path].mcpServers`, as well as top-level user entries.
+Check that exact selected entry when detecting unscoped coexistence. A no-follow
+reader must also account explicitly for macOS's system `/etc` alias using its
+known `/private/etc` location; do not resolve arbitrary user-controlled links.
+Reject writable configuration parents and commit their identities.
+
+Discovered: 2026-10-14, W2 synthetic settings and independent review.
+
+### SHARING-006: New copy policy must not redefine historical Work authority
+
+Category: Privacy / Compatibility.
+
+A blanket ban on externally reading ordinary Work records broke a supported
+Portable-6 recovery fixture whose pre-existing policy explicitly permits egress.
+Keep tier classification separate from the record's existing egress authority.
+Treat the new `sharing-slack-work-copy.v1` policy as independent managed-copy
+custody: its marker, delivery, provenance and linkage must satisfy current approval
+checks even if another identity hint is damaged. Ordinary historical policy
+semantics stay intact; raw Slack originals retain their local-only decisions.
+Test both old-policy recovery and forged new-policy refusal.
+
+Discovered: 2026-10-14, W1a/W1b combined compatibility regressions.
+
+### SLACK-004: Payload commitments use canonical UTF-8
+
+Category: Config/Environment / Source Proof.
+
+Slack observation admission hashed `bounded_json(payload)`, which escapes Unicode,
+while the engine verifies `portable_canonical_json_bytes(payload)` as UTF-8. ASCII
+fixtures passed, but a real synthetic Unicode edit failed source observation
+validation before sharing. Keep the bounded admission check, then hash the exact
+canonical payload bytes required by the engine. Exercise Unicode through collector
+intake, revision replacement and owner reapproval rather than testing only the
+sharing envelope.
+
+Discovered: 2026-10-14, W1a synthetic Slack cited recall acceptance.
+
+### BUILD-012: Dynamic DTO construction and fixture spreads need full typechecks
+
+Category: Type Safety.
+
+Dataclass field reflection mixed integer defaults with arbitrary field values,
+so mypy rejected the validated maps passed into versioned DTO constructors.
+Type the validated keyword map explicitly, narrow variant-only fields before
+access and update every protocol implementation when adding a task method.
+In TypeScript, spreading `Record<string, unknown>` into a fixture does not give
+arbitrary keys a named property type. Use the validator's returned record or an
+explicit fixture type when asserting those keys. Vitest transpilation passes
+without finding these TypeScript errors; run both package typechecks as well as
+the tests, followed by the full build/typecheck gate.
+
+Discovered: 2026-10-14, W1a implementation and disjoint wire compatibility checks.
+
+### SLACK-003: Work classification does not authorize provider recall
+
+Category: Privacy / Authority.
+
+Collector Work privacy remains local-only with external egress disabled. Work
+space routing is separate from privacy and provider consent. Existing sharing
+requires saved-Markdown managed evidence and produces a public-tier v1 copy; raw
+Slack revisions do not satisfy that proof. A Slack recall extension must preserve
+the old format and explicitly bind its new source evidence, Work copy and approved
+citation metadata. Never substitute an owner-local session for an external-provider
+session to bypass these checks.
+
+Discovered: 2026-10-14, Slack cited-decision recall implementation planning.
+
+### DOCS-002: Distinguish capture routing from logical-source routing
+
+Category: Documentation / Source Continuity.
+
+The spaces/inbox guide warns that routing a capture prevents automated updates.
+Current owner `source route` instead binds the logical source using its expected
+head and route version; accepted managed successors inherit that source's space.
+Use the actual logical-source path for continuing Slack intake. Do not add a
+`space_id` provider option or grant collector-wide organize authority to work
+around the older capture-routing description.
+
+Discovered: 2026-10-14, source routing and revision acceptance inspection.
+
 ### BUILD-017: Native packaging must pin the reviewed Python patch
 
 Category: Build Pipeline; Dependencies.
@@ -70,6 +536,20 @@ verification and tier target is its own `.PHONY` token. Diff the phony token set
 the previous Makefile after any edit to that line.
 
 Discovered: 2026-10-15, independent Astra review of the tier targets.
+
+### DOCS-001: First-use version pins can lag the current candidate
+
+Category: Documentation / Verification.
+
+The first-use and desktop guides still name schema/session `10/5`, while the
+current feature matrix and native runtime require `16/11`. Source controls also
+exist beyond older desktop README descriptions. Read the exact runtime constants,
+current catalog and feature matrix before turning a guide into an acceptance
+claim. Keep implementation, installed assets, provider readiness and public
+acceptance separate; an older guide is not evidence that a feature is absent or
+that a current candidate is released.
+
+Discovered: 2026-10-14, source-backed work-laptop product evaluation.
 
 ### SLACK-001: Freeze evidence closure separately from semantic identity
 
@@ -302,6 +782,36 @@ Host swap growth can still exhaust disk with tiny fixtures. An eight-worker run
 hit `storage_high` and a helper timeout; both cases passed serially after workers
 exited, and the full two-worker gate passed with Cargo limited to two jobs.
 Keep the real admission limits and helper deadlines intact.
+
+Follow-up, 2026-10-14: A zero retention count also removes failed session
+directories at exit. That erased the nested harness JUnit behind a shared
+`scenario_run_failed` setup error; all 38 nested cases passed on direct replay,
+so the original cause remains unverified. Use retention count one with policy
+`failed` when diagnosing a full run. Passing function fixtures still clean up
+immediately, while failed evidence survives. Keep each run's log outside its
+temporary directory and inspect the entire progress log before reporting success.
+The receipt-protection success fixture also configured only one second for a
+fresh interpreter and real engine imports. Clean imports measured 0.526–1.416
+seconds, with three of eight samples over that limit. Its success case now uses
+an explicit five-second test configuration; production deadlines and the separate
+50 ms timeout-refusal case remain unchanged.
+
+Follow-up, 2026-10-14: W0 Slack recall verification reproduced 142 connector/collector
+failures after a full run retained 4.7 GiB. Clearing that task's completed fixtures
+was insufficient: a two-worker retry still reached `storage_high` with an empty
+task TMPDIR. An approved cleanup of ignored build artifacts recovered 5.38 GiB.
+All 190 recovery cases then passed, followed by the full gate with four bounded
+workers and immediate passing-fixture cleanup. Check broader host headroom as
+well as fixture size; do not change production admission limits or helper deadlines.
+
+Follow-up, 2026-10-16: A four-worker consumer-intake run started with6GiB free
+but exhausted disk as host swap grew; retained fixtures occupied only72MiB.
+Clearing this worktree's disposable Cargo target and using one pytest worker
+allowed all8185 Python cases to pass. An external supervisor monitored the
+existing2GiB high watermark without altering admission limits; its stop guard did
+not trigger. The successful
+run's minimum free space was2958929920 bytes. Keep rollback clones and unrelated
+projects intact, and rebuild disposable artifacts with bounded Cargo concurrency.
 
 Discovered: 2026-10-09, repeated automatic harness bridge verification.
 
@@ -551,6 +1061,18 @@ Tests: Static checking of engine/app source plus frozen V1 history regressions
 and the mixed V1/V2 Portable9 export/import fixture.
 
 Discovered: 2026-10-04, schema14 historical compatibility implementation.
+
+### TYPE-002: Reducer branches share mypy's local-variable scope
+
+Category: Type Safety. Action: use separate names for optional lookups and validated
+domain objects, then run the repository typecheck after reducer changes.
+
+The lifecycle journal's first typecheck failed because `manifest` and `segment`
+were reused across event branches as both validated objects and optional lookups;
+`revision` was also reused for a manifest and a hash string. Conditional branches
+do not give those names independent type scopes. Distinct custody/activation
+names retain strict checks without casts that conceal missing-state handling.
+Focused checking and the full repository typecheck now cover these consumers.
 
 ### TESTING-003: macOS killpg reports EPERM for a zombie-only process group
 
@@ -3423,6 +3945,20 @@ CLI recovery followed by schema14 migration, documentation matrix and desktop
 handshake acceptance with old/fractional/unknown versions refused.
 
 Discovered: 2026-10-05, exact full gate and independent final review.
+
+Follow-up, 2026-10-14: Appending schema17 made the predecessor development
+migration accidentally consume the new migration while still declaring schema16.
+Its postflight also rejected schema16 after classification changed to supported-old.
+Pin predecessor migration slices and settlement coordinates; test real schema15
+and schema16 upgrades through schema17, including refusal before changing unsettled
+historical state.
+Issuer-migration idempotent re-entry and managed recovery also keep explicit
+supported-schema lists; advance their current floor and verify exact no-op/recovery
+behavior without broadening historical-only cutover phases. Recovery closure,
+capture replay and verified-export receipts must also dispatch the new Portable
+version through its exact catalog and validator. Update the documentation checker
+coordinate map and its mutation probes together; a stale string replacement can
+leave the supposedly invalid test input unchanged.
 
 ### FACETS-001: Wire history and Portable evidence share canonical values
 

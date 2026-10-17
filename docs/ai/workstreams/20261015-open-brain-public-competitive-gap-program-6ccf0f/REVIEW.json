@@ -1,0 +1,40 @@
+{
+  "verdict": "approved_documentation_preparation_only",
+  "reviewer": "gpt-6-astra",
+  "initial_report": "/tmp/ob-gap-program-nho23_wx/astra-review.md",
+  "final_report": {
+    "path": "/tmp/ob-gap-program-nho23_wx/astra-review-final.md",
+    "sha256": "c4880e175e4422243d18905f5cb313bb5137c2ea5a6680a9a78f2fa3f0ff9089"
+  },
+  "approved_documents": [
+    {
+      "path": "README.md",
+      "sha256": "10f9bc4857e2390114441fc602eb2100f259743e0ba113f27e809cfc8bf8fb5a"
+    },
+    {
+      "path": "docs/first-use.md",
+      "sha256": "b1605dc49c4bc606c7ae90d2a74285a13529c340a510c9c2f8fc75e67a130700"
+    },
+    {
+      "path": "docs/plans/PRD-open-brain-competitive-gaps.md",
+      "sha256": "4e6efe22b6432fc8102d0d296e6099769a7946f3ba5cf455e878e49f0e8869a4"
+    },
+    {
+      "path": "docs/engineering/gotchas/README.md",
+      "sha256": "ed1decad3e20d4369d11019a6a7d4418b01e06c2ea573216afffa9c54d547d5a"
+    }
+  ],
+  "unresolved_review_findings": [],
+  "known_gate_failure": "pre-existing strict historical example pin mismatch, disclosed and preserved",
+  "ledger": {
+    "children_total": 4,
+    "active": 0,
+    "nested": 0,
+    "models": [
+      "gpt-6.1-sol",
+      "gpt-6.1-sol",
+      "gpt-6.1-sol",
+      "gpt-6-astra"
+    ]
+  }
+}

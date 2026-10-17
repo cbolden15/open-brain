@@ -1,0 +1,30 @@
+{
+  "milestone": "G1-reviewed-design-preparation",
+  "source_baseline": "8ef1d069259c291e669341079806103c8fa90e86",
+  "checks": [
+    {
+      "command": "source map plus root targeted source verification",
+      "result": "pass; baseline17/12/12, migration18 unallocated, per-capture publication and owner-history seams confirmed"
+    },
+    {
+      "command": "Markdown artifact validation",
+      "result": "pass;6 nonempty UTF-8 files, balanced fences,8 absolute local link targets exist"
+    },
+    {
+      "command": "actionlint .github/workflows/ci.yml",
+      "result": "pass"
+    }
+  ],
+  "skipped": [
+    {
+      "command": "make verify; native-audit; homebrew-smoke; benchmarks",
+      "reason": "Documentation-only workstream; runtime/native/build/test inputs unchanged. No runtime implementation acceptance claimed."
+    }
+  ],
+  "public_evidence_rechecked": [
+    "OpenAI consumer conversation transfer help",
+    "Claude consumer data-export help",
+    "ONNX Runtime v1.31.0 privacy and release pages"
+  ],
+  "limits": "Public export help does not activate format profiles; metadata does not establish executed model or native-platform proof"
+}

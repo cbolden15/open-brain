@@ -31,11 +31,11 @@ def test_schema_fourteen_preserves_thirteen_migration_checksums(tmp_path: Path) 
     assert {m.name: m.checksum for m in LOCAL_MIGRATIONS[:13]} == frozen
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     with engine._store.connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
-            11,
-            16,
+            15,
+            20,
         )
 
 
@@ -57,7 +57,7 @@ def test_schema_thirteen_upgrade_preserves_capture_bytes(
         raw = (profile.root / relative).read_bytes()
     coordinate_local_migration(profile)
     with closing(local_schema.open_local_database_read_only(profile)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         for table, rows in before.items():
             after = [tuple(row) for row in connection.execute(f"SELECT * FROM {table}")]
             assert (after[:13] if table == "schema_migrations" else after) == rows

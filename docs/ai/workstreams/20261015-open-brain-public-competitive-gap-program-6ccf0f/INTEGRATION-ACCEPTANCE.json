@@ -1,0 +1,193 @@
+{
+  "status": "complete_local_integration",
+  "head": "7b511c292a83b9f6d5aab7efbda3c28435fee996",
+  "tree": "e1f9383fd543b53fec10bf320ce5467286c57bcb",
+  "branch": "feat/competitive-gap-reconciliation",
+  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation",
+  "merge_parents": [
+    "fd2147a96afe7a62e6f180552d73ed5e07c0dff8",
+    "19f2f160e67a91623b5ec252d4002b8826b03830"
+  ],
+  "compatibility": {
+    "state_schema": 17,
+    "runtime_session": 12,
+    "portable_metadata": 12,
+    "new_migration_added": false,
+    "same_coordinate_older_binaries_fenced": false
+  },
+  "verification": {
+    "verify": {
+      "clean": true,
+      "command": [
+        "make",
+        "verify"
+      ],
+      "elapsed_seconds": 2448.65,
+      "exit_code": 0,
+      "frozen_inventory_sha256": "8b09e5f87d32d36fd56da700620bb471bbf5ea99d5e23bee974291105733954d",
+      "hashes_unchanged": true,
+      "head": "7b511c292a83b9f6d5aab7efbda3c28435fee996",
+      "head_unchanged": true,
+      "input_files": 1943,
+      "log_sha256": "753e0c02e93959fea88c0f319eeea93581b21782e377beaa07b59579b03a0feb"
+    },
+    "native": {
+      "clean": true,
+      "command": [
+        "make",
+        "native-audit",
+        "homebrew-smoke",
+        "NATIVE_OUTPUT=/tmp/obgi-n"
+      ],
+      "elapsed_seconds": 503.78,
+      "exit_code": 0,
+      "frozen_inventory_sha256": "8b09e5f87d32d36fd56da700620bb471bbf5ea99d5e23bee974291105733954d",
+      "hashes_unchanged": true,
+      "head": "7b511c292a83b9f6d5aab7efbda3c28435fee996",
+      "head_unchanged": true,
+      "input_files": 1943,
+      "log_sha256": "282252ac777b4b409918788f28faf49d586c6d5c2977887f63cda27281c85d1f"
+    },
+    "diff-check": {
+      "clean": true,
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "elapsed_seconds": 0.01,
+      "exit_code": 0,
+      "frozen_inventory_sha256": "8b09e5f87d32d36fd56da700620bb471bbf5ea99d5e23bee974291105733954d",
+      "hashes_unchanged": true,
+      "head": "7b511c292a83b9f6d5aab7efbda3c28435fee996",
+      "head_unchanged": true,
+      "input_files": 1943,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "actionlint": {
+      "clean": true,
+      "command": [
+        "actionlint",
+        ".github/workflows/ci.yml"
+      ],
+      "elapsed_seconds": 0.2,
+      "exit_code": 0,
+      "frozen_inventory_sha256": "8b09e5f87d32d36fd56da700620bb471bbf5ea99d5e23bee974291105733954d",
+      "hashes_unchanged": true,
+      "head": "7b511c292a83b9f6d5aab7efbda3c28435fee996",
+      "head_unchanged": true,
+      "input_files": 1943,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "counts": {
+    "python_passed": 7480,
+    "python_skipped": 5,
+    "python_warnings": 1,
+    "python_seconds": 2319.98,
+    "plugin_passed": 700,
+    "desktop_frontend_passed": 286,
+    "desktop_python_passed": 30,
+    "rust_passed": 26
+  },
+  "suite_summaries": [
+    "All checks passed!",
+    "Success: no issues found in 673 source files",
+    "  /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/packages/engine/tests/unit/storage/test_writer_transaction.py:112: DeprecationWarning: This process (pid=13060) is multi-threaded, use of fork() may lead to deadlocks in the child.",
+    "SKIPPED [1] packages/app/tests/integration/engine/test_markdown_import_fs.py:171: filesystem rejects non-UTF-8 filenames",
+    "SKIPPED [1] packages/app/tests/integration/engine/test_markdown_import_fs.py:204: filesystem does not preserve distinct NFC and NFD names",
+    "SKIPPED [2] packages/app/tests/integration/engine/test_markdown_import_fs.py:239: filesystem does not preserve distinct NFC and NFD names",
+    "SKIPPED [1] packages/app/tests/integration/engine/test_markdown_import_fs.py:268: filesystem does not preserve distinct NFC and NFD names",
+    "7480 passed, 5 skipped, 1 warning in 2319.98s (0:38:39)",
+    " Test Files  16 passed (16)",
+    "      Tests  700 passed (700)",
+    " Test Files  8 passed (8)",
+    "      Tests  286 passed (286)",
+    "30 passed in 1.39s",
+    "test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.90s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "source_fingerprint": {
+    "path": "/tmp/obgi-l/frozen.json",
+    "sha256": "8b09e5f87d32d36fd56da700620bb471bbf5ea99d5e23bee974291105733954d",
+    "files": 1943,
+    "all_inputs_unchanged_during_gates": true,
+    "scope": "all tracked and nonignored checkout inputs; ignored generated outputs excluded"
+  },
+  "evidence": [
+    {
+      "path": "/tmp/obgi-l/focused.json",
+      "sha256": "17cca5d90cd0ac48053fdfb5ae95b3620deac927c324554a793d8043c16cf025"
+    },
+    {
+      "path": "/tmp/obgi-l/focused.log",
+      "sha256": "7452d3ce285a6a87d80e549e0d1adce136dfd20fe253e164f7a59cb17c9abd09"
+    },
+    {
+      "path": "/tmp/obgi-l/source-proof.json",
+      "sha256": "2fd1a1aae2c355b3f6f7d26a63bdf9fa10390561c9c61a524869dda0aaba65d2"
+    },
+    {
+      "path": "/tmp/obgi-l/environment.json",
+      "sha256": "fbac16c84e8ef28b36fe36c835e5f8e924c11144129fbec2b6b2dab309803e4d"
+    },
+    {
+      "path": "/tmp/obgi-l/versions.json",
+      "sha256": "cc8a3fda01047a8a24b9e412568ea7697cda2d9ac17181b4d42c17cf0e05dd64"
+    },
+    {
+      "path": "/tmp/obgi-l/astra-integration-review.md",
+      "sha256": "2fe69ab24d27cf17ec45c47453b1b974546d06f12fd154ef368ae7e7debe8311"
+    },
+    {
+      "path": "/tmp/obgi-l/frozen.json",
+      "sha256": "8b09e5f87d32d36fd56da700620bb471bbf5ea99d5e23bee974291105733954d"
+    },
+    {
+      "path": "/tmp/obgi-l/primary-preserved.json",
+      "sha256": "768b57ad34373fe1684c825bdc978a780d18e3dd79220a4c78660a620a923ba1"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "/tmp/obgi-n/release/open-brain-component-manifest-v1.txt",
+      "sha256": "66d4d7a8cb117b2afd753019c7bf1ea47d1cb457cdcff5aed140e96460aca9d2",
+      "bytes": 736
+    },
+    {
+      "role": "base",
+      "platform": "macos-arm64",
+      "path": "/tmp/obgi-n/release/open-brain-0.1.0-macos-arm64.tar.gz",
+      "sha256": "ed8561817bf948dd5a86fd515a6d04623e6c13de58e68b6f61af0e7ce8dd27fe",
+      "executable_sha256": "d8399d2888b3aea78badef1e89d0eee386c9e75f8b42f31fa6f0c53255790c00",
+      "executable_path": "/tmp/obgi-n/dist/open-brain",
+      "bytes": 11477530
+    },
+    {
+      "role": "graphify",
+      "platform": "macos-arm64",
+      "path": "/tmp/obgi-n/release/open-brain-graphify-0.1.0-macos-arm64.tar.gz",
+      "sha256": "639e391dd59236bb4f5e35ca657803e762104e3dafe9f206456c89e9c9261793",
+      "executable_sha256": "c74761b23a8ce82a9d7c42e08a8d9644fbe9343ba361c6ce5fefe28ed19332e8",
+      "executable_path": "/tmp/obgi-n/dist/open-brain-graphify",
+      "bytes": 9550506
+    },
+    {
+      "role": "harness",
+      "platform": "macos-arm64",
+      "path": "/tmp/obgi-n/release/open-brain-harness-0.1.0-macos-arm64.tar.gz",
+      "sha256": "087c993276f3a38bf7258d6ecfcbb49d14f2e4035ad12e03a09959d19fc87115",
+      "executable_sha256": "e1e1e553a56189986ed285397464802f3fa884a692ca4b60b2c6a9179c19b876",
+      "executable_path": "/tmp/obgi-n/dist/open-brain-harness/open-brain-harness",
+      "bytes": 11471966
+    }
+  ],
+  "limitations": [
+    "macOS arm64 only; Linux not run",
+    "No fresh installed-client, model/provider, real Slack/Brain, private pilot or publication proof",
+    "Pre-existing strict historical mcp-grant-isolation example digest mismatch remains; focused documentation tests/full make verify do not establish that separate pinned-artifact gate",
+    "W5 remains parked; new competitive-gap features and remaining G1 contracts are not implemented"
+  ],
+  "next_boundary": "remaining G1 compatibility/resource/export-profile specification; no main merge, push, model/client/provider execution, real-source access or deployment"
+}

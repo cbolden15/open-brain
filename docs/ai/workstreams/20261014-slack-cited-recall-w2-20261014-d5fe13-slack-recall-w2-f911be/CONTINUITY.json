@@ -1,0 +1,44 @@
+{
+  "old": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67",
+  "new": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13",
+  "branch": "feat/slack-cited-recall-w2-20261014-d5fe13",
+  "base": "7e2b8657ab7350e89983f4774ff053f5c14964ca",
+  "files": [
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w0-20e138/HANDOFF.json",
+      "sha256": "815d08189b609497d49ade9d682e98c8f7d1a93473017b5416f66a47efc02d82"
+    },
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w0-20e138/HANDOFF.md",
+      "sha256": "36c7bf3f28d22ff1a5269f9a6aa940e1858a78e94e5afe811eade9a268517183"
+    },
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w0-20e138/STATE.md",
+      "sha256": "ae7c84421d934544d654531e7835acd7da674b2a785e02434763a907490fac1a"
+    },
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w1-f9ec78/HANDOFF.json",
+      "sha256": "90d6526a14cfc4c516a73d55ec763efaf60a4a5cb2fbc6270acd8bfdfb6d0c1c"
+    },
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w1-f9ec78/HANDOFF.md",
+      "sha256": "5a9710e7880f5e5e1c33a142472291f386a2a2b9cf2a0b861446c9cc87a672bb"
+    },
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w1-f9ec78/STATE.md",
+      "sha256": "9178600045d389850be7def47bb672a1dee6290ad3bc21a48448f2214835cd72"
+    },
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w2-scope-852fc1/HANDOFF.json",
+      "sha256": "c8455341ac7ba6f845131dfc638682b3ceb46f2bc45aa7708a420a8b977ae277"
+    },
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w2-scope-852fc1/HANDOFF.md",
+      "sha256": "8b0919f2823a94b67737be40655a7fcf670689c229a3bdc55ca5c1ad0a06dd0e"
+    },
+    {
+      "path": "docs/ai/workstreams/20261014-open-brain-public-slack-recall-w2-scope-852fc1/STATE.md",
+      "sha256": "e6178fffc689bbadc7d5c8d2585f09c7f6be11897012f52025c1bb644ccb789a"
+    }
+  ]
+}
