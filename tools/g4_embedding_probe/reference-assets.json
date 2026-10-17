@@ -1,0 +1,23 @@
+{
+  "schema": "ob.g4-probe-assets.v1",
+  "candidates": [
+    {
+      "id": "minilm-reference",
+      "repository": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "license": "apache-2.0",
+      "files": [
+        {"path": "model.safetensors", "bytes": 90868376, "lfs_sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"}
+      ]
+    },
+    {
+      "id": "bge-reference",
+      "repository": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "license": "mit",
+      "files": [
+        {"path": "model.safetensors", "bytes": 133466304, "lfs_sha256": "3c9f31665447c8911517620762200d2245a2518d6e7208acc78cd9db317e21ad"}
+      ]
+    }
+  ]
+}
