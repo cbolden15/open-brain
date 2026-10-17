@@ -1060,9 +1060,14 @@ def test_sqlite_revalidation_runs_at_engine_write_boundary(
     root = home / "brain"
 
     def open_after_replacement(
-        _profile: object, *, validate_before_write: object, recover_abandoned_sessions: bool
+        _profile: object,
+        *,
+        validate_before_write: object,
+        recover_abandoned_sessions: bool,
+        embedding_backend: object,
     ) -> object:
         assert recover_abandoned_sessions is False
+        assert callable(embedding_backend)
         root.rename(home / "pinned")
         root.mkdir(mode=0o700)
         assert callable(validate_before_write)
