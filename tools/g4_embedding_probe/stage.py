@@ -2,8 +2,10 @@
 
 The layout matches the fixed staged layout the helper reads from its working
 directory: the executable, ``runtime/``, ``model/model.onnx``, ``tokenizer/`` and a
-canonical ``component.json``. This is a contributor tool; it does not perform the
-installed-resource verification the product runs before staging.
+canonical ``component.json``: by default the probe's asset-hash document, or, given an
+inventory, the manifest ``component`` object itself with no trailing newline (so the
+helper's component ID equals the manifest ``component_id``). This is a contributor tool;
+it does not perform the installed-resource verification the product runs before staging.
 """
 
 from __future__ import annotations
@@ -14,6 +16,8 @@ import json
 import os
 import sys
 from pathlib import Path
+
+from tools.open_brain_dev.component_manifest_v2 import ComponentManifestError, parse_inventory
 
 RUNTIME_NAME = "libonnxruntime.dylib" if sys.platform == "darwin" else "libonnxruntime.so"
 HELPER_NAME = "open-brain-embedding"
@@ -56,12 +60,31 @@ def _copy(source: Path, destination: Path, mode: int) -> str:
     return hashlib.sha256(destination.read_bytes()).hexdigest()
 
 
-def stage(output: Path, *, helper: Path, runtime_library: Path, assets: Path) -> Path:
+def component_bytes(inventory: Path) -> bytes:
+    """Canonical bytes of the embedding ``component`` object of an inventory file."""
+    try:
+        component = parse_inventory(inventory.read_bytes()).component
+    except (OSError, ComponentManifestError) as error:
+        raise StageError(f"invalid inventory: {inventory}") from error
+    if component is None:
+        raise StageError(f"inventory has no component: {inventory}")
+    return canonical_json(component).removesuffix(b"\n")
+
+
+def stage(
+    output: Path,
+    *,
+    helper: Path,
+    runtime_library: Path,
+    assets: Path,
+    inventory: Path | None = None,
+) -> Path:
     """Create ``output`` (which must not exist) and return it."""
     sources = {staged: assets / relative for staged, relative in MODEL_FILES.items()}
     for source in (helper, runtime_library, *sources.values()):
         if not source.is_file():
             raise StageError(f"missing input file: {source}")
+    document = component_bytes(inventory) if inventory is not None else None
     if output.exists():
         raise StageError(f"output already exists: {output}")
     output.mkdir(mode=0o700, parents=True)
@@ -72,9 +95,11 @@ def stage(output: Path, *, helper: Path, runtime_library: Path, assets: Path) ->
     }
     for staged, source in sources.items():
         hashes[staged] = _copy(source, output / staged, 0o400)
-    component = {"assets": dict(sorted(hashes.items())), "preprocess": PREPROCESS}
+    if document is None:
+        component = {"assets": dict(sorted(hashes.items())), "preprocess": PREPROCESS}
+        document = canonical_json(component)
     with open(output / "component.json", "xb") as handle:
-        handle.write(canonical_json(component))
+        handle.write(document)
     os.chmod(output / "component.json", 0o400)
     return output
 
@@ -85,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--helper", type=Path, required=True)
     parser.add_argument("--runtime-library", type=Path, required=True)
     parser.add_argument("--assets", type=Path, required=True)
+    parser.add_argument("--inventory", type=Path, help="write the manifest component (D9)")
     args = parser.parse_args(argv)
     try:
         out = stage(
@@ -92,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
             helper=args.helper.resolve(),
             runtime_library=args.runtime_library.resolve(),
             assets=args.assets.resolve(),
+            inventory=args.inventory.resolve() if args.inventory else None,
         )
     except StageError as error:
         print(error, file=sys.stderr)

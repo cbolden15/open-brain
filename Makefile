@@ -1,9 +1,15 @@
-.PHONY: dev build test test-fast test-integration test-tiers-audit test-profile lint typecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit smoke homebrew-smoke native-integration-smoke verify contributor-check
+.PHONY: dev build test test-fast test-integration test-tiers-audit test-profile lint typecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit embedding-native smoke homebrew-smoke native-integration-smoke verify contributor-check
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain
 NATIVE_GRAPHIFY_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain-graphify
 NATIVE_MANIFEST = $(NATIVE_OUTPUT)/release/open-brain-component-manifest-v1.txt
+EMBEDDING_OUTPUT ?= build/embedding
+EMBEDDING_RUNTIME_LIBRARY ?= build/g4-ort-macos/Release/libonnxruntime.1.31.0.dylib
+EMBEDDING_RUNTIME_SOURCE ?= build/g4-src/onnxruntime
+EMBEDDING_ASSETS ?= build/g4-assets-1/minilm
+EMBEDDING_PLATFORM ?= $(if $(filter Darwin,$(shell uname -s)),macos-arm64,linux-x86_64)
+EMBEDDING_VERSION ?= $(shell uv run --frozen python -c "from pathlib import Path; from tools.open_brain_dev.base_native import product_version; print(product_version(Path('.')))")
 DESKTOP_DIR = packages/desktop
 DESKTOP_TAURI_DIR = $(DESKTOP_DIR)/src-tauri
 DESKTOP_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
@@ -90,6 +96,9 @@ native: plugin-build
 
 native-audit: native
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native audit --artifact $(NATIVE_ARTIFACT) --graphify-artifact $(NATIVE_GRAPHIFY_ARTIFACT)
+
+embedding-native:
+	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.embedding_native --version "$(EMBEDDING_VERSION)" --platform $(EMBEDDING_PLATFORM) --runtime-library "$(EMBEDDING_RUNTIME_LIBRARY)" --runtime-source "$(EMBEDDING_RUNTIME_SOURCE)" --assets "$(EMBEDDING_ASSETS)" --output "$(EMBEDDING_OUTPUT)"
 
 smoke:
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native smoke --root . --artifact $(NATIVE_ARTIFACT) --graphify-artifact $(NATIVE_GRAPHIFY_ARTIFACT)
