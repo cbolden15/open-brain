@@ -6,20 +6,22 @@ import json
 import sqlite3
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
-from open_brain_engine.engine import local_schema, paging
+from open_brain_engine.engine import local_schema, paging, portable_v10_restore
 from open_brain_engine.engine.embedding_policy import EmbeddingPolicyTasks, read_policy
 from open_brain_engine.engine.embedding_policy_schema import EMBEDDING_POLICY_MIGRATION
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+from open_brain_engine.engine.portable_v15_evidence import serialize_portable_v15_state
 from open_brain_engine.portable.embedding_policy_v16 import (
     EMBEDDING_POLICY_CONTRACT,
     EMBEDDING_POLICY_PATH,
 )
-from open_brain_engine.portable.v1 import PortableValidationError
+from open_brain_engine.portable.v1 import PortableSnapshot, PortableValidationError
 from open_brain_engine.portable.v15 import validated_portable_snapshot_v15
 from open_brain_engine.portable.v16_catalog import PORTABLE_V16_SCHEMA_CATALOG
 from open_brain_engine.portable.versioned import validated_portable_snapshot
@@ -178,3 +180,69 @@ def test_portable15_input_restores_with_empty_history_and_disabled_policy(
         )
     assert (policy.enabled, policy.component_id, policy.consent_version) == (False, None, 0)
     assert _export(restored, tmp_path / "again")[EMBEDDING_POLICY_PATH] == b""
+
+
+def test_inherited_evidence_is_byte_identical_to_portable15_writers(tmp_path: Path) -> None:
+    # An exact v15 export of a schema21 Brain is impossible by design (the exporter selects
+    # the serializer from the schema), so compare against the v15 evidence writer itself.
+    engine = _engine(tmp_path / "brain")
+    owner = owner_authority(engine.tasks, session_id="owner-test")
+    _policy(engine).enable(COMPONENT, authority=owner)
+    files = _export(engine, tmp_path / "archive")
+    with sqlite3.connect(engine.profile.root / local_schema.PHASE1_STATE_DATABASE) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("BEGIN")
+        inherited = serialize_portable_v15_state(
+            connection,
+            engine.profile,
+            relationship_sidecar_present=True,
+            _expected_schema=21,
+        )
+    assert inherited.sidecars
+    assert EMBEDDING_POLICY_PATH not in inherited.sidecars
+    for path, raw in inherited.sidecars.items():
+        assert files[path] == raw, path
+
+
+@pytest.mark.parametrize("stage", ["embedding_policy_restored", "historical_audited"])
+def test_interrupted_restore_leaves_no_destination_and_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    engine = _engine(tmp_path / "brain")
+    owner = owner_authority(engine.tasks, session_id="owner-test")
+    _policy(engine).enable(COMPONENT, authority=owner)
+    _export(engine, tmp_path / "archive")
+    before = validated_portable_snapshot(tmp_path / "archive").files
+    destination = tmp_path / "restored"
+    restore = portable_v10_restore.restore_portable_v10_root
+
+    def checkpoint(current: str) -> None:
+        if current == stage:
+            raise RuntimeError("synthetic embedding policy restore interruption")
+
+    def interrupted(
+        root: Path, *, snapshot: PortableSnapshot, expected_root_identity: Any
+    ) -> Any:
+        return restore(
+            root,
+            snapshot=snapshot,
+            expected_root_identity=expected_root_identity,
+            checkpoint=checkpoint,
+        )
+
+    import_id = "import_" + str(uuid4())
+    with monkeypatch.context() as fault:
+        fault.setattr(portable_v10_restore, "restore_portable_v10_root", interrupted)
+        with pytest.raises(RuntimeError, match="synthetic embedding policy restore"):
+            engine.tasks.portability.import_clean(
+                tmp_path / "archive", destination, import_id=import_id
+            )
+    assert not destination.exists()
+    assert validated_portable_snapshot(tmp_path / "archive").files == before
+    result = engine.tasks.portability.import_clean(
+        tmp_path / "archive", destination, import_id=import_id
+    )
+    assert not result.duplicate
+    restored = BrainEngine.open(open_existing_single_user_local(destination))
+    status = _policy(restored).status(authority=owner_authority(restored.tasks, session_id="r"))
+    assert (status.enabled, status.consent_version) == (False, 2)

@@ -23,9 +23,13 @@ from open_brain_engine.engine.embedding_policy import (
     history_rows,
     read_policy,
 )
-from open_brain_engine.engine.embedding_policy_schema import EMBEDDING_POLICY_MIGRATION
+from open_brain_engine.engine.embedding_policy_schema import (
+    EMBEDDING_POLICY_MIGRATION,
+    migrate_embedding_policy,
+)
 from open_brain_engine.engine.local_migration import coordinate_local_migration
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.storage.migrations import SchemaError
 
@@ -257,3 +261,59 @@ def test_runtime15_client_refuses_schema21_before_mutation(
                     pytest.fail("runtime15 client admitted schema21")
     assert database.read_bytes() == before
     assert local_runtime_session.RUNTIME_SESSION_VERSION == 16
+
+
+@pytest.mark.parametrize(
+    "stage,version",
+    [
+        ("embedding_policy_preflight", 20),
+        ("embedding_policy_before_commit", 20),
+        ("embedding_policy_after_commit", 21),
+    ],
+)
+def test_interrupted_cutover_is_atomic_and_rerun_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str, version: int
+) -> None:
+    profile = _schema20(tmp_path, monkeypatch)
+
+    def interrupt(actual: str) -> None:
+        if actual == stage:
+            raise RuntimeError("synthetic embedding policy interruption")
+
+    expected = local_schema.LocalSchemaUpgradeCommittedError if version == 21 else RuntimeError
+    with exclusive_runtime_admission(profile) as admission, pytest.raises(expected):
+        migrate_embedding_policy(profile, admission=admission, clock=_clock, checkpoint=interrupt)
+    assert local_schema.inspect_phase1_state(profile).version == version
+    with _connect(profile) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == version
+    coordinate_local_migration(profile, clock=_clock)
+    coordinate_local_migration(profile, clock=_clock)
+    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState("current", 21)
+    with _connect(profile) as connection:
+        assert connection.execute("SELECT count(*) FROM embedding_policy").fetchone() == (1,)
+        assert connection.execute("SELECT count(*) FROM embedding_policy_history").fetchone() == (
+            0,
+        )
+        assert connection.execute(
+            "SELECT count(*) FROM schema_migrations WHERE version=21"
+        ).fetchone() == (1,)
+        policy = read_policy(connection)
+    assert (policy.enabled, policy.component_id, policy.consent_version) == (False, None, 0)
+
+
+def test_policy_recorded_under_another_issuer_epoch_reads_disabled(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain", starter_spaces=()))
+    _tasks(engine).enable(COMPONENT, authority=_owner(engine))
+    with _connect(engine.profile) as connection:
+        assert read_policy(connection).enabled is True
+        with pytest.raises(sqlite3.DatabaseError):
+            connection.execute("UPDATE brain_identity SET issuer_epoch=issuer_epoch+1")
+        sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name='brain_identity_update_immutable'"
+        ).fetchone()[0]
+        connection.execute("DROP TRIGGER brain_identity_update_immutable")
+        connection.execute("UPDATE brain_identity SET issuer_epoch=issuer_epoch+1")
+        policy = read_policy(connection)
+        assert (policy.enabled, policy.component_id) == (False, None)
+        assert policy.consent_version == 1
+        connection.execute(sql)

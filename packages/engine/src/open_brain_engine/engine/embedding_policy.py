@@ -75,7 +75,9 @@ def read_policy(connection: sqlite3.Connection) -> EmbeddingPolicy:
     brain_id, epoch, enabled, component, version, generation, changed = tuple(rows[0])
     identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
     if identity is None or tuple(identity) != (brain_id, epoch):
-        # Consent given under another issuer never authorizes this one.
+        # Consent given under another issuer never authorizes this one. issuer_epoch is
+        # immutable by trigger, so this only fires on damaged or foreign state; any future
+        # in-place epoch rotation must reset the policy row (disabled, no component).
         enabled, component = 0, None
     return EmbeddingPolicy(brain_id, epoch, enabled == 1, component, version, generation, changed)
 
