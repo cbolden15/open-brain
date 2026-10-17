@@ -323,7 +323,9 @@ def test_shell_signal_teardown_and_interrupted_run_recovery(
             assert time.monotonic() < deadline, "fake journey did not start"
             time.sleep(0.02)
         os.killpg(process.pid, sent_signal)
-        stdout, stderr = process.communicate(timeout=15)
+        # The trap runs the production cleanup and verify guards, the same tail a full
+        # run gets inside its 30 s budget; a loaded parallel host needs that budget too.
+        stdout, stderr = process.communicate(timeout=30)
         if sent_signal == signal.SIGKILL:
             assert process.returncode == -signal.SIGKILL
             assert (tmp_path / "tap").exists()

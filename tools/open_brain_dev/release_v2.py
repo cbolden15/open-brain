@@ -253,6 +253,37 @@ _HELPERS: Final = """\
     FileUtils.cp inventory_path, destination/record["inventory"]
     (destination/record["inventory"]).chmod 0644
   end
+
+  # Before extraction: only relative, link-free entries the inventory declares.
+  def verify_archive(archive, record)
+    require "digest"
+    require "json"
+    require "rubygems/package"
+    require "zlib"
+    role = record["role"]
+    entries = {}
+    inventory_bytes = nil
+    Zlib::GzipReader.open(archive) do |gzip|
+      Gem::Package::TarReader.new(gzip).each do |entry|
+        path = entry.full_name.delete_suffix("/")
+        if path.split("/", -1).any? { |part| ["", ".", ".."].include?(part) } ||
+           !(entry.file? || entry.directory?)
+          odie "open-brain: #{role} archive has an unsafe entry #{path}"
+        end
+        entries[path] = entry.directory? ? "directory" : "file"
+        inventory_bytes = entry.read if path == record["inventory"]
+      end
+    end
+    if inventory_bytes.nil? ||
+       Digest::SHA256.hexdigest(inventory_bytes) != record["inventory_sha256"]
+      odie "open-brain: #{role} archive inventory does not match the component manifest"
+    end
+    kinds = { record["inventory"] => "file" }
+    JSON.parse(inventory_bytes)["members"].each { |member| kinds[member["path"]] = member["kind"] }
+    entries.each do |path, kind|
+      odie "open-brain: #{role} archive has an undeclared entry #{path}" unless kinds[path] == kind
+    end
+  end
 """
 
 
@@ -336,6 +367,7 @@ def render_homebrew_formula_v2(
             f'    pending = libexec/"{PENDING_EMBEDDING}"',
             "    return unless pending.exist?",
             "",
+            '    verify_archive(pending, component_records.fetch("embedding"))',
             '    stage = prefix/".open-brain-embedding-stage"',
             "    rm_r stage if stage.exist?",
             "    stage.mkpath",

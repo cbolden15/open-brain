@@ -6,6 +6,7 @@ Every archive and manifest here is synthetic; no real assets are needed.
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import io
 import json
 import shutil
@@ -73,6 +74,35 @@ def test_pin_environment_is_written_below_the_build_output(tmp_path: Path) -> No
     assert "EXPECTED_EMBEDDING_INVENTORY_SHA256: Mapping[str, str] = {}" in source.read_text(
         encoding="utf-8"
     )
+
+
+def test_build_without_an_embedding_archive_drops_a_stale_pin_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Frozen(Exception):
+        pass
+
+    seen: list[dict[str, str] | None] = []
+
+    def run(*_args: object, env: dict[str, str] | None = None, **_kwargs: object) -> None:
+        seen.append(env)
+        raise Frozen
+
+    stale = tmp_path / "stale_pin.py"
+    monkeypatch.setenv("OPEN_BRAIN_EMBEDDING_PIN", str(stale))
+    monkeypatch.setenv("OPEN_BRAIN_UNRELATED_SETTING", "kept")
+    monkeypatch.setattr(
+        importlib.metadata,
+        "version",
+        lambda name: {"pyinstaller": "6.22.3", "pyinstaller-hooks-contrib": "2026.7"}[name],
+    )
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(Frozen):
+        base_native.build_base_artifact(ROOT, tmp_path / "out")
+
+    assert len(seen) == 1 and seen[0] is not None
+    assert "OPEN_BRAIN_EMBEDDING_PIN" not in seen[0]
+    assert seen[0]["OPEN_BRAIN_UNRELATED_SETTING"] == "kept"
 
 
 @pytest.mark.parametrize(
@@ -199,6 +229,9 @@ def test_v2_formula_installs_every_resource_from_the_manifest(tmp_path: Path) ->
     assert f'(share/"open-brain/{v2.MANIFEST_FILENAME}").write COMPONENT_MANIFEST_V2' in install
     post_install = formula.split("  def post_install\n", 1)[1].split("\n  end\n", 1)[0]
     assert 'install_component(stage, component_records.fetch("embedding"), prefix)' in post_install
+    # Every archive entry is checked before anything is extracted.
+    verified = 'verify_archive(pending, component_records.fetch("embedding"))'
+    assert post_install.index(verified) < post_install.index('system "tar", "-xzf"')
     helpers = formula.split("  def install_component", 1)[1].split("\n  test do\n", 1)[0]
     assert 'target.chmod member["mode"]' in helpers
     assert "info.nlink != 1" in helpers
@@ -249,6 +282,88 @@ def test_v2_formula_is_valid_ruby(tmp_path: Path) -> None:
             check=False,
         )
         assert checked.returncode == 0, checked.stderr
+
+
+_INVENTORY = "share/open-brain/inventories/embedding.json"
+
+
+def _embedding_archive(path: Path, extra: tarfile.TarInfo | None = None) -> str:
+    """A synthetic embedding archive; returns its inventory digest."""
+    inventory = json.dumps(
+        {
+            "component": {},
+            "members": [
+                {"path": "libexec", "kind": "directory"},
+                {"path": "libexec/helper", "kind": "file"},
+                {"path": "share", "kind": "directory"},
+                {"path": "share/open-brain", "kind": "directory"},
+                {"path": "share/open-brain/inventories", "kind": "directory"},
+            ],
+        }
+    ).encode()
+    with tarfile.open(path, "w:gz", format=tarfile.USTAR_FORMAT) as bundle:
+        for name in ("libexec", "share", "share/open-brain", "share/open-brain/inventories"):
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.DIRTYPE
+            bundle.addfile(info)
+        for name, data in (("libexec/helper", b"helper"), (_INVENTORY, inventory)):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            bundle.addfile(info, io.BytesIO(data))
+        if extra is not None:
+            bundle.addfile(extra, io.BytesIO(b"x" * extra.size) if extra.isreg() else None)
+    return hashlib.sha256(inventory).hexdigest()
+
+
+def _entry(name: str, kind: bytes = tarfile.REGTYPE) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name)
+    info.type = kind
+    if kind == tarfile.REGTYPE:
+        info.size = 1
+    else:
+        info.linkname = "libexec/helper"
+    return info
+
+
+@pytest.mark.skipif(shutil.which("ruby") is None, reason="ruby is unavailable")
+@pytest.mark.parametrize(
+    ("extra", "accepted"),
+    [
+        (None, True),
+        (_entry("/etc/open-brain"), False),
+        (_entry("libexec/../../escape"), False),
+        (_entry("libexec/link", tarfile.SYMTYPE), False),
+        (_entry("libexec/hard", tarfile.LNKTYPE), False),
+        (_entry("libexec/undeclared"), False),
+    ],
+)
+def test_formula_verifies_every_embedding_archive_entry_before_extraction(
+    tmp_path: Path, extra: tarfile.TarInfo | None, accepted: bool
+) -> None:
+    formula = _render(tmp_path, FIXTURE.read_bytes())
+    method = (
+        "  def verify_archive"
+        + formula.split("  def verify_archive", 1)[1].split("\n  end\n", 1)[0]
+    )
+    script = tmp_path / "verify.rb"
+    script.write_text(
+        "def odie(message) = abort(message)\n"
+        f"{method}\n  end\n"
+        'require "json"\nverify_archive(ARGV[0], JSON.parse(ARGV[1]))\n',
+        encoding="utf-8",
+    )
+    archive = tmp_path / "embedding.tar.gz"
+    digest = _embedding_archive(archive, extra)
+    record = {"role": "embedding", "inventory": _INVENTORY, "inventory_sha256": digest}
+    checked = subprocess.run(
+        ("ruby", str(script), str(archive), json.dumps(record)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (checked.returncode == 0) is accepted, checked.stderr
+    if not accepted:
+        assert "open-brain: embedding archive" in checked.stderr
 
 
 # ----------------------------------------------------- v2 archives and smoke

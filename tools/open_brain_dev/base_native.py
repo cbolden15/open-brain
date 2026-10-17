@@ -866,7 +866,10 @@ def build_base_artifact(
         raise BaseNativeError("native build toolchain is not pinned")
     version = product_version(root)
     # Build order: embedding archive, then its inventory pin, then the base freeze.
-    environment: dict[str, str] | None = None
+    # Without an audited archive a stale shell pin must never reach the freeze.
+    environment = {
+        key: value for key, value in os.environ.items() if key != _EMBEDDING_PIN_ENVIRONMENT
+    }
     embedding_pin: tuple[str, str] | None = None
     if embedding_archive is not None:
         from tools.open_brain_dev.embedding_native import verify_embedding_archive
@@ -876,7 +879,7 @@ def build_base_artifact(
             raise BaseNativeError("embedding archive does not match this base build")
         embedding_pin = (resource.platform, resource.inventory_sha256)
         environment = {
-            **os.environ,
+            **environment,
             **embedding_pin_environment(output, {resource.platform: resource.inventory_sha256}),
         }
     subprocess.run(
