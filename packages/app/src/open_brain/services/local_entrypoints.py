@@ -85,6 +85,13 @@ from open_brain.services.consumer_import import (
     write_consumer_failure,
     write_consumer_interrupted,
 )
+from open_brain.services.embedding_policy_cli import (
+    EmbeddingPolicyError,
+    add_embedding_parsers,
+    run_embedding_command,
+    validate_embedding_arguments,
+    write_embedding_failure,
+)
 from open_brain.services.facets import (
     FacetAppAdapter,
     FacetSessionBudget,
@@ -245,6 +252,11 @@ def run_cli(
             validate_retraction_arguments(parsed)
         except RetractionError as error:
             return write_retraction_failure(error.code, json_output=json_output)
+    if parsed.command == "embedding":
+        try:
+            validate_embedding_arguments(parsed)
+        except EmbeddingPolicyError as error:
+            return write_embedding_failure(error.code, json_output=json_output)
     if parsed.command == "restore":
         return _run_portable_restore(parsed, json_output=json_output)
     if parsed.command == "harness":
@@ -454,6 +466,8 @@ def _run_parsed_command(
             return write_consumer_failure("local_operation_failed", json_output=json_output)
         if parsed.command == "retract":
             return write_retraction_failure("local_operation_failed", json_output=json_output)
+        if parsed.command == "embedding":
+            return write_embedding_failure("local_operation_failed", json_output=json_output)
         if _is_workspace_recovery(parsed):
             return _write_managed_recovery_failure(
                 "private_data_unavailable",
@@ -531,6 +545,27 @@ def _run_parsed_command(
                 return 130
             except Exception as error:
                 return write_retraction_failure(
+                    "local_operation_busy"
+                    if database_is_busy(error) or isinstance(error, LockBusyError)
+                    else "local_operation_failed",
+                    json_output=json_output,
+                )
+        if parsed.command == "embedding":
+            try:
+                if not selection.brain_root.exists():
+                    return write_embedding_failure(
+                        "local_operation_failed", json_output=json_output
+                    )
+                with open_local_brain(
+                    selection,
+                    filesystem_type_probe=filesystem_type_probe,
+                    existing_only=True,
+                ) as session:
+                    return run_embedding_command(parsed, session.tasks, json_output=json_output)
+            except EmbeddingPolicyError as error:
+                return write_embedding_failure(error.code, json_output=json_output)
+            except Exception as error:
+                return write_embedding_failure(
                     "local_operation_busy"
                     if database_is_busy(error) or isinstance(error, LockBusyError)
                     else "local_operation_failed",
@@ -840,6 +875,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
     add_retraction_parsers(subparsers, _add_local_options)
+    add_embedding_parsers(subparsers, _add_local_options)
     add_consumer_parsers(subparsers, _add_local_options)
     facet_parser = add_facet_parsers(subparsers)
     _add_facet_local_options(facet_parser)

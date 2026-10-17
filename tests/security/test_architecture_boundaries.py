@@ -54,6 +54,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/agent_settings_observation.py",
         "services/catalog.py",
         "services/consumer_import.py",
+        "services/embedding_policy_cli.py",
         "services/facets.py",
         "services/local_bootstrap.py",
         "services/local_entrypoints.py",
