@@ -67,6 +67,27 @@ def test_fresh_brain_without_resource(tmp_path: Path, monkeypatch: pytest.Monkey
     }
 
 
+@pytest.mark.parametrize("policy", ["absent", "none"])
+def test_missing_policy_tasks_degrade_to_consent_required(tmp_path: Path, policy: str) -> None:
+    base, component = _installed(tmp_path)
+
+    class Tasks:
+        pass
+
+    tasks = Tasks()
+    if policy == "none":
+        tasks.embedding_policy = None  # type: ignore[attr-defined]
+    health = embedding_health(tasks, base_executable=base)
+    assert health == {
+        "schema": "ob.embedding-health.v1",
+        "resource_state": "ready",
+        "cache_state": "absent",
+        "consent_state": "required",
+        "component_id": component,
+        "last_error": None,
+    }
+
+
 def test_ready_resource_before_consent(tmp_path: Path) -> None:
     base, component = _installed(tmp_path)
     assert _health(_brain(tmp_path), base) == {

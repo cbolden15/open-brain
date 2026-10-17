@@ -36,14 +36,16 @@ def _consent(policy: EmbeddingPolicy) -> str:
 
 def embedding_health(tasks: Any, *, base_executable: Path | None = None) -> dict[str, object]:
     """Compose resource, cache and consent state without inference or source counts."""
-    policy_tasks = tasks.embedding_policy
-    if not isinstance(policy_tasks, EmbeddingPolicyTasks):
-        raise ValueError("embedding policy unavailable")
-    policy = policy_tasks.status(authority=owner_authority(tasks, session_id="owner-health"))
     resource_state, component_id, last_error = _resource(base_executable)
-    consent_state = _consent(policy)
+    policy_tasks = getattr(tasks, "embedding_policy", None)
+    if not isinstance(policy_tasks, EmbeddingPolicyTasks):
+        # No policy surface never breaks ``status``/``doctor``: nothing was consented to.
+        policy: EmbeddingPolicy | None = None
+    else:
+        policy = policy_tasks.status(authority=owner_authority(tasks, session_id="owner-health"))
+    consent_state = "required" if policy is None else _consent(policy)
     cache_state = "absent"
-    if policy.enabled:
+    if policy is not None and policy_tasks is not None and policy.enabled:
         # Reads the owner-local cache pointer and generation only; no vectors leave this call.
         cache = active_status(policy_tasks._engine)
         if isinstance(cache, ActiveGeneration):

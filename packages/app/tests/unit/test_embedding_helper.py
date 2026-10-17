@@ -904,6 +904,41 @@ def test_tamper_between_verification_and_launch_is_caught(
 
 
 @process
+def test_each_embed_call_hashes_the_stage_once(
+    make: Callable[..., Env], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env = make()
+    backend = env.backend()
+    backend.embed("query", [QUERY])
+    original = eh._Stage._verify_file
+    original_run = eh._run_child
+    hashed: list[str] = []
+    launches: list[int] = []
+
+    def counting(self: eh._Stage, directory_fd: int, leaf: str, item: Any) -> Any:
+        hashed.append(item.relative)
+        return original(self, directory_fd, leaf, item)
+
+    def run(stage: Path, request: bytes, clock: eh._Clock) -> tuple[int, bytes]:
+        launches.append(1)
+        if touch and len(launches) == 1:
+            # A stat-identity change between the two launches forces a full re-verify.
+            os.utime(stage / "tokenizer" / "vocab.txt", ns=(1, 1))
+        return original_run(stage, request, clock)
+
+    monkeypatch.setattr(eh._Stage, "_verify_file", counting)
+    monkeypatch.setattr(eh, "_run_child", run)
+    files = len(eh._Stage(-1, env.stage.parent, eh.verify_embedding_metadata(env.installed)).files)
+    for touch in (False, False, True):
+        hashed.clear()
+        launches.clear()
+        assert backend.embed("query", [QUERY])
+        assert launches == [1, 1]
+        assert len(hashed) == files * (2 if touch else 1)
+    assert len(set(hashed)) == files
+
+
+@process
 def test_persistent_tamper_after_verification_is_untrusted(
     make: Callable[..., Env], monkeypatch: pytest.MonkeyPatch
 ) -> None:

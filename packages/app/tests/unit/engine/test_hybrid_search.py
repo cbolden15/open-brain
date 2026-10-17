@@ -8,6 +8,7 @@ import math
 import os
 import re
 import sqlite3
+import sys
 import time
 import uuid
 from array import array
@@ -662,6 +663,45 @@ def test_unavailable_backend_refuses_required_and_falls_back_preferred(
     assert (fallback["mode_used"], fallback["warnings"]) == ("lexical", ["model_unavailable"])
 
 
+class _Raising(FakeBackend):
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+    def embed(self, purpose: str, texts: Sequence[str]) -> list[EmbeddedItem]:
+        if purpose == "query":
+            raise self.error
+        return super().embed(purpose, texts)
+
+
+@pytest.mark.parametrize("stage", ["factory-oserror", "embed-valueerror", "embed-oserror"])
+def test_semantic_stage_value_or_os_error_is_unavailable(tmp_path: Path, stage: str) -> None:
+    engine, factory, _ = _brain(tmp_path)
+    _rebuild(engine)
+    if stage == "factory-oserror":
+
+        def broken() -> FakeBackend:
+            raise OSError("synthetic factory failure")
+
+        engine._embedding_backend = broken
+    elif stage == "embed-valueerror":
+        factory.backend = _Raising(ValueError("synthetic surrogate"))
+    else:
+        factory.backend = _Raising(OSError("synthetic pipe failure"))
+    with pytest.raises(T03Error, match="^model_unavailable$"):
+        _search(engine, "car notes")
+    fallback = _search(engine, "car notes", mode="hybrid_preferred")
+    assert (fallback["mode_used"], fallback["warnings"]) == ("lexical", ["model_unavailable"])
+
+
+def test_semantic_stage_does_not_swallow_other_errors(tmp_path: Path) -> None:
+    engine, factory, _ = _brain(tmp_path)
+    _rebuild(engine)
+    factory.backend = _Raising(RuntimeError("synthetic defect"))
+    with pytest.raises(RuntimeError, match="synthetic defect"):
+        _search(engine, "car notes", mode="hybrid_preferred")
+
+
 def test_lexical_mode_never_touches_backend_or_cache(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -817,6 +857,10 @@ def test_mcp_adapter_error_shape_is_unchanged(tmp_path: Path) -> None:
     assert factory.constructed >= 1
 
 
+def _filesystem(_path: Path, platform_name: str) -> str:
+    return "apfs" if platform_name == "darwin" else "ext4"
+
+
 def test_local_bootstrap_constructs_installed_helper_only_for_hybrid_modes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -832,8 +876,8 @@ def test_local_bootstrap_constructs_installed_helper_only_for_hybrid_modes(
 
     monkeypatch.setattr(embedding_helper, "discover_embedding_resource", missing)
     tmp_path.chmod(0o700)
-    selection = LocalRootSelection(tmp_path, None, tmp_path / "brain", "darwin")
-    with open_local_brain(selection) as session:
+    selection = LocalRootSelection(tmp_path, None, tmp_path / "brain", sys.platform)
+    with open_local_brain(selection, filesystem_type_probe=_filesystem) as session:
         session.tasks.capture.accept(TextPayload("car notes"), delivery_id="bootstrap.one")
         authority = owner_authority(session.tasks, session_id="bootstrap-hybrid")
 

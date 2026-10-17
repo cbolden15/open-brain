@@ -1160,8 +1160,11 @@ def _rebuild_locked(
             try:
                 _activate(root, generation_id, manifest_sha256)
             except OSError:
-                # Translated here so the lease release cannot recast a swap failure.
-                _fail("cache_incomplete")
+                # Once ``active.json`` names the generation it is live; a failed root
+                # fsync after the replace is a successful activation, not a failure.
+                if root.activated != generation_id:
+                    # Translated here so the lease release cannot recast a swap failure.
+                    _fail("cache_incomplete")
     except Exception as error:
         # Never remove the generation ``active.json`` already names.
         if root.activated != generation_id:
@@ -1170,6 +1173,8 @@ def _rebuild_locked(
         if isinstance(error, OSError):
             _fail("cache_incomplete")
         raise
+    # Removal runs after the writer lease is released, so a concurrent ``hybrid_required``
+    # search that read the previous pointer may see a transient ``model_unavailable``.
     root.remove_inactive(generation_id)
     return RebuildReceipt(
         generation_id=generation_id,

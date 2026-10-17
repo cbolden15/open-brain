@@ -339,7 +339,9 @@ def _semantic_query(engine: BrainEngine, query: str) -> _Semantic | None:
         if backend.component_id != status.component_id:
             return None
         items = backend.embed("query", [unicodedata.normalize("NFC", query)])
-    except EmbeddingFailure:
+    except EmbeddingFailure, ValueError, OSError:
+        # Unencodable query text (``ValueError``) or an unusable resource/pipe (``OSError``)
+        # is unavailability, never an internal error; anything else still propagates.
         return None
     if len(items) != 1 or len(items[0].chunks) != 1:
         return None

@@ -723,7 +723,7 @@ def test_rebuild_budget_is_a_deadline(tmp_path: Path, monkeypatch: pytest.Monkey
     assert _generations(engine) == []
 
 
-def test_fsync_failure_after_pointer_swap_keeps_the_named_generation(
+def test_fsync_failure_after_pointer_swap_is_a_successful_activation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = _brain(tmp_path)
@@ -746,12 +746,11 @@ def test_fsync_failure_after_pointer_swap_keeps_the_named_generation(
     with monkeypatch.context() as patched:
         patched.setattr(os, "replace", replace)
         patched.setattr(os, "fsync", fsync)
-        with _failure("cache_incomplete"):
-            _rebuild(engine)
+        receipt = _rebuild(engine)
     pointer = json.loads((_root(engine) / "active.json").read_bytes())
-    assert pointer["generation_id"] != first.generation_id
-    assert pointer["generation_id"] in _generations(engine)
-    assert _active(engine).generation_id == pointer["generation_id"]
+    assert receipt.generation_id == pointer["generation_id"] != first.generation_id
+    assert _generations(engine) == [receipt.generation_id]
+    assert _active(engine).generation_id == receipt.generation_id
     again = _rebuild(engine)
     assert _generations(engine) == [again.generation_id]
 

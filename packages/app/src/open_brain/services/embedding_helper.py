@@ -1117,7 +1117,7 @@ class HelperEmbeddingBackend:
         with _locked_stage_parent(self._brain_root, clock) as parent_fd:
             stage = _Stage(parent_fd, self._brain_root.joinpath(*STAGE_PARTS), verified)
             capabilities_id = secrets.token_hex(16)
-            returncode, raw = self._launch(
+            returncode, raw, identities = self._launch(
                 stage,
                 _request(
                     {
@@ -1131,7 +1131,9 @@ class HelperEmbeddingBackend:
             )
             _validate_capabilities(returncode, raw, capabilities_id, self.component_id)
             clock = _Clock(time.monotonic() + _DEADLINE_SECONDS[purpose], self._cancelled)
-            returncode, raw = self._launch(stage, request, clock, _DEADLINE_SECONDS[purpose])
+            returncode, raw, _ = self._launch(
+                stage, request, clock, _DEADLINE_SECONDS[purpose], identities
+            )
         if self._cancelled():
             _fail("cancelled")
         return _validate_embed(
@@ -1145,12 +1147,20 @@ class HelperEmbeddingBackend:
 
     @staticmethod
     def _launch(
-        stage: _Stage, request: bytes, clock: _Clock, child_seconds: float
-    ) -> tuple[int, bytes]:
-        identities = stage.prepare(clock)
-        if not stage.unchanged(identities):
-            identities = stage.rebuild(clock)
+        stage: _Stage,
+        request: bytes,
+        clock: _Clock,
+        child_seconds: float,
+        verified: dict[str, _Identity] | None = None,
+    ) -> tuple[int, bytes, dict[str, _Identity]]:
+        # Every ``embed()`` call fully re-verifies (D7); a later launch in the same call
+        # rechecks only the stat identities verified earlier, and any change re-verifies.
+        identities = verified
+        if identities is None or not stage.unchanged(identities):
+            identities = stage.prepare(clock)
             if not stage.unchanged(identities):
-                _fail("resource_untrusted")
+                identities = stage.rebuild(clock)
+                if not stage.unchanged(identities):
+                    _fail("resource_untrusted")
         child_clock = _Clock(min(clock.deadline, time.monotonic() + child_seconds), clock.cancelled)
-        return _run_child(stage.path, request, child_clock)
+        return (*_run_child(stage.path, request, child_clock), identities)
