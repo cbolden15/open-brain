@@ -85,6 +85,7 @@ from open_brain.services.consumer_import import (
     write_consumer_failure,
     write_consumer_interrupted,
 )
+from open_brain.services.embedding_health import embedding_health
 from open_brain.services.embedding_policy_cli import (
     EmbeddingPolicyError,
     add_embedding_parsers,
@@ -3115,6 +3116,7 @@ def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
         "profile": "local",
         "storage": "sqlite",
         "ingestion_journal": journal_summary,
+        "embedding_health": embedding_health(session.tasks),
     }
     if json_output:
         _write_json(payload)
@@ -3151,6 +3153,7 @@ def _write_doctor(
         passed = False
     payload = {
         "check": check,
+        "embedding_health": embedding_health(session.tasks),
         "ingestion_journal": _journal_summary(tasks=session.tasks),
         "status": "ok" if passed else "failed",
     }

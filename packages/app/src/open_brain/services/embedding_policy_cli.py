@@ -24,6 +24,7 @@ from open_brain_engine.engine.embedding_policy import (
     validate_component_id,
 )
 
+from .embedding_health import embedding_health
 from .t03_adapters import owner_authority
 
 ERROR_CODES = frozenset(
@@ -170,6 +171,8 @@ def run_embedding_command(
     else:
         policy = policy_tasks.status(authority=authority)
     payload = policy.status()
+    if parsed.embedding_action == "status":
+        payload["embedding_health"] = embedding_health(tasks)
     if json_output:
         print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     else:

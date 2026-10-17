@@ -1137,6 +1137,8 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
         == 0
     )
     before_export = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    health = cast(dict[str, object], before_export.pop("embedding_health"))
+    assert health["schema"] == "ob.embedding-health.v1"
     assert before_export == {
         "application_encryption": False,
         "brain_count": 1,
@@ -1203,6 +1205,7 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
         == 0
     )
     after_export = cast(dict[str, object], json.loads(capsys.readouterr().out))
+    assert after_export.pop("embedding_health") == health
     assert after_export == before_export | {"portable_export": "verified"}
 
     for check in (
@@ -1220,9 +1223,7 @@ def test_exact_local_data_journey_bootstraps_without_init_or_background_runtime(
             )
             == 0
         )
-        assert capsys.readouterr().out == (
-            f"{check}: ok. Journal pending: 0; quarantined: 0.\n"
-        )
+        assert capsys.readouterr().out == (f"{check}: ok. Journal pending: 0; quarantined: 0.\n")
 
     assert not (brain_root / ".open-brain/run/control.sock").exists()
 
@@ -1825,7 +1826,9 @@ def test_local_dependency_doctor_rejects_an_unconditional_secure_node_dependency
         )
         == 1
     )
-    assert json.loads(capsys.readouterr().out) == {
+    doctor = json.loads(capsys.readouterr().out)
+    assert doctor.pop("embedding_health")["schema"] == "ob.embedding-health.v1"
+    assert doctor == {
         "check": "base-dependency-closure",
         "ingestion_journal": {
             "last_failure_code": None,

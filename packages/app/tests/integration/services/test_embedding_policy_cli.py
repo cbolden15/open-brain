@@ -41,7 +41,9 @@ def test_status_enable_disable_json_shapes(
     root = tmp_path / "brain"
     BrainEngine.open(compile_single_user_local(root))
     assert _cli(root, "embedding", "status") == 0
-    assert _output(capsys) == {
+    status = _output(capsys)
+    assert status.pop("embedding_health") is not None
+    assert status == {
         "schema": "ob.embedding-policy-status.v1",
         "enabled": False,
         "component_id": None,
@@ -62,7 +64,9 @@ def test_status_enable_disable_json_shapes(
         "consent_version": 2,
     }
     assert _cli(root, "embedding", "status") == 0
-    assert _output(capsys)["consent_version"] == 2
+    status = _output(capsys)
+    assert status["consent_version"] == 2
+    assert status["embedding_health"]["consent_state"] == "revoked"  # type: ignore[index]
 
 
 @pytest.mark.parametrize("component", ["ABC", COMPONENT.upper(), COMPONENT + "0"])
