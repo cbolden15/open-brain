@@ -1,0 +1,1493 @@
+{
+  "schema": "ob.g4-relevance-corpus.v1",
+  "records": [
+    {
+      "id": "r001",
+      "title": "Portuguese verbs finally stuck",
+      "body": "Conjugation tables never stuck. What worked: reading short children's stories aloud and noting each verb ending in a spreadsheet. After a month the past forms felt natural. Next step is a weekly call with a tutor."
+    },
+    {
+      "id": "r002",
+      "title": "Passport renewal took nine weeks",
+      "body": "Applied for the new passport renewal in March and the booklet arrived after nine weeks, well beyond the advertised window. Lesson: paid expedited handling is worth it when a trip is booked within three months. Keep the old one until the new one lands."
+    },
+    {
+      "id": "r003",
+      "title": "Concert ticket bundle",
+      "body": "The concert ticket bundle with parking is worth it only if I buy before Friday. Few seats are left, and the unlimited drinks add-on is a gimmick. Splitting the bundle with Priya brings the price down to something reasonable."
+    },
+    {
+      "id": "r004",
+      "title": "Smart plug automations",
+      "body": "The lamp turns on at sunset, the coffee machine at six forty, and the space heater has a timer that shuts it off after two hours. Anything with a heating element gets a hard limit."
+    },
+    {
+      "id": "r005",
+      "title": "Asking the landlord to share rewiring costs",
+      "body": "Asked the landlord to cover part of the rewiring. Forwarded INV-40817 along with photos of the old fuse box, and they agreed to reimburse forty percent once the inspector signs off. Follow up by the end of the month if nothing arrives."
+    },
+    {
+      "id": "r006",
+      "title": "Supplier reply about seeds",
+      "body": "Wrote back to the seed supplier quoting BATCH_20260311; they said other customers reported the same problem and will refund. No need to return the unused packets, and a voucher is coming by email."
+    },
+    {
+      "id": "r007",
+      "title": "Replacing a light switch",
+      "body": "Turn off the breaker and test the wires with a voltage pen. Photograph the connections before unscrewing anything, then move each wire to the same terminal on the new switch. Cover plate last. Fifteen minutes with a good screwdriver."
+    },
+    {
+      "id": "r008",
+      "title": "On-call handoff template",
+      "body": "Handoff note covers open incidents, flaky alerts, scheduled maintenance, and anything unusual from the week. Link dashboards rather than pasting screenshots. The incoming engineer replies with questions before the previous one logs off."
+    },
+    {
+      "id": "r009",
+      "title": "Weekly habit review",
+      "body": "My habit streak helped me notice that the night routine slips on Fridays. Faster check ins, just two lines in a notebook, work better than the big tracking app. Review the notebook every Sunday and drop any habit that has not mattered in a month."
+    },
+    {
+      "id": "r010",
+      "title": "Flat battery after the airport lot",
+      "body": "The car would not start after two weeks in the airport lot. The interior dome light was left on a faint circuit, draining the battery. A jump start worked; replaced the stuck switch. Carry a compact jump pack on trips."
+    },
+    {
+      "id": "r011",
+      "title": "Starting a compost bin",
+      "body": "Layer browns and greens about two to one, chop everything small, and turn the pile every couple of weeks. Skip meat and dairy. After four months of this the bottom layer is dark and crumbly and the garden beds love it."
+    },
+    {
+      "id": "r012",
+      "title": "VPN idle timeout article",
+      "body": "Internal article KB-2290 explains why the VPN drops after ten idle minutes: the gateway closes quiet sessions. The workaround is a keepalive ping every five minutes. Pasted the steps into my notes for new teammates."
+    },
+    {
+      "id": "r013",
+      "title": "Training Biscuit to come when called",
+      "body": "Biscuit ignores me at the park unless I have the squeaky toy. Trainer advice: use a high value treat only for coming when called, never repeat the command, and practice on a long line first. Two weeks in, she turns around within a few steps."
+    },
+    {
+      "id": "r014",
+      "title": "Winter gear storage",
+      "body": "Keeping winter gear tidy: overhead racks in the garage hold the skis, and distinct bins mark each family member. Storage locations are labelled on the door list. Combining the boot bins would add clutter, so leave them separate."
+    },
+    {
+      "id": "r015",
+      "title": "Wild garlic recipes",
+      "body": "Wild garlic recipes with suggestions from a neighbour fond of foraging: blend into pesto, or present the leaves wilted over eggs. Pick before the flowers open and wash twice. It freezes well chopped in oil."
+    },
+    {
+      "id": "r016",
+      "title": "Pizza dough hydration notes",
+      "body": "For pizza dough I use sixty five percent hydration and let it rest cold fermented for forty eight hours in the fridge, which gives better blistering. Bake on a steel plate at the highest oven setting and keep the toppings sparse."
+    },
+    {
+      "id": "r017",
+      "title": "Date parsing bug",
+      "body": "Bug BUG-5521: dates entered as day then month are parsed as month then day when the browser locale is set to US. Reproduced with a unit test using 03/04/2026. The fix is to parse with an explicit format rather than guessing."
+    },
+    {
+      "id": "r018",
+      "title": "Home insurance renewal",
+      "body": "Home insurance policy POL-884-102-33 renews in November. The quote went up eleven percent, so I will compare two other providers first. The excess is five hundred, and flood cover is included only with the higher tier."
+    },
+    {
+      "id": "r019",
+      "title": "Seed tray chart",
+      "body": "Seed tray chart for this spring: tomatoes failed on the cold windowsill but beans succeeded. Memorizing which window runs warm saves trouble, so I labelled each tray. Peppers go on the heat mat next month and the lettuce can wait."
+    },
+    {
+      "id": "r020",
+      "title": "Reading a menu in another language",
+      "body": "Learn the dozen words for meat, fish and egg dishes before a trip. Photograph unfamiliar items and translate offline later. Daily specials are often chalked on a board outside, and they are usually the freshest thing on offer."
+    },
+    {
+      "id": "r021",
+      "title": "Seat reservations on European trains",
+      "body": "On the long routes, seat reservations are mandatory even with a pass, and they sell out on summer weekends. Book as soon as the timetable opens and screenshot the QR code, since the station wifi is unreliable."
+    },
+    {
+      "id": "r022",
+      "title": "Frost warning for the citrus",
+      "body": "The forecast warning said frost arrived early this year. We lost most leaves on the lemon tree before I wrapped the trunk in fleece. Move the potted limes into the porch whenever the overnight low drops below three degrees."
+    },
+    {
+      "id": "r023",
+      "title": "Charitable giving plan",
+      "body": "Set a fixed percentage of income and give through a donor advised account so the paperwork is in one place. Pick three causes and review annually. Employer matching doubles two of the three, so those get funded first."
+    },
+    {
+      "id": "r024",
+      "title": "Frozen pipes in the garage",
+      "body": "The garage pipes froze during the January cold snap and the pressure load split a joint behind the washer. Many hours of mopping later I wrapped every exposed run in foam sleeves and now leave the tap dripping on freezing nights."
+    },
+    {
+      "id": "r025",
+      "title": "Garage parking near home",
+      "body": "Parking near home is a headache. The garage cash machine is broken, so paying by app is faster, though the app charges a fee. A monthly permit is cheaper if I use it more than ten days, which I rarely do."
+    },
+    {
+      "id": "r026",
+      "title": "Decision: stay with separate repositories",
+      "body": "Staying with separate repositories. Merging would simplify shared libraries but tooling cost and slower checkouts outweigh it for a team of six. Revisit if cross repository changes exceed one a week."
+    },
+    {
+      "id": "r027",
+      "title": "Extra payments on the loan",
+      "body": "Ran the numbers: sending an extra three hundred a month toward the loan balance saves about eleven years of interest at 6.1 percent. It beats the savings rate, but only after the emergency fund is full."
+    },
+    {
+      "id": "r028",
+      "title": "Carry-on only packing list",
+      "body": "Two pairs of trousers, five shirts, a light jacket, one pair of comfortable shoes, and a travel towel. Liquids in a clear bag under one hundred millilitres. Laundry on day four means no checked bag, ever."
+    },
+    {
+      "id": "r029",
+      "title": "Repotting an orchid",
+      "body": "Repot only after flowering, using bark mix in a clear pot so roots get light. Trim dead roots with clean scissors. Water by soaking for ten minutes weekly and let it drain completely before returning it to the shelf."
+    },
+    {
+      "id": "r030",
+      "title": "Decision: sprint length stays two weeks",
+      "body": "Discussed moving to one week sprints. Overhead of planning every week outweighed the faster feedback, so we keep two weeks and add a mid sprint check. Revisit after the next big release."
+    },
+    {
+      "id": "r031",
+      "title": "Lisbon tram day plan",
+      "body": "Start early at the viewpoint before the crowds, ride the old yellow tram up the hill, lunch in the market hall, and leave the afternoon open for the riverside. Buy a rechargeable transit card at the metro station on arrival."
+    },
+    {
+      "id": "r032",
+      "title": "Quick pickled red onions",
+      "body": "Slice thinly, pack in a jar, and cover with equal parts vinegar and water plus sugar and salt, heated until dissolved. Ready in an hour, lasts two weeks in the fridge. Good on tacos and rice bowls."
+    },
+    {
+      "id": "r033",
+      "title": "Walking meetings",
+      "body": "Take one on one conversations outside whenever the weather allows. Fewer distractions, more candour, and the step count helps. Keep a short note app open for decisions, and avoid it for anything needing a screen share."
+    },
+    {
+      "id": "r034",
+      "title": "First batch of home brew notes",
+      "body": "Sanitise everything, pitch the yeast at the right temperature, and leave the fermenter alone for two weeks. Bottling day took four hours. The result was cloudy but drinkable, and next time I will use a bigger siphon."
+    },
+    {
+      "id": "r035",
+      "title": "Closet organization",
+      "body": "Hang by category and colour, store off season clothes in boxes under the bed, and use slim hangers. Anything unworn for a year goes into the donation bag. The shoe rack by the door cut morning clutter in half."
+    },
+    {
+      "id": "r036",
+      "title": "Eye strain and the twenty rule",
+      "body": "Every twenty minutes look at something twenty feet away for twenty seconds. Added a larger font, lower screen brightness in the evening, and a matte filter. Dry eyes improved within ten days."
+    },
+    {
+      "id": "r037",
+      "title": "Three fishing knots",
+      "body": "Improved clinch for hooks, double uni to join lines, and a loop knot for lures. Wet the line before tightening. Practise at the kitchen table until the hands do it without thinking."
+    },
+    {
+      "id": "r038",
+      "title": "Bird feeder placement",
+      "body": "Place feeders within a metre of a window to stop collision injuries, or more than ten metres away. Keep seed dry and clean the tray weekly. Sunflower hearts attract the widest range of species."
+    },
+    {
+      "id": "r039",
+      "title": "Winter grass is dormant, not dead",
+      "body": "The grass turned straw coloured in January and I panicked. It was dormant, not dead. Stay off it when frosted, skip fertiliser until spring, and mow high on the first warm day. Green returned by April."
+    },
+    {
+      "id": "r040",
+      "title": "Client portal credentials policy",
+      "body": "The client web portal expects every contractor to remember a separate login, and the credentials rotate quarterly. Ask the account manager for single sign on instead. Until then I keep a sticky reminder of the rotation date."
+    },
+    {
+      "id": "r041",
+      "title": "Answering the wedding invitation",
+      "body": "Polite and prompt replies matter for a wedding. A colleague invited me, and I submitted my response late last time, which caused seating trouble. This time I answered the same day and noted the dietary needs for the caterer."
+    },
+    {
+      "id": "r042",
+      "title": "Campfire cooking basics",
+      "body": "Cook over embers, not flames. Foil packets of potatoes and sausage take thirty minutes. Bring a cast iron pan, a long spatula and oven gloves. Always keep a bucket of water beside the ring."
+    },
+    {
+      "id": "r043",
+      "title": "Connection pool exhaustion on staging",
+      "body": "Staging API went unresponsive every afternoon. Cause: the worker pool opened more database sessions than the server permits, so new requests queued forever. Fix: cap the pool at twenty connections and add a five second timeout so stuck workers give up instead of piling on."
+    },
+    {
+      "id": "r044",
+      "title": "Brake pad squeal",
+      "body": "Squealing on light braking was the wear indicator on the front pads. The mechanic measured two millimetres left. Replace pads and resurface the discs together, and ask for the old parts back to see the wear pattern."
+    },
+    {
+      "id": "r045",
+      "title": "Slimming the container image",
+      "body": "The build image dropped from 1.2 gigabytes to 140 megabytes after switching to a minimal base and a multi-stage setup. The compiler stays in the first stage; only the binary and certificates get copied across. Cold deploys are noticeably faster."
+    },
+    {
+      "id": "r046",
+      "title": "Dry skin patches on elbows",
+      "body": "Dry skin patches on my elbows get sore in winter. Avoiding hot showers helped, along with a thick ointment applied right after drying. The dermatologist said it is common and not worth a prescription unless it cracks."
+    },
+    {
+      "id": "r047",
+      "title": "Neighbour's washer fault",
+      "body": "The neighbour's washer also showed ERR_E4412 last week, and a technician told her it was a pump filter problem as well. Tip to remember: check the little hatch at the bottom front before booking any repair call."
+    },
+    {
+      "id": "r048",
+      "title": "Rebase versus merge",
+      "body": "Rebase local work onto the main branch before opening a pull request to keep history linear. Never rebase commits that others have pulled. Squash merge on landing keeps the main branch readable."
+    },
+    {
+      "id": "r049",
+      "title": "Packing cube system",
+      "body": "Three cubes cover everything: tops, bottoms, and underwear with socks. A flat pouch holds chargers and adapters. Rolling shirts saves more room than folding. Everything fits a small backpack for trips under five days."
+    },
+    {
+      "id": "r050",
+      "title": "Quick weeknight curry",
+      "body": "Fry onion, garlic and ginger, add a spoon of curry paste, then a tin of chickpeas and coconut milk. Spinach goes in at the end. Twenty minutes start to finish and it keeps three days, tasting better on day two."
+    },
+    {
+      "id": "r051",
+      "title": "Raised bed soil mix",
+      "body": "One third compost, one third coarse vermiculite, one third mixed topsoil makes a forgiving blend that drains and holds moisture. Top up every spring with an inch of compost. Never walk on the beds."
+    },
+    {
+      "id": "r052",
+      "title": "Rotating passwords sensibly",
+      "body": "Rotate only when a breach is announced or the account matters a lot. Long random passphrases beat frequent changes. Enable app based codes everywhere, not texts, and keep recovery codes printed."
+    },
+    {
+      "id": "r053",
+      "title": "Parking charge appeal",
+      "body": "Received a parking charge notice for plate PLATE-7QX902. Photos show the pay machine was out of order, which is grounds for appeal. Send the photos and the machine fault report within twenty eight days."
+    },
+    {
+      "id": "r054",
+      "title": "Loading the dishwasher properly",
+      "body": "Plates face the centre, cups angled down, big pots on the bottom rack, and cutlery mixed so spoons do not nest. Skip the pre rinse but scrape. Clean the filter monthly and run a hot cycle with vinegar occasionally."
+    },
+    {
+      "id": "r055",
+      "title": "Structured logging fields",
+      "body": "Every log line should carry a request id, a user id where relevant, and a duration in milliseconds. Free text messages are fine for humans but search needs fields. Avoid logging whole payloads containing personal data."
+    },
+    {
+      "id": "r056",
+      "title": "Cleaning rice residue from the dishwasher",
+      "body": "Rice residue clogs the dishwasher filter, so scrape each dish first. Liquid additions of white vinegar in a monthly hot cycle help, and the filter needs constant attention if the water is hard. Creamy detergent pods leave film."
+    },
+    {
+      "id": "r057",
+      "title": "Homemade chili oil",
+      "body": "Heat oil with star anise, cinnamon and garlic until just fragrant, then pour over chili flakes and sesame seeds in a heatproof bowl. Let it sit overnight. Keep in a jar and stir before using."
+    },
+    {
+      "id": "r058",
+      "title": "Blister prevention on the coast trail",
+      "body": "Hot spots turn into blisters within hours. Stop immediately, tape the spot with a smooth strip, and change damp socks. Merino blend socks and a half size larger boot ended the problem on the coast trail."
+    },
+    {
+      "id": "r059",
+      "title": "Creek cleanup volunteers",
+      "body": "Volunteer creek cleanup on Saturday: we were removing debris from the bank to stop overflow in the culvert. Gloves and grabbers are provided. Bring boots and a thermos, because the group stays until noon and finishes with soup."
+    },
+    {
+      "id": "r060",
+      "title": "Recalled peanut butter jar",
+      "body": "Fridge door check: the jar with lot LOT-A7731 is on the recall list for possible contamination. Threw it out and photographed the label for the refund form. Buy the other brand until the investigation closes."
+    },
+    {
+      "id": "r061",
+      "title": "Hiring plan for next half",
+      "body": "Two backend engineers and one designer, in that order. Job posts go up after the budget review. Take home exercises are limited to ninety minutes and paid for finalists, with feedback sent within three days."
+    },
+    {
+      "id": "r062",
+      "title": "Warranty claim for the headphones",
+      "body": "Warranty case CASE-2026-0417 covers my headphones whose left cup crackles. The manufacturer wants proof of purchase and a short video of the fault. They will send a prepaid return box."
+    },
+    {
+      "id": "r063",
+      "title": "Shell alias shortlist",
+      "body": "A handful earn their place: gs for git status, gco for checkout, a tiny function that makes a directory and enters it, and a safer rm that asks once. More than ten aliases and I forget them."
+    },
+    {
+      "id": "r064",
+      "title": "Ficus shedding by the radiator",
+      "body": "The ficus is shedding leaves because the room is warm and dry in the evenings. I moved it away from the radiator and misted the plants around it. No flowers expected, but the new growth looks firmer after two weeks."
+    },
+    {
+      "id": "r065",
+      "title": "Solar panel installer shortlist",
+      "body": "Three installers are candidates for the roof job, and their panel output claims vary a lot. One judged our roof consistently shaded and quoted less. Hiring him is out, since the sunny side faces south and gets plenty of light."
+    },
+    {
+      "id": "r066",
+      "title": "Return label arrived",
+      "body": "The label for CASE-2026-0417 arrived. I wrapped the headphones in a towel inside the original box and dropped it at the post office on Thursday. Tracking says delivery in four days, and a replacement ships after inspection."
+    },
+    {
+      "id": "r067",
+      "title": "Cache invalidation strategy",
+      "body": "Prefer short time to live values plus explicit purge on writes for the few hot keys. Versioned cache keys avoid stale reads after a deploy. Measure hit rate before adding a second layer."
+    },
+    {
+      "id": "r068",
+      "title": "Decision: sunset the old export route",
+      "body": "Decision from Tuesday: we will sunset the old CSV export route at the end of the quarter. Three customers still call it; Dana will email them a migration guide. No new features go into it. Revisit only if usage rises above ten calls a day."
+    },
+    {
+      "id": "r069",
+      "title": "Council tax payment reference",
+      "body": "Use reference REF:88215-KM when paying the council bill online or the payment may land in the wrong account. The direct debit starts in April, ten monthly instalments, so cancel the old standing order first."
+    },
+    {
+      "id": "r070",
+      "title": "Retro: quarantine flaky tests",
+      "body": "Team agreed to quarantine any test that fails randomly twice in a week, file a ticket, and fix within a sprint. Quarantined tests still run nightly but never block merges. The red build culture was wearing people down."
+    },
+    {
+      "id": "r071",
+      "title": "Interview scorecard rubric",
+      "body": "We switched to a fixed rubric: four dimensions scored one to four right after each conversation, before reading anyone else's notes. This cut debate about gut feeling and made rejections easier to explain."
+    },
+    {
+      "id": "r072",
+      "title": "Freestyle swim technique",
+      "body": "Kick from the hips, rotate the body with each stroke, and breathe every third stroke to balance. Filming from the side showed my hands crossing the centreline. A pull buoy for drills helped me focus on the arms."
+    },
+    {
+      "id": "r073",
+      "title": "Cleaning a camera lens",
+      "body": "Blow off dust with a rocket blower first, then use a microfibre cloth with a drop of lens cleaner, working from the centre outwards. Never breathe fog onto the glass and rub. Keep a cap on whenever the lens is loose."
+    },
+    {
+      "id": "r074",
+      "title": "Kitchen remodel project code",
+      "body": "The contractor refers to our kitchen remodel as PRJ-7731 on every quote and email. Cabinets arrive in three weeks, and the countertop template visit is scheduled after that. Keep the code handy when calling the supplier, and note the install date."
+    },
+    {
+      "id": "r075",
+      "title": "Text updates from the vet",
+      "body": "The vet clinic sends text updates in the mornings, and I check my phone over breakfast so Mochi's stay is less of a worry. They are spoken to kindly by the nurses, and the surgeon calls only if something changes during the procedure."
+    },
+    {
+      "id": "r076",
+      "title": "A history of the spice trade",
+      "body": "Long read about how pepper routes shaped three empires. What I will remember: the cost differences were smaller than legend suggests, but risk and middlemen made the margins huge. Good chapter on how monsoon timing set the calendar for entire cities."
+    },
+    {
+      "id": "r077",
+      "title": "Lake weekend hotel booking",
+      "body": "Hotel booking confirmation CONF-XQ48ZL for the lake weekend: check in after three, free cancellation until the fourteenth, breakfast included. Parking is a short walk from the lobby. Print a copy in case the phone dies."
+    },
+    {
+      "id": "r078",
+      "title": "Tax document checklist",
+      "body": "Gather income statements, interest and dividend forms, donation receipts, medical expenses, and property tax bills. A single folder, filled throughout the year, makes filing take one evening instead of a weekend."
+    },
+    {
+      "id": "r079",
+      "title": "Squeaky door hinge",
+      "body": "Remove the pin, wipe it clean, and coat it with a dab of petroleum jelly. Tap it back in with a hammer. The squeak was gone in a minute, and that beats spraying oil that drips down the paint."
+    },
+    {
+      "id": "r080",
+      "title": "Freezer meal trial",
+      "body": "Freezer meal trial: the first small batch of soup cracked its glass container, a minor disaster. Next time I will trial a hard plastic piece with an inch of headspace. Label with the date so nothing lurks until spring."
+    },
+    {
+      "id": "r081",
+      "title": "Masonry drill bits",
+      "body": "A short list for the masonry drills: use a hammer setting only on brick, never on tile. Run them at a gentle speed with light pressure, and keep a cup of water nearby to cool the bit. Mark the depth with tape."
+    },
+    {
+      "id": "r082",
+      "title": "Reviving a neglected starter",
+      "body": "My starter sat at the back of the fridge for six weeks and turned grey with a layer of dark liquid on top. I poured off the liquid, discarded most of it, and fed the rest flour and water twice daily. By day four it doubled again and smelled pleasantly tangy."
+    },
+    {
+      "id": "r083",
+      "title": "Weekly meal prep routine",
+      "body": "On Sundays I roast two trays of vegetables, cook a big pot of grains, and portion out three proteins. Lunches for the week take ten minutes to assemble. Anything with fresh herbs gets added the morning of, so it does not wilt in the fridge."
+    },
+    {
+      "id": "r084",
+      "title": "Soggy lawn after the stump removal",
+      "body": "After the tree removal the roots left behind keep the back lawn soggy, and the indoor sump pump in the basement now runs hourly. The arborist suggested a French drain along the fence. Quote needed before the autumn rains arrive."
+    },
+    {
+      "id": "r085",
+      "title": "Planting garlic in autumn",
+      "body": "Plant cloves pointed end up, about five centimetres deep, six weeks before the ground freezes. Mulch with straw. Cut the curly scapes in early summer for pesto, and harvest when the bottom leaves yellow."
+    },
+    {
+      "id": "r086",
+      "title": "Monthly budget review",
+      "body": "First Saturday of the month: export transactions, tag anything uncategorised, and compare against the plan. Biggest drift is always groceries and takeaway. One adjustment per month, no more, otherwise nothing sticks."
+    },
+    {
+      "id": "r087",
+      "title": "Birthday party planning for Priya",
+      "body": "Guest list of twelve, a garden picnic, and a cake from the bakery near the park. Send invitations three weeks early. Backup plan is the community hall if the forecast turns, booked for a refundable deposit."
+    },
+    {
+      "id": "r088",
+      "title": "Fixing a wobbly chair",
+      "body": "Flip it over and check each joint. Squeeze wood glue into the loose dowels, clamp overnight, and wipe off any squeeze out. A felt pad under the shortest leg handled the remaining wobble."
+    },
+    {
+      "id": "r089",
+      "title": "Pulled back muscle",
+      "body": "Pulled a muscle in my lower back while lifting a box, and it was painful for three days. Waking up was the worst part. Heat packs and short walks helped, and the physio said spasm eases if I avoid sitting more than an hour."
+    },
+    {
+      "id": "r090",
+      "title": "Returning the standing desk",
+      "body": "The retailer wants the original box for returning the standing desk, and the stubborn motor never reliably raised past forty inches. Ship it by the fifteenth to get a full refund, and photograph the label before taping the carton shut."
+    },
+    {
+      "id": "r091",
+      "title": "Hanging a heavy mirror",
+      "body": "Find the studs with a magnetic finder, pick two anchors rated for twice the weight, and use a level before drilling. Mark the wall through the frame holes with painter's tape. Ask a second person to hold it while you check."
+    },
+    {
+      "id": "r092",
+      "title": "Pancake ratio",
+      "body": "One cup flour, one cup milk, one egg, a spoon of sugar and two teaspoons of baking powder. Rest the batter ten minutes. Medium heat and wait for bubbles before flipping. Do not press them down."
+    },
+    {
+      "id": "r093",
+      "title": "Replacement vacuum filter",
+      "body": "The vacuum lost suction because the filter is clogged. The replacement part is SKU-55820-B, about twelve dollars, and fits both the cordless and upright models. Washing the old one and drying it for a full day also works in a pinch."
+    },
+    {
+      "id": "r094",
+      "title": "Estimated tax payments",
+      "body": "Freelance income means paying tax four times a year. Set aside thirty percent of every invoice in a separate account and send the payment by the fifteenth of April, June, September and January. Missing a date triggers a small penalty."
+    },
+    {
+      "id": "r095",
+      "title": "Quarterly goals draft",
+      "body": "Three goals: ship the import tool, cut median page load by a third, and mentor two new hires. Each has a measure and a check in date. Anything outside the three goes to the backlog."
+    },
+    {
+      "id": "r096",
+      "title": "Python virtual environment hygiene",
+      "body": "One virtual environment per project, created with the project's pinned version. Never install packages globally. Lockfile committed, and a make target that rebuilds the environment from scratch in a minute."
+    },
+    {
+      "id": "r097",
+      "title": "Emergency fund target",
+      "body": "Settled on holding six months of fixed costs in a high yield savings account, separate from checking. For us that is roughly eighteen thousand. Automatic transfer of four hundred on payday until it is full, then redirect the transfer to retirement."
+    },
+    {
+      "id": "r098",
+      "title": "Slow practice on guitar",
+      "body": "Ten minutes of slow scales with a metronome beats an hour of noodling. Start at sixty beats per minute and raise it by four only when ten clean repetitions in a row feel easy. Record on Sundays to hear progress."
+    },
+    {
+      "id": "r099",
+      "title": "Typing speed practice",
+      "body": "Ten minutes a day on a typing trainer lifted me from sixty to eighty words per minute in two months. Accuracy first, speed follows. Posture and a lower keyboard angle mattered more than the program itself."
+    },
+    {
+      "id": "r100",
+      "title": "Annual checkup checklist",
+      "body": "Book bloodwork a week before the visit, bring a list of medications and supplements, and write down questions in advance. Ask about vaccines due. Request a copy of results for the health folder before leaving."
+    },
+    {
+      "id": "r101",
+      "title": "One in, one out rule",
+      "body": "Bringing a new item home means a similar one leaves. Applied to books, mugs and sweaters. It stopped drawers from overflowing, and gifts get a week of consideration before they earn a permanent spot."
+    },
+    {
+      "id": "r102",
+      "title": "Swatch before the sweater",
+      "body": "Skipped the swatch and the sweater came out two sizes too large. Now I always knit a ten centimetre square, wash it, and measure stitches before casting on. Needle size changes with tension, not with what the pattern says."
+    },
+    {
+      "id": "r103",
+      "title": "Refund ticket with the rail operator",
+      "body": "Opened ticket TKT-90314 on the operator portal about a refund for the cancelled train segment. They promise a reply within five working days. Saved the confirmation email and the original booking PDF in the travel folder."
+    },
+    {
+      "id": "r104",
+      "title": "Rust ownership notes",
+      "body": "Each value has one owner; borrowing is either many shared references or one mutable one. The borrow checker errors made sense once I drew the lifetimes on paper. Cloning is fine early on, optimise only after profiling."
+    },
+    {
+      "id": "r105",
+      "title": "Rail pass versus single fares",
+      "body": "Calculated that the regional rail pass pays off only with three long trips. For two day trips, single tickets were cheaper by about forty euros. Pick them up at the station kiosk and bring ID."
+    },
+    {
+      "id": "r106",
+      "title": "Cookbook on the library hold shelf",
+      "body": "Library hold BK-48F3Z1 is a cookbook on preserving; pickup is at the front desk before Saturday. I only want the pickling chapters, so a photocopy might do instead of borrowing it for three weeks."
+    },
+    {
+      "id": "r107",
+      "title": "Router firmware update",
+      "body": "Back up the config, update during a quiet hour, and reboot. Changelog mentioned a wifi vulnerability. Afterwards I disabled remote management and renamed the guest network so visitors do not see my usual one."
+    },
+    {
+      "id": "r108",
+      "title": "Sleeping bag for cold months",
+      "body": "Choosing a sleeping bag for the cold months: down is lighter, synthetic is forgiving when wet. A comfort rating of minus five covers autumn camping. Actually testing it in the backyard first saved me from a lifeless night."
+    },
+    {
+      "id": "r109",
+      "title": "Automated check-in kiosk",
+      "body": "The automated check in kiosk at the clinic keeps breaking intermittently, so I always arrive early. The front desk checks my name by hand when it fails. They promised a replacement unit before summer."
+    },
+    {
+      "id": "r110",
+      "title": "Key code for a spare fob",
+      "body": "The locksmith needs the key code 4K2P91TZ stamped on the original fob tag to cut a spare. Keep the tag in the document box, not on the keyring. A spare costs around eighty dollars at the dealer, less elsewhere."
+    },
+    {
+      "id": "r111",
+      "title": "Pruning the climbing roses",
+      "body": "Prune in late winter once the worst frost is past. Remove dead and crossing canes, tie the strongest ones horizontally, and cut back side shoots to two buds. Horizontal training produces many more flowers than straight upward growth."
+    },
+    {
+      "id": "r112",
+      "title": "Backup snapshot to restore from",
+      "body": "The last good backup of the photo library is snapshot 7F3A9C21, taken before the disk migration. Restore only the folders needed rather than the whole set, since a full restore takes most of a day."
+    },
+    {
+      "id": "r113",
+      "title": "Flight delay compensation rules",
+      "body": "My flight to Lisbon was delayed four hours and the airline owed meal vouchers. I keep a screenshot of the departure board as proof and file the compensation form within a week. Overseas carriers often take far longer to answer than domestic ones."
+    },
+    {
+      "id": "r114",
+      "title": "Rain barrel setup",
+      "body": "A two hundred litre barrel under the downspout with a mesh lid and an overflow hose. It fills in one good storm. Use the water on beds and containers, but not for edible leaves in the first month."
+    },
+    {
+      "id": "r115",
+      "title": "Water intake log",
+      "body": "Tried a log for a week, aiming for two litres. Headaches in the afternoon vanished, which was telling. A big bottle on the desk worked better than any reminder app, as long as it stays visible."
+    },
+    {
+      "id": "r116",
+      "title": "Commute cost comparison",
+      "body": "Following the commute change I compared bicycle against train. The bicycle costs nothing beyond repairs, though rainy days are annoying and the showers at work are cold. The train pass is forty a week, so cycling wins on most days."
+    },
+    {
+      "id": "r117",
+      "title": "Offline maps download size",
+      "body": "The hiking application lets me download offline maps, but the size of the region file is huge. I can shrink it by leaving out contour layers I never read. Wifi at the cabin is poor, so download before leaving town."
+    },
+    {
+      "id": "r118",
+      "title": "Dependency advisory on the XML library",
+      "body": "Security advisory SEC-1187 flags an old XML library used by the import tool. The upgrade is a minor version bump with no API changes. Scheduled for Wednesday's patch window, then re-run the scanner to confirm it clears."
+    },
+    {
+      "id": "r119",
+      "title": "Insurance claim for the shed",
+      "body": "Filed a claim after the storm left the shed door broken and tore up the roof felt. Earlier I had abandoned the idea of upgrading the cover, which was a mistake. The tools inside were fine, but the adjuster wants photos of every panel."
+    },
+    {
+      "id": "r120",
+      "title": "Powdery mildew on squash",
+      "body": "Powdery mildew on the squash leaves: a spray of watery milk improved things within a week. The beans nearby stayed clean. Water in the morning so foliage dries, and thin the crowded vines to improve airflow."
+    },
+    {
+      "id": "r121",
+      "title": "Phone power bank for trips",
+      "body": "Packing a cell phone power bank for the extended road trip. Parking lots rarely have outlets, so a twenty thousand milliamp pack keeps the maps running for days. Check the airline limit before flying and keep it in the carry bag."
+    },
+    {
+      "id": "r122",
+      "title": "Rate limit response headers",
+      "body": "Return remaining requests, limit, and reset time on every response, plus a retry-after on rejections. Clients then back off politely instead of hammering. Document that limits are per key, not per address."
+    },
+    {
+      "id": "r123",
+      "title": "Removing red wine from carpet",
+      "body": "Blot, never rub. Pour a little cold water, blot again, then apply a paste of baking soda and dish soap. Leave twenty minutes and vacuum. Salt works in an emergency, but speed matters most."
+    },
+    {
+      "id": "r124",
+      "title": "Cabin packing list",
+      "body": "Finally finished the packing list for the cabin. Building a fire takes dry kindling, so bring a bag. Slow mornings call for the good coffee, and the list covers lanterns, blankets, and a deck of cards for the evenings."
+    },
+    {
+      "id": "r125",
+      "title": "Decision: choosing the monitoring vendor",
+      "body": "Picked the hosted option over self running because nobody wants to maintain storage. Priority was alert routing and a decent free retention window. Contract is annual with a thirty day exit clause."
+    },
+    {
+      "id": "r126",
+      "title": "Running pace plan",
+      "body": "Easy runs should feel conversational. Most of my miles at a slow pace, one weekly tempo session, one long run. Increase weekly distance by no more than ten percent and take a lighter week every fourth."
+    },
+    {
+      "id": "r127",
+      "title": "Subscription audit",
+      "body": "Listed every recurring charge from the last three statements: nineteen of them. Cancelled six that I had not used in months, saving about sixty a month. Calendar reminder every quarter to repeat the exercise."
+    },
+    {
+      "id": "r128",
+      "title": "New laptop setup checklist",
+      "body": "Laptop setup checklist: enrol disk encryption, install the password vault, configure the VPN with the keepalive fix from KB-2290, and enable automatic updates. Takes around an hour per machine, plus a restart at the end."
+    },
+    {
+      "id": "r129",
+      "title": "Credit card payoff order",
+      "body": "List cards by interest rate and pay minimums on all, then send every spare dollar to the highest rate first. Close nothing, since the credit history length matters. Done by next spring if bonuses go to the balance."
+    },
+    {
+      "id": "r130",
+      "title": "Notes on a memoir of negotiation",
+      "body": "A diplomat's memoir that reads like a thriller. Memorable idea: always understand what the other side must tell their own people afterward, and help craft that sentence. It reshaped how I approach salary talks and vendor contracts."
+    },
+    {
+      "id": "r131",
+      "title": "Terraform lock stuck after crashed apply",
+      "body": "A failed apply left a lock entry in the state backend, so every later plan refused to start. Confirmed nobody was running anything, then forced the unlock with the lock ID from the error message. Added a pipeline timeout so crashed jobs release the lock."
+    },
+    {
+      "id": "r132",
+      "title": "Cycling the new fish tank",
+      "body": "New tank went cloudy and the fish gasped. Ammonia from waste builds up until bacteria colonise the filter, which takes about six weeks. Tested the water daily, did partial changes, and added fish slowly after readings hit zero."
+    },
+    {
+      "id": "r133",
+      "title": "Feature flag cleanup",
+      "body": "Each flag gets an owner and an expiry date at creation. After full rollout, delete the flag within two weeks. Old flags multiply the number of code paths to test and cause confusing support questions."
+    },
+    {
+      "id": "r134",
+      "title": "Cat feeding schedule",
+      "body": "Feeding schedule for the cats: a freshly set bowl at six, wet food at noon and again at dinner. The pets get an established routine that avoids begging. I set a timer on the auto feeder in case of late meetings."
+    },
+    {
+      "id": "r135",
+      "title": "Missing index on the report query",
+      "body": "The report query went from two seconds to ninety after the table doubled in size. The plan showed a sequential scan; the filter column had no index. Added a composite index on customer and date and the query returned in forty milliseconds."
+    },
+    {
+      "id": "r136",
+      "title": "Oak bookshelf order",
+      "body": "Ordered the oak bookshelf, confirmation ORD-771203. The delivery window is the second week of next month and requires two people to carry it upstairs. Measure the stairwell turn before the truck arrives."
+    },
+    {
+      "id": "r137",
+      "title": "Recaulking the bathtub",
+      "body": "Cut out the old bead with a utility knife, wipe the joint with alcohol, run masking tape on both sides, and lay a continuous line of silicone. Smooth it with a wet finger and peel the tape immediately. Keep the tub dry for a day."
+    },
+    {
+      "id": "r138",
+      "title": "Paint touch-up trick",
+      "body": "Always keep a small labelled jar of each wall colour, with the room and date written on the lid. Dab with a foam brush instead of rolling, and feather the edges outward so the patch does not flash in raking light."
+    },
+    {
+      "id": "r139",
+      "title": "Electrician invoice",
+      "body": "The electrician sent invoice INV-40817 for the new garage outlets and the replaced breaker. It lists four hours of labour plus parts. I paid half upfront and the balance is due within thirty days, so I put the due date in the calendar."
+    },
+    {
+      "id": "r140",
+      "title": "Seasoning the cast iron pan",
+      "body": "Scrub the pan, dry it on the burner, rub with a thin film of flaxseed oil and bake upside down at two hundred and thirty degrees for an hour. Repeat three times. Avoid acidic sauces for the first month."
+    },
+    {
+      "id": "r141",
+      "title": "Essay on attention and boredom",
+      "body": "The essay argues that boredom is a signal, not a defect, and that constant stimulation erodes the ability to start deep work. I tried leaving my phone in another room for lunch and noticed the urge to reach for it lasts about a minute."
+    },
+    {
+      "id": "r142",
+      "title": "Index fund rebalancing rule",
+      "body": "Rebalance once a year and only if a holding drifts more than five points from target. New contributions go to whichever fund is under target before selling anything, which avoids unnecessary tax bills."
+    },
+    {
+      "id": "r143",
+      "title": "Dialing in the espresso",
+      "body": "Espresso tasted sour and thin. Grinding finer and extending the shot to thirty seconds fixed it. Rule of thumb: sour means under extracted, bitter means over extracted. Change one variable per day and write it down."
+    },
+    {
+      "id": "r144",
+      "title": "Moving checklist",
+      "body": "Six weeks out: book the movers and notify the landlord. Four weeks: forward the mail and cancel utilities. Two weeks: pack the non essentials. Last day: photograph meter readings and keep valuables with you."
+    },
+    {
+      "id": "r145",
+      "title": "Yoga for lower back",
+      "body": "Three poses helped: cobra, bridge, and a gentle twist lying down. Hold each for five slow breaths and never push into pain. Daily for ten days loosened the stiffness from long desk hours."
+    },
+    {
+      "id": "r146",
+      "title": "Notes on The Salt Road",
+      "body": "A novel about two sisters who run a caravan across a dry plateau. What stuck: the younger sister bargains by listening rather than talking, and every deal she wins is slow but permanent. A reminder that patience can be a negotiation strategy."
+    },
+    {
+      "id": "r147",
+      "title": "Winter tyre swap dates",
+      "body": "Swap to winter tyres when daily highs stay below seven degrees, typically mid October, and swap back in April. Book the tyre shop slot in September. Store the off season set stacked flat in the garage with a tarp."
+    },
+    {
+      "id": "r148",
+      "title": "Slug control in the vegetable beds",
+      "body": "Water in the morning, not the evening, and lay copper tape around raised beds. Beer traps work but need emptying. Hunting with a torch after dark twice a week cut damage dramatically on the lettuce."
+    },
+    {
+      "id": "r149",
+      "title": "Release note draft",
+      "body": "Draft release note: fixed the locale date mix up (BUG-5521) and a crash on empty attachments. Needs a final pass from QA before Friday's tag, and the changelog entry should link to the migration note."
+    },
+    {
+      "id": "r150",
+      "title": "Fig dropping leaves from wet soil",
+      "body": "The fiddle leaf fig dropped leaves because the pot never drained. Cut watering to every ten days, added perlite, and drilled extra drainage holes. New growth appeared after a month."
+    },
+    {
+      "id": "r151",
+      "title": "Ordering database migrations",
+      "body": "Add the new column nullable, deploy code that writes both, backfill in batches, then switch reads and drop the old column in a later release. Never combine a rename with a deploy in a single step."
+    },
+    {
+      "id": "r152",
+      "title": "Ukulele first chords",
+      "body": "Four chords cover hundreds of songs: C, G, Am and F. Practice changing between each pair for a minute a day. Callouses form in about two weeks. A cheap clip tuner stays on the headstock."
+    },
+    {
+      "id": "r153",
+      "title": "Standup moved to a written thread",
+      "body": "We moved the daily meeting from fifteen minutes of status reading to a written async thread, with a short call only when someone is blocked. Attendance complaints dropped and engineers get their mornings back."
+    },
+    {
+      "id": "r154",
+      "title": "Moving logins into a vault",
+      "body": "Moved every login from browser autofill into a dedicated vault app. Generated unique random strings for the ten most important accounts first, then the rest over a weekend. Printed the recovery sheet and stored it in the fire safe."
+    },
+    {
+      "id": "r155",
+      "title": "Rabbit hutch cleaning",
+      "body": "Spot clean the corner daily, change bedding twice a week, and scrub the whole hutch with white vinegar monthly. Rabbits are tidy if the litter box has hay in it. Never use strong scented cleaners."
+    },
+    {
+      "id": "r156",
+      "title": "Mushroom risotto basics",
+      "body": "Add stock one ladle at a time and stir until absorbed before adding more. Toast the rice in butter for two minutes first. Finish off the heat with cold butter and parmesan. About eighteen minutes total."
+    },
+    {
+      "id": "r157",
+      "title": "Chess opening practice",
+      "body": "Stopped memorising long lines and learned the ideas behind one opening for each colour. Twenty minutes of puzzles daily is more useful than games on bad days. Review every loss and find the first mistake."
+    },
+    {
+      "id": "r158",
+      "title": "Ceiling stain near the chimney",
+      "body": "Water stain appeared on the bedroom ceiling after the storm. Found the metal strip around the chimney had lifted at one corner. Resealed with roofing cement and a new bead of sealant; call a roofer if the stain grows past a hand's width."
+    },
+    {
+      "id": "r159",
+      "title": "Swapping wiper blades",
+      "body": "Wipers streaked after the first frost. New blades cost twenty dollars and clip on in two minutes without tools. Replace them every autumn, and lift them off the glass the night before a hard freeze so they do not stick."
+    },
+    {
+      "id": "r160",
+      "title": "Code review etiquette we agreed",
+      "body": "Rule we adopted: comment on the change, not the person, and label nitpicks so authors can skip them. Anything blocking gets a clear reason. Reviews should finish within one working day; stale requests get a ping."
+    },
+    {
+      "id": "r161",
+      "title": "Easy flatbread",
+      "body": "Mix equal parts flour and yoghurt with a pinch of salt and baking powder, knead briefly, roll thin and cook in a hot dry pan. Ready in fifteen minutes. Brush with garlic butter while still warm."
+    },
+    {
+      "id": "r162",
+      "title": "Gift ideas for Dad",
+      "body": "Dad likes birdwatching: compact binoculars, a field guide for local species, and a feeder he can see from the kitchen window. Skip gadgets; he never uses them. A small thermos for early morning walks would also land well."
+    },
+    {
+      "id": "r163",
+      "title": "Tomato blooms dropping in the heat wave",
+      "body": "Flowers fell off before forming fruit during the July heat wave. Tomatoes drop blooms when nights stay above twenty four degrees. Shade cloth in the afternoon and steady watering helped; fruit resumed setting in August."
+    },
+    {
+      "id": "r164",
+      "title": "Dog grooming schedule",
+      "body": "Brush Biscuit three times a week, bathe every six weeks, trim nails monthly. The groomer recommended a de-shedding comb during spring. A short trim in July keeps her cooler on hot walks without losing coat protection."
+    },
+    {
+      "id": "r165",
+      "title": "Retire the cracked garden hose",
+      "body": "Time to retire the cracked hose and soon replace it. The outdated brass fittings leak at the interface with the tap, and I agreed with Mom that a coiled one would be easier to store. Check the thread size before buying."
+    },
+    {
+      "id": "r166",
+      "title": "Postmortem of the expired certificate",
+      "body": "Outage lasted forty minutes because a TLS certificate expired on a forgotten internal host. Nobody owned the renewal. Action items: inventory every certificate, alert thirty days ahead, and name an owner per host."
+    },
+    {
+      "id": "r167",
+      "title": "Zucchini glut recipes",
+      "body": "Grated into fritters, spiralled with pesto, baked into chocolate cake, or shredded and frozen for winter soup. Pick them small, since big ones turn spongy. Neighbours get a bag whenever the plants outpace the kitchen."
+    },
+    {
+      "id": "r168",
+      "title": "Setting up a weekly review",
+      "body": "Friday afternoon, thirty minutes: clear the inbox, scan the calendar for next week, update the project list, and write three priorities. The ritual cut Monday morning dread more than any productivity app ever did."
+    },
+    {
+      "id": "r169",
+      "title": "Wedding gift thoughts",
+      "body": "Cooking class for two instead of a toaster. The couple already has everything practical and loves food. Add a handwritten card with a favourite memory. Order two weeks ahead so the date can be arranged."
+    },
+    {
+      "id": "r170",
+      "title": "Watercolour paper choice",
+      "body": "Cold press cotton paper at three hundred grams per square metre handles heavy washes without buckling. Cheaper pulp paper pills when scrubbed. Tape the edges to a board and let each layer dry fully before the next."
+    },
+    {
+      "id": "r171",
+      "title": "Re-waterproofing the tent",
+      "body": "Wash the fly with a gentle cleaner, apply a spray on waterproofing in a ventilated area, and let it dry fully. Re-tape any seams that lifted. Pitch it in the yard and hose it down before the next trip."
+    },
+    {
+      "id": "r172",
+      "title": "Understanding the insurance deductible",
+      "body": "The deductible is what I pay before coverage starts. Choosing a higher one lowers the premium but I need cash set aside. Preventive visits are covered fully. Check the out of pocket maximum, which is the real worst case."
+    },
+    {
+      "id": "r173",
+      "title": "Decision: office move deferred",
+      "body": "Leadership will postpone the office relocation to next year. The lease can be extended six months without penalty. Hybrid attendance numbers are still too low to justify the larger floor."
+    },
+    {
+      "id": "r174",
+      "title": "One on one agenda template",
+      "body": "Start with how they are doing, then their blockers, then feedback both ways, then career topics monthly. Keep a shared document and write action items at the end. Never cancel without rescheduling."
+    },
+    {
+      "id": "r175",
+      "title": "Security camera subscription lapsed",
+      "body": "The home security camera subscription lapsed, so the app stopped tracking motion. A blackout during the storm caused the lost clip of the porch. I renewed for a year and set a calendar alert two weeks before it expires."
+    },
+    {
+      "id": "r176",
+      "title": "Patching the brick patio",
+      "body": "Patch up the brick patio near the back steps, because heavy rain washed the sand out from under two pavers. Damp days make the joints crumble, so wait for a dry week, sweep in polymeric sand, and mist it lightly to set."
+    },
+    {
+      "id": "r177",
+      "title": "Golden hour photography",
+      "body": "The best light is the first forty minutes after sunrise and the last forty before sunset. Shoot with the sun behind the subject for a rim glow. Underexpose by a third of a stop and recover shadows later."
+    },
+    {
+      "id": "r178",
+      "title": "Fire safety in the cooking area",
+      "body": "Keep a fire blanket inside the cooking area, mounted by the door and not above the hob. Constant supervision matters more than gadgets, and stopping a grease fire early means smothering it, never using water. Check the extinguisher gauge each spring."
+    },
+    {
+      "id": "r179",
+      "title": "Sharpening kitchen knives",
+      "body": "Hone the knives on a steel before each big cooking session and stone them twice a year at fifteen degrees. A dull blade slips and cuts fingers more often than a sharp one. Store them on a magnetic strip, never loose in a drawer."
+    },
+    {
+      "id": "r180",
+      "title": "Cat annual vet visit",
+      "body": "Annual checkup for Mochi: vaccines, dental inspection, and a weight check. She has gained half a kilo, so the vet suggested measured portions. Blood panel is only recommended from age eight. Next appointment in October."
+    },
+    {
+      "id": "r181",
+      "title": "Soft boiled eggs timing",
+      "body": "Seasoning eggs is simple: boil six and a half minutes, then move them to an ice bath and salt afterwards. Never skip the ice bath or the yolk turns dull and chalky. Peel under running water starting from the wide end."
+    },
+    {
+      "id": "r182",
+      "title": "Library late fines",
+      "body": "The library fine schedule caps at ten dollars per item. The person at the desk waived mine after I explained the book was stuck in the mail. I now renew online every second week to avoid the question altogether."
+    },
+    {
+      "id": "r183",
+      "title": "Bargaining tips from the market",
+      "body": "Bargaining at the market: start at half, then stay quiet after the counteroffer. The vendor's story about his grandmother is part of the show, so do not let it beat your limit. Walk away once if the price will not move."
+    },
+    {
+      "id": "r184",
+      "title": "Lentil soup recipe",
+      "body": "Brown lentils, one onion, two carrots, a spoonful of cumin and a splash of lemon at the end. Simmer for thirty five minutes with stock. It freezes well in single portions, and a swirl of yoghurt makes it feel like a proper dinner."
+    },
+    {
+      "id": "r185",
+      "title": "Banana bread tweak",
+      "body": "Reduced the sugar by a third and added a spoon of yoghurt and toasted walnuts. Very ripe bananas matter more than anything else. Bake at one seventy five for fifty five minutes and cool fully before slicing or it crumbles."
+    },
+    {
+      "id": "r186",
+      "title": "Salting the pasta water",
+      "body": "Salt the pasta water until it tastes like mild seawater, roughly ten grams per litre. Unsalted water leaves the noodles bland no matter how good the sauce is. Save a mug of the cloudy starchy liquid to loosen the sauce at the end."
+    },
+    {
+      "id": "r187",
+      "title": "Patio chair cushion covers",
+      "body": "The patio chair cushion covers faded in the sun, so I will order outdoor ones. Set a budget of sixty dollars, big enough for four chairs. Some money is saved by stitching the zippers on myself with the old sewing machine."
+    },
+    {
+      "id": "r188",
+      "title": "Gutter cleaning twice a year",
+      "body": "Cleared the gutters in October and April. Sodden leaf paste at the downpipe made water spill over the edge and soak the foundation wall. Added mesh guards on the north side where the maples hang over."
+    },
+    {
+      "id": "r189",
+      "title": "Morning stretching routine",
+      "body": "Seven minutes: cat cow, hip flexor lunge, hamstring fold, thoracic rotation, and a long breath in child's pose. Doing it before coffee made it stick. Back stiffness in the first hour of work is noticeably lower."
+    },
+    {
+      "id": "r190",
+      "title": "Fixing the dripping tap",
+      "body": "The kitchen tap dripped constantly. Shut the valve under the sink, unscrewed the handle, and found a hardened rubber washer. A two dollar replacement fixed it in twenty minutes. Wrap the threads with tape before reassembling."
+    },
+    {
+      "id": "r191",
+      "title": "Jigsaw puzzle method",
+      "body": "Flip all pieces face up, sort the edge pieces first, then group by colour. Work on one section at a time rather than scanning for single matches. A big tray with a lip keeps pieces from sliding."
+    },
+    {
+      "id": "r192",
+      "title": "Purchase order for conference travel",
+      "body": "Finance approved purchase order PO-30019 covering the flight and three hotel nights for the autumn conference. Receipts must be uploaded within two weeks of returning, or the reimbursement is delayed."
+    },
+    {
+      "id": "r193",
+      "title": "Cold snap and tyre pressure",
+      "body": "The dash light came on the first freezing morning. Pressure had dropped about four psi overnight because air contracts in the cold. Topped each tyre to the sticker value on the door frame and checked again a week later. Check monthly in winter."
+    },
+    {
+      "id": "r194",
+      "title": "Oil change interval",
+      "body": "Synthetic oil in this engine is fine for ten thousand kilometres or one year, whichever comes first. Keep every receipt in the glove box. The filter should be changed every time, and the drain washer replaced every second visit."
+    },
+    {
+      "id": "r195",
+      "title": "Silencing the chain",
+      "body": "My bike chain squealed after every wet ride. Wiped it with a rag, applied a thin wax based lubricant, and let it cure overnight. The squeal vanished and shifting got smoother. Redo it every two hundred kilometres or after heavy rain."
+    },
+    {
+      "id": "r196",
+      "title": "Cooler room cut my time to fall asleep",
+      "body": "For two weeks I kept the bedroom at eighteen degrees, banned screens after ten, and stopped coffee after noon. Falling asleep dropped from forty minutes to about fifteen. The cooler room seemed to matter most of the three changes."
+    },
+    {
+      "id": "r197",
+      "title": "Backup rule of three",
+      "body": "Three copies, two media types, one off site. Laptop plus external disk plus cloud storage covers it. Test a restore every quarter, because an untested backup is just a hope with a progress bar."
+    },
+    {
+      "id": "r198",
+      "title": "Poor germination from one seed batch",
+      "body": "Seed packets from batch BATCH_20260311 germinated poorly, maybe thirty percent. The supplier offered a replacement. Sowing again indoors with a heat mat under the tray and a plastic lid to hold humidity."
+    },
+    {
+      "id": "r199",
+      "title": "Night cramps in the calves",
+      "body": "Night cramps in my calves went away after I started stretching before bed and adding a banana to dinner. The doctor said electrolytes and hydration are common culprits. Still drinking more water during long runs."
+    },
+    {
+      "id": "r200",
+      "title": "Dishwasher error code",
+      "body": "The dishwasher flashed ERR_E4412 halfway through a cycle. The manual says it means the drain pump is blocked. I cleaned the filter basket under the bottom rack, found a bay leaf and a piece of glass, and the error did not return."
+    }
+  ],
+  "queries": [
+    {
+      "id": "p01",
+      "kind": "paraphrase",
+      "text": "why the service froze under load when too many clients hit the datastore",
+      "relevant": [
+        "r043"
+      ]
+    },
+    {
+      "id": "p02",
+      "kind": "paraphrase",
+      "text": "bringing a neglected fermented dough culture to life after being forgotten",
+      "relevant": [
+        "r082"
+      ]
+    },
+    {
+      "id": "p03",
+      "kind": "paraphrase",
+      "text": "how long to wait for a replacement travel document before an overseas flight",
+      "relevant": [
+        "r002"
+      ]
+    },
+    {
+      "id": "p04",
+      "kind": "paraphrase",
+      "text": "getting a stubborn puppy to return reliably when summoned outdoors",
+      "relevant": [
+        "r013"
+      ]
+    },
+    {
+      "id": "p05",
+      "kind": "paraphrase",
+      "text": "cushion of money set aside for unexpected job loss or big surprise bills",
+      "relevant": [
+        "r097"
+      ]
+    },
+    {
+      "id": "p06",
+      "kind": "paraphrase",
+      "text": "agreed to retire the outdated download interface soon",
+      "relevant": [
+        "r068"
+      ]
+    },
+    {
+      "id": "p07",
+      "kind": "paraphrase",
+      "text": "which habit helped me drift off faster at night",
+      "relevant": [
+        "r196"
+      ]
+    },
+    {
+      "id": "p08",
+      "kind": "paraphrase",
+      "text": "stopping a constant plumbing trickle inside the cooking area",
+      "relevant": [
+        "r190"
+      ]
+    },
+    {
+      "id": "p09",
+      "kind": "paraphrase",
+      "text": "story where quiet attentiveness beats aggression in bargaining",
+      "relevant": [
+        "r146"
+      ]
+    },
+    {
+      "id": "p10",
+      "kind": "paraphrase",
+      "text": "annoying shrieking from the bicycle drivetrain following rainy commutes",
+      "relevant": [
+        "r195"
+      ]
+    },
+    {
+      "id": "p11",
+      "kind": "paraphrase",
+      "text": "infrastructure tool blocked by abandoned claim from a broken earlier deployment",
+      "relevant": [
+        "r131"
+      ]
+    },
+    {
+      "id": "p12",
+      "kind": "paraphrase",
+      "text": "seasoning the boiling bath so spaghetti never turns out dull",
+      "relevant": [
+        "r186"
+      ]
+    },
+    {
+      "id": "p13",
+      "kind": "paraphrase",
+      "text": "warning symbol appeared once frost arrived because wheels lost inflation",
+      "relevant": [
+        "r193"
+      ]
+    },
+    {
+      "id": "p14",
+      "kind": "paraphrase",
+      "text": "swapping spoken check-ins for text updates so mornings stay uninterrupted",
+      "relevant": [
+        "r153"
+      ]
+    },
+    {
+      "id": "p15",
+      "kind": "paraphrase",
+      "text": "memorizing grammar charts failed but narrating tales out loud succeeded",
+      "relevant": [
+        "r001"
+      ]
+    },
+    {
+      "id": "p16",
+      "kind": "paraphrase",
+      "text": "damp patch overhead near the brick stack following heavy weather",
+      "relevant": [
+        "r158"
+      ]
+    },
+    {
+      "id": "p17",
+      "kind": "paraphrase",
+      "text": "paying down home debt faster versus parking cash elsewhere",
+      "relevant": [
+        "r027"
+      ]
+    },
+    {
+      "id": "p18",
+      "kind": "paraphrase",
+      "text": "plants shedding flowers prematurely when evenings are too warm",
+      "relevant": [
+        "r163"
+      ]
+    },
+    {
+      "id": "p19",
+      "kind": "paraphrase",
+      "text": "being polite and prompt when critiquing a colleague's submitted patch",
+      "relevant": [
+        "r160"
+      ]
+    },
+    {
+      "id": "p20",
+      "kind": "paraphrase",
+      "text": "waking with painful muscle spasms in the lower legs",
+      "relevant": [
+        "r199"
+      ]
+    },
+    {
+      "id": "p21",
+      "kind": "paraphrase",
+      "text": "whether unlimited ticket bundle is worth buying for few excursions",
+      "relevant": [
+        "r105"
+      ]
+    },
+    {
+      "id": "p22",
+      "kind": "paraphrase",
+      "text": "shrinking a packaged application's download size by leaving build tools behind",
+      "relevant": [
+        "r045"
+      ]
+    },
+    {
+      "id": "p23",
+      "kind": "paraphrase",
+      "text": "making a small trial piece first prevents oversized clothing disasters",
+      "relevant": [
+        "r102"
+      ]
+    },
+    {
+      "id": "p24",
+      "kind": "paraphrase",
+      "text": "centralizing credentials rather than letting the web client remember them",
+      "relevant": [
+        "r154"
+      ]
+    },
+    {
+      "id": "p25",
+      "kind": "paraphrase",
+      "text": "indoor tree wilting from soggy roots",
+      "relevant": [
+        "r150"
+      ]
+    },
+    {
+      "id": "p26",
+      "kind": "paraphrase",
+      "text": "hiring panel judging candidates consistently without influencing each other",
+      "relevant": [
+        "r071"
+      ]
+    },
+    {
+      "id": "p27",
+      "kind": "paraphrase",
+      "text": "acidic watery brew improved by crushing beans more powdery",
+      "relevant": [
+        "r143"
+      ]
+    },
+    {
+      "id": "p28",
+      "kind": "paraphrase",
+      "text": "preventing rainwater overflow by removing debris seasonally",
+      "relevant": [
+        "r188"
+      ]
+    },
+    {
+      "id": "p29",
+      "kind": "paraphrase",
+      "text": "blackout caused by lapsed security credential nobody was tracking",
+      "relevant": [
+        "r166"
+      ]
+    },
+    {
+      "id": "p30",
+      "kind": "paraphrase",
+      "text": "short deliberate drills at a gentle tempo outperform aimless playing",
+      "relevant": [
+        "r098"
+      ]
+    },
+    {
+      "id": "p31",
+      "kind": "paraphrase",
+      "text": "self-employed person must remit instalments on schedule or face fine",
+      "relevant": [
+        "r094"
+      ]
+    },
+    {
+      "id": "p32",
+      "kind": "paraphrase",
+      "text": "why aquatic pets died in a freshly set up bowl until microbes established",
+      "relevant": [
+        "r132"
+      ]
+    },
+    {
+      "id": "p33",
+      "kind": "paraphrase",
+      "text": "vehicle refused to crank following extended parking because power cell emptied",
+      "relevant": [
+        "r010"
+      ]
+    },
+    {
+      "id": "p34",
+      "kind": "paraphrase",
+      "text": "keeping code in distinct storage locations because combining adds overhead",
+      "relevant": [
+        "r026"
+      ]
+    },
+    {
+      "id": "p35",
+      "kind": "paraphrase",
+      "text": "avoiding sore skin patches on feet during long walks in the hills",
+      "relevant": [
+        "r058"
+      ]
+    },
+    {
+      "id": "p36",
+      "kind": "paraphrase",
+      "text": "unreliable automated checks intermittently breaking merges frustrating developers",
+      "relevant": [
+        "r070"
+      ]
+    },
+    {
+      "id": "p37",
+      "kind": "paraphrase",
+      "text": "yellowed turf seeming lifeless in cold months but actually sleeping",
+      "relevant": [
+        "r039"
+      ]
+    },
+    {
+      "id": "p38",
+      "kind": "paraphrase",
+      "text": "present suggestions for a father fond of observing wild avians",
+      "relevant": [
+        "r162"
+      ]
+    },
+    {
+      "id": "p39",
+      "kind": "paraphrase",
+      "text": "slow listing finally sped up after building a lookup structure",
+      "relevant": [
+        "r135"
+      ]
+    },
+    {
+      "id": "p40",
+      "kind": "paraphrase",
+      "text": "creamy rice dish needing gradual liquid additions and constant attention",
+      "relevant": [
+        "r156"
+      ]
+    },
+    {
+      "id": "e01",
+      "kind": "exact_id",
+      "text": "INV-40817",
+      "relevant": [
+        "r005",
+        "r139"
+      ]
+    },
+    {
+      "id": "e02",
+      "kind": "exact_id",
+      "text": "ERR_E4412",
+      "relevant": [
+        "r047",
+        "r200"
+      ]
+    },
+    {
+      "id": "e03",
+      "kind": "exact_id",
+      "text": "PRJ-7731",
+      "relevant": [
+        "r074"
+      ]
+    },
+    {
+      "id": "e04",
+      "kind": "exact_id",
+      "text": "7F3A9C21",
+      "relevant": [
+        "r112"
+      ]
+    },
+    {
+      "id": "e05",
+      "kind": "exact_id",
+      "text": "KB-2290",
+      "relevant": [
+        "r012",
+        "r128"
+      ]
+    },
+    {
+      "id": "e06",
+      "kind": "exact_id",
+      "text": "TKT-90314",
+      "relevant": [
+        "r103"
+      ]
+    },
+    {
+      "id": "e07",
+      "kind": "exact_id",
+      "text": "SKU-55820-B",
+      "relevant": [
+        "r093"
+      ]
+    },
+    {
+      "id": "e08",
+      "kind": "exact_id",
+      "text": "CASE-2026-0417",
+      "relevant": [
+        "r062",
+        "r066"
+      ]
+    },
+    {
+      "id": "e09",
+      "kind": "exact_id",
+      "text": "ORD-771203",
+      "relevant": [
+        "r136"
+      ]
+    },
+    {
+      "id": "e10",
+      "kind": "exact_id",
+      "text": "PO-30019",
+      "relevant": [
+        "r192"
+      ]
+    },
+    {
+      "id": "e11",
+      "kind": "exact_id",
+      "text": "BUG-5521",
+      "relevant": [
+        "r017",
+        "r149"
+      ]
+    },
+    {
+      "id": "e12",
+      "kind": "exact_id",
+      "text": "SEC-1187",
+      "relevant": [
+        "r118"
+      ]
+    },
+    {
+      "id": "e13",
+      "kind": "exact_id",
+      "text": "4K2P91TZ",
+      "relevant": [
+        "r110"
+      ]
+    },
+    {
+      "id": "e14",
+      "kind": "exact_id",
+      "text": "LOT-A7731",
+      "relevant": [
+        "r060"
+      ]
+    },
+    {
+      "id": "e15",
+      "kind": "exact_id",
+      "text": "CONF-XQ48ZL",
+      "relevant": [
+        "r077"
+      ]
+    },
+    {
+      "id": "e16",
+      "kind": "exact_id",
+      "text": "REF:88215-KM",
+      "relevant": [
+        "r069"
+      ]
+    },
+    {
+      "id": "e17",
+      "kind": "exact_id",
+      "text": "BATCH_20260311",
+      "relevant": [
+        "r006",
+        "r198"
+      ]
+    },
+    {
+      "id": "e18",
+      "kind": "exact_id",
+      "text": "PLATE-7QX902",
+      "relevant": [
+        "r053"
+      ]
+    },
+    {
+      "id": "e19",
+      "kind": "exact_id",
+      "text": "BK-48F3Z1",
+      "relevant": [
+        "r106"
+      ]
+    },
+    {
+      "id": "e20",
+      "kind": "exact_id",
+      "text": "POL-884-102-33",
+      "relevant": [
+        "r018"
+      ]
+    }
+  ]
+}
