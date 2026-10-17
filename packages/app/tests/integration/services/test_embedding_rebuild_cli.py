@@ -74,10 +74,13 @@ def test_rebuild_receipt_shape_with_injected_backend(
         "records",
         "chunks",
         "dropped_changed",
+        "uncovered",
+        "excluded_oversize",
         "seconds",
     }
     assert output["schema"] == "ob.embedding-rebuild.v1"
     assert output["records"] == 1 and output["dropped_changed"] == 0
+    assert output["uncovered"] == 0 and output["excluded_oversize"] == 0
     assert isinstance(output["chunks"], int) and output["chunks"] >= 2
     assert isinstance(output["seconds"], float)
     assert seen == [engine.profile.root]

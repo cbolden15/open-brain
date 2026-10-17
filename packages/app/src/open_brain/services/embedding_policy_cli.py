@@ -124,6 +124,8 @@ def _run_rebuild(
                     "records": receipt.records,
                     "chunks": receipt.chunks,
                     "dropped_changed": receipt.dropped_changed,
+                    "uncovered": receipt.uncovered,
+                    "excluded_oversize": receipt.excluded_oversize,
                     "seconds": receipt.seconds,
                 },
                 ensure_ascii=True,
@@ -133,7 +135,8 @@ def _run_rebuild(
     else:
         print(
             f"Local embedding cache rebuilt: {receipt.records} records, "
-            f"{receipt.chunks} chunks, {receipt.dropped_changed} changed during rebuild."
+            f"{receipt.chunks} chunks, {receipt.dropped_changed} changed during rebuild, "
+            f"{receipt.uncovered} uncovered, {receipt.excluded_oversize} excluded as oversize."
         )
     return 0
 

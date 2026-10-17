@@ -143,6 +143,11 @@ def _failure(category: str) -> pytest.RaisesExc[EmbeddingFailure]:
     return pytest.raises(EmbeddingFailure, match=f"^{category}$")
 
 
+def _manifest(engine: BrainEngine) -> dict[str, object]:
+    path = _root(engine) / "generations" / _active(engine).generation_id / "manifest.json"
+    return dict(json.loads(path.read_bytes()))
+
+
 def _owner_refs(engine: BrainEngine) -> set[cache.ChunkRef]:
     refs = set()
     with engine._store.connect() as connection:
@@ -383,9 +388,45 @@ def test_record_edited_between_snapshot_and_publish_is_dropped(tmp_path: Path) -
 
     receipt = _rebuild(engine, FakeBackend(hook=edit))
     assert receipt.dropped_changed == 1
+    assert receipt.uncovered == 1
     assert receipt.records == 2
     refs = set(_active(engine).chunks)
     assert {ref.result_id for ref in refs}.isdisjoint({old_head, heads[0]})
+    manifest = _manifest(engine)
+    assert manifest["uncovered_count"] == 1
+    assert manifest["uncovered_digest"] == cache._digest(
+        "ob.embedding-uncovered.v1",
+        sorted(
+            [ref.record_type, ref.result_id, ref.revision_id, ref.field]
+            for ref in _owner_refs(engine)
+            if ref.result_id == heads[0]
+        ),
+    )
+
+
+def test_record_created_during_embedding_is_uncovered_not_claimed(tmp_path: Path) -> None:
+    engine = _brain(tmp_path)
+    before = {ref.result_id for ref in _owner_refs(engine)}
+
+    def capture(call: int) -> None:
+        if call == 1:
+            engine.capture.accept(
+                TextPayload("Synthetic zircon note captured mid rebuild"),
+                delivery_id=f"cache.late.{uuid4()}",
+            )
+
+    receipt = _rebuild(engine, FakeBackend(hook=capture))
+    created = sorted({ref.result_id for ref in _owner_refs(engine)} - before)
+    assert len(created) == 1
+    assert receipt.uncovered == 1 and receipt.dropped_changed == 0
+    assert receipt.records == 3
+    manifest = _manifest(engine)
+    assert manifest["uncovered_count"] == 1
+    assert manifest["expected_records"] == manifest["actual_records"] == 3
+    active = _active(engine)
+    assert created[0] not in {ref.result_id for ref in active.chunks}
+    assert _rebuild(engine).uncovered == 0
+    assert created[0] in {ref.result_id for ref in _active(engine).chunks}
 
 
 def test_record_retracted_between_snapshot_and_publish_is_dropped(tmp_path: Path) -> None:
@@ -428,6 +469,46 @@ def test_mutation_after_revalidation_fails_final_check(tmp_path: Path) -> None:
         _rebuild(engine, cancelled=mutate_last)
     assert _active(engine).generation_id == previous.generation_id
     assert first.generation_id != previous.generation_id
+    assert _generations(engine) == [previous.generation_id]
+
+
+def test_final_check_uses_the_authorized_snapshot_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _brain(tmp_path)
+    from open_brain_engine.engine.paging import read_snapshot as original
+
+    opened: list[bool] = []
+
+    def tracked(target: BrainEngine):  # type: ignore[no-untyped-def]
+        opened.append(True)
+        return original(target)
+
+    monkeypatch.setattr(cache, "read_snapshot", tracked)
+    receipt = _rebuild(engine)
+    # Preflight, plan, revalidation and the fenced final check all share one path.
+    assert len(opened) == 4
+    monkeypatch.undo()
+    assert _active(engine).generation_id == receipt.generation_id
+
+
+def test_commit_between_revalidation_and_lease_is_currentness_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _brain(tmp_path, TEXTS[:2])
+    previous = _rebuild(engine)
+    source = _Revisions(engine)
+    original = cache._write_generation
+
+    def write_then_commit(*args: object, **kwargs: object) -> str:
+        digest = original(*args, **kwargs)  # type: ignore[arg-type]
+        source.submit("Synthetic jasper note committed before the lease")
+        return digest
+
+    monkeypatch.setattr(cache, "_write_generation", write_then_commit)
+    with _failure("currentness_changed"):
+        _rebuild(engine)
+    assert _active(engine).generation_id == previous.generation_id
     assert _generations(engine) == [previous.generation_id]
 
 
@@ -566,15 +647,113 @@ def test_quota_preflight_and_streaming_are_explicit(
     assert _rebuild(engine).records == 4
 
 
-def test_oversized_field_is_incomplete_not_prefix(
+LONG = "Synthetic onyx " + "survey " * 30 + "closing remark"
+
+
+def _excluded(engine: BrainEngine) -> set[str]:
+    return {ref.result_id for ref in _owner_refs(engine)} - {
+        ref.result_id for ref in _active(engine).chunks
+    }
+
+
+def test_oversized_field_excludes_its_record_not_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _brain(tmp_path, (*TEXTS, LONG))
+    monkeypatch.setattr(cache, "MAX_DOCUMENT_BYTES", 120)
+    backend = FakeBackend()
+    receipt = _rebuild(engine, backend)
+    assert receipt.excluded_oversize == 1 and receipt.records == 3
+    assert backend.texts and not any("onyx" in text for text in backend.texts)
+    (excluded,) = _excluded(engine)
+    manifest = _manifest(engine)
+    assert manifest["excluded_oversize_count"] == 1
+    assert manifest["excluded_oversize_digest"] == cache._digest(
+        "ob.embedding-excluded-oversize.v1",
+        sorted(
+            [ref.record_type, ref.result_id, ref.revision_id, ref.field]
+            for ref in _owner_refs(engine)
+            if ref.result_id == excluded
+        ),
+    )
+    assert manifest["uncovered_count"] == 0
+
+
+class _Refusing(FakeBackend):
+    """Refuses any exchange that carries the marker word, as the helper's ``input_limit``."""
+
+    def embed(self, purpose: str, texts: Sequence[str]) -> list[EmbeddedItem]:
+        self.calls.append(list(texts))
+        if any("onyx" in text for text in texts):
+            raise EmbeddingFailure("input_limit")
+        return [_item(slot, text) for slot, text in enumerate(texts)]
+
+
+def test_helper_input_limit_isolates_the_refused_item_singly(tmp_path: Path) -> None:
+    engine = _brain(tmp_path, (*TEXTS, LONG))
+    backend = _Refusing()
+    receipt = _rebuild(engine, backend)
+    assert receipt.excluded_oversize == 1 and receipt.records == 3
+    refused = [call for call in backend.calls if any("onyx" in text for text in call)]
+    multi = [call for call in refused if len(call) > 1]
+    singles = [call for call in backend.calls if len(call) == 1]
+    # At most one extra single exchange per item of each refused batch.
+    assert multi and len(singles) <= sum(len(call) for call in multi)
+    assert len(_excluded(engine)) == 1
+    assert _manifest(engine)["excluded_oversize_count"] == 1
+
+
+def test_single_retries_stay_cancellable(tmp_path: Path) -> None:
+    engine = _brain(tmp_path, (*TEXTS, LONG))
+    _rebuild(engine, _Refusing())
+    counter = _Counter()
+    first = _rebuild(engine, _Refusing(), cancelled=counter)
+    for cancel_at in range(1, counter.calls + 1):
+        with _failure("cancelled"):
+            _rebuild(engine, _Refusing(), cancelled=_Counter(cancel_at))
+        assert _active(engine).generation_id == first.generation_id
+        assert _generations(engine) == [first.generation_id]
+
+
+def test_rebuild_budget_is_a_deadline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = _brain(tmp_path)
+    monkeypatch.setattr(cache, "REBUILD_SECONDS", -1.0)
+    with _failure("deadline"):
+        _rebuild(engine)
+    assert _generations(engine) == []
+
+
+def test_fsync_failure_after_pointer_swap_keeps_the_named_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = _brain(tmp_path)
-    monkeypatch.setattr(cache, "MAX_DOCUMENT_BYTES", 40)
-    backend = FakeBackend()
-    with _failure("cache_incomplete"):
-        _rebuild(engine, backend)
-    assert backend.calls == []
+    first = _rebuild(engine)
+    _Revisions(engine).submit("Synthetic jasper draft about tidal gauges")
+    real_replace, real_fsync = os.replace, os.fsync
+    swapped: list[bool] = []
+
+    def replace(*args: object, **kwargs: object) -> None:
+        real_replace(*args, **kwargs)  # type: ignore[arg-type]
+        if args[1] == "active.json":
+            swapped.append(True)
+
+    def fsync(descriptor: int) -> None:
+        if swapped:
+            swapped.clear()
+            raise OSError(errno.EIO, "synthetic fsync failure")
+        real_fsync(descriptor)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(os, "replace", replace)
+        patched.setattr(os, "fsync", fsync)
+        with _failure("cache_incomplete"):
+            _rebuild(engine)
+    pointer = json.loads((_root(engine) / "active.json").read_bytes())
+    assert pointer["generation_id"] != first.generation_id
+    assert pointer["generation_id"] in _generations(engine)
+    assert _active(engine).generation_id == pointer["generation_id"]
+    again = _rebuild(engine)
+    assert _generations(engine) == [again.generation_id]
 
 
 # --------------------------------------------------------------- load checks
@@ -594,6 +773,37 @@ def test_corrupted_generation_file_is_invalid(tmp_path: Path, name: str) -> None
     path.write_bytes(bytes(data))
     assert cache.load_active(engine) is None
     assert _reason(engine) == "cache_invalid"
+
+
+def test_repeat_load_reuses_decoded_generation_and_revocation_is_immediate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _brain(tmp_path)
+    _rebuild(engine)
+    original = cache._load_generation
+    loads: list[str] = []
+
+    def counted(directory: int, generation_id: str, manifest_sha256: str) -> object:
+        loads.append(generation_id)
+        return original(directory, generation_id, manifest_sha256)
+
+    monkeypatch.setattr(cache, "_load_generation", counted)
+    first = _active(engine)
+    assert _active(engine) is first
+    assert loads == [first.generation_id]
+    engine.embedding_policy.disable(authority=_owner(engine))
+    assert cache.load_active(engine) is None
+    assert _reason(engine) == "consent_required"
+    engine.embedding_policy.enable(COMPONENT, authority=_owner(engine))
+    assert _reason(engine) == "cache_incomplete"
+    second = _rebuild(engine)
+    assert _active(engine).generation_id == second.generation_id
+    assert _active(engine) is _active(engine)
+    assert loads.count(second.generation_id) == 1
+    pointer = _root(engine) / "active.json"
+    os.utime(pointer, ns=(1, 1))
+    assert _active(engine).generation_id == second.generation_id
+    assert loads.count(second.generation_id) == 2
 
 
 def test_corrupted_or_missing_pointer_and_manifest(tmp_path: Path) -> None:

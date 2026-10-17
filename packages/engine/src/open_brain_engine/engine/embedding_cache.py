@@ -41,7 +41,6 @@ from .embedding_backend import (
     EmbeddingFailure,
 )
 from .embedding_policy import EmbeddingPolicy, _require_owner, read_policy
-from .local_schema import PHASE1_STATE_SCHEMA_VERSION
 from .mcp_eligibility import install
 from .paging import _authorized_retrieval_digest, read_snapshot
 from .records import ProjectedRecord, RecordProjector
@@ -66,6 +65,8 @@ MAX_BATCH_ITEMS: Final = 4
 MAX_BATCH_CHUNKS: Final = 128
 MAX_DOCUMENT_BYTES = 65536
 MAX_REQUEST_BYTES: Final = 131072
+# Parent budget for one rebuild's bounded exchanges (EMBEDDING-RESOURCE section 5).
+REBUILD_SECONDS = 600.0
 VECTOR_BYTES: Final = EMBEDDING_DIMENSIONS * 4
 _WINDOW: Final = 224
 _STRIDE: Final = 192
@@ -92,6 +93,8 @@ _MANIFEST_TEXT: Final = frozenset(
         "projection_version",
         "eligibility_snapshot_digest",
         "member_digest",
+        "uncovered_digest",
+        "excluded_oversize_digest",
         "state",
     }
 )
@@ -103,6 +106,8 @@ _MANIFEST_COUNTS: Final = frozenset(
         "expected_chunks",
         "actual_chunks",
         "dropped_changed",
+        "uncovered_count",
+        "excluded_oversize_count",
     }
 )
 _MANIFEST_KEYS: Final = _MANIFEST_TEXT | _MANIFEST_COUNTS | {"eligibility", "files"}
@@ -145,6 +150,8 @@ class RebuildReceipt:
     records: int
     chunks: int
     dropped_changed: int
+    uncovered: int
+    excluded_oversize: int
     reused_chunks: int
     embedded_chunks: int
     seconds: float
@@ -172,9 +179,11 @@ def _never() -> bool:
     return False
 
 
-def _check(cancelled: Callable[[], bool]) -> None:
+def _check(cancelled: Callable[[], bool], deadline: float | None = None) -> None:
     if cancelled():
         _fail("cancelled")
+    if deadline is not None and time.monotonic() >= deadline:
+        _fail("deadline")
 
 
 # ------------------------------------------------------------- projection seam
@@ -295,27 +304,20 @@ def _eligibility(
     }
 
 
+def _currentness(
+    connection: sqlite3.Connection, authority: EffectiveAuthority, policy: EmbeddingPolicy
+) -> tuple[dict[str, object], str]:
+    """Eligibility and its digest; revalidation and the fenced check both use this."""
+    eligibility = _eligibility(connection, authority, policy)
+    return eligibility, _digest("ob.embedding-eligibility.v1", eligibility)
+
+
 @contextmanager
 def _snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
     with read_snapshot(engine) as connection:
         if not connection.in_transaction:
             connection.execute("BEGIN")
         yield connection
-
-
-@contextmanager
-def _fenced(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
-    """A read connection under the caller's exclusive writer lease (no mutation can race)."""
-    connection = engine._store.connect()
-    try:
-        if connection.execute("PRAGMA user_version").fetchone()[0] != PHASE1_STATE_SCHEMA_VERSION:
-            raise T03Error("incompatible_runtime")
-        if not connection.in_transaction:
-            connection.execute("BEGIN")
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
 
 
 def _require_policy(connection: sqlite3.Connection, component_id: str) -> EmbeddingPolicy:
@@ -361,6 +363,31 @@ def _private_file(info: os.stat_result) -> bool:
 
 def _read_file(directory: int, name: str, maximum: int) -> bytes:
     """Read one private regular file; missing is incomplete, anything unexpected invalid."""
+    return _read_private(directory, name, maximum)[0]
+
+
+def _stat_identity(info: os.stat_result) -> tuple[int, int, int, int]:
+    return info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size
+
+
+def _stat_private(directory: int, name: str) -> os.stat_result:
+    """Open and check one private regular file without reading it."""
+    try:
+        descriptor = os.open(name, _READ_FLAGS, dir_fd=directory)
+    except FileNotFoundError:
+        raise _Unavailable("cache_incomplete") from None
+    except OSError:
+        _invalid()
+    try:
+        info = os.fstat(descriptor)
+        if not _private_file(info):
+            _invalid()
+        return info
+    finally:
+        os.close(descriptor)
+
+
+def _read_private(directory: int, name: str, maximum: int) -> tuple[bytes, os.stat_result]:
     try:
         descriptor = os.open(name, _READ_FLAGS, dir_fd=directory)
     except FileNotFoundError:
@@ -381,7 +408,7 @@ def _read_file(directory: int, name: str, maximum: int) -> bytes:
             remaining -= len(data)
         if remaining != 0 or os.read(descriptor, 1):
             _invalid()
-        return b"".join(chunks)
+        return b"".join(chunks), info
     finally:
         os.close(descriptor)
 
@@ -447,6 +474,8 @@ class _Root:
     def __init__(self, root: int, generations: int) -> None:
         self.root = root
         self.generations = generations
+        # Set once ``active.json`` names a generation, before its durability fsync.
+        self.activated: str | None = None
 
     @classmethod
     @contextmanager
@@ -489,8 +518,13 @@ class _Root:
             os.close(descriptor)
 
     def pointer(self) -> tuple[str, str] | None:
+        entry = self.pointer_entry()
+        return None if entry is None else entry[0]
+
+    def pointer_entry(self) -> tuple[tuple[str, str], tuple[int, int, int, int]] | None:
+        """The pointer with the stat identity of the ``active.json`` it was read from."""
         try:
-            raw = _read_file(self.root, _POINTER, 4096)
+            raw, info = _read_private(self.root, _POINTER, 4096)
         except _Unavailable as error:
             if error.reason == "cache_incomplete":
                 return None
@@ -510,7 +544,7 @@ class _Root:
             or portable_canonical_json_bytes(value) != raw
         ):
             _invalid()
-        return value["generation_id"], value["manifest_sha256"]
+        return (value["generation_id"], value["manifest_sha256"]), _stat_identity(info)
 
     def activate(self, generation_id: str, manifest_sha256: str) -> None:
         data = portable_canonical_json_bytes(
@@ -524,6 +558,7 @@ class _Root:
         try:
             _write_file(self.root, temporary, data)
             os.replace(temporary, _POINTER, src_dir_fd=self.root, dst_dir_fd=self.root)
+            self.activated = generation_id
             os.fsync(self.root)
         finally:
             with suppress(FileNotFoundError):
@@ -538,6 +573,22 @@ class _Root:
                 if not _private_file(os.stat(name, dir_fd=self.root, follow_symlinks=False)):
                     _invalid()
                 os.unlink(name, dir_fd=self.root)
+
+    def file_identities(self, generation_id: str) -> tuple[tuple[int, int, int, int], ...]:
+        """Cheap custody check of one generation's files; no content is read."""
+        try:
+            directory = _open_directory(self.generations, generation_id)
+        except FileNotFoundError:
+            raise _Unavailable("cache_incomplete") from None
+        except OSError:
+            _invalid()
+        try:
+            return tuple(
+                _stat_identity(_stat_private(directory, name))
+                for name in (_MANIFEST, _INDEX, _VECTORS)
+            )
+        finally:
+            os.close(directory)
 
     def load(self, generation_id: str, manifest_sha256: str) -> _Loaded:
         try:
@@ -851,19 +902,45 @@ def _validated(
 
 
 def _embed(
-    backend: EmbeddingBackend, batch: list[_Field], component_id: str
-) -> list[tuple[_Field, tuple[_Chunk, ...]]]:
+    backend: EmbeddingBackend,
+    batch: list[_Field],
+    component_id: str,
+    checkpoint: Callable[[], None],
+) -> tuple[list[tuple[_Field, tuple[_Chunk, ...]]], list[_Field]]:
+    """Accepted items and the items the helper refused with ``input_limit`` (D12)."""
     try:
         return _validated(
             backend.embed("document", [field.text for field in batch]), batch, component_id
-        )
+        ), []
     except EmbeddingFailure as error:
         if error.category != "input_limit":
             raise
         if len(batch) == 1:
-            # One bounded item the helper cannot take is never silently indexed as a prefix.
-            _fail("cache_incomplete")
-    return [result for field in batch for result in _embed(backend, [field], component_id)]
+            # A refused item is excluded, never silently indexed as a prefix.
+            return [], list(batch)
+    # Isolate the refused item: exactly one more single-item exchange per batch item.
+    accepted: list[tuple[_Field, tuple[_Chunk, ...]]] = []
+    refused: list[_Field] = []
+    for field in batch:
+        checkpoint()
+        single, rejected = _embed(backend, [field], component_id, checkpoint)
+        accepted.extend(single)
+        refused.extend(rejected)
+    return accepted, refused
+
+
+def _refs_digest(
+    domain: str, records: Mapping[tuple[str, str], _Record], identities: set[tuple[str, str]]
+) -> str:
+    """Domain-separated digest of sorted ``(record_type, result_id, revision_id, field)``."""
+    return _digest(
+        domain,
+        sorted(
+            [field.ref.record_type, field.ref.result_id, field.ref.revision_id, field.ref.field]
+            for identity in identities
+            for field in records[identity].fields
+        ),
+    )
 
 
 class _Quota:
@@ -950,16 +1027,31 @@ def _rebuild_locked(
     started: float,
 ) -> RebuildReceipt:
     component_id = backend.component_id
+    deadline = started + REBUILD_SECONDS
+
+    def checkpoint() -> None:
+        _check(cancelled, deadline)
+
     # 1. Collect owner-visible projected items under one ordinary read snapshot.
     with _snapshot(engine) as connection:
         _require_owner(connection, authority)
         policy = _require_policy(connection, component_id)
         planned = _owner_candidates(connection, engine.profile, authority)
-    _check(cancelled)
-    fields = [field for record in planned.values() for field in record.fields if field.text.strip()]
-    if len(fields) > MAX_CHUNKS or any(
-        len(field.text.encode("utf-8")) > MAX_DOCUMENT_BYTES for field in fields
-    ):
+    checkpoint()
+    # D12: a field over the per-item limit excludes its whole record, never a prefix.
+    excluded = {
+        identity
+        for identity, record in planned.items()
+        if any(len(field.text.encode("utf-8")) > MAX_DOCUMENT_BYTES for field in record.fields)
+    }
+    fields = [
+        field
+        for identity, record in planned.items()
+        if identity not in excluded
+        for field in record.fields
+        if field.text.strip()
+    ]
+    if len(fields) > MAX_CHUNKS:
         _fail("cache_incomplete")
     quota = _Quota(root)
     reusable: Mapping[tuple[ChunkRef, str], tuple[_Chunk, ...]] = {}
@@ -982,12 +1074,15 @@ def _rebuild_locked(
             pending.append(field)
     # 2. Bounded inference outside every engine lock and snapshot.
     for batch in _batches(pending):
-        _check(cancelled)
-        for field, chunks in _embed(backend, batch, component_id):
+        checkpoint()
+        accepted, refused = _embed(backend, batch, component_id, checkpoint)
+        for field, chunks in accepted:
             quota.add(chunks)
             built[field.key] = chunks
-    _check(cancelled)
-    # 3. Reacquire read admission and revalidate every record; changed ones are dropped.
+        excluded.update((field.ref.record_type, field.ref.result_id) for field in refused)
+    checkpoint()
+    # 3. Reacquire read admission and revalidate every record. Changed planned records are
+    # dropped; records created or changed since the plan are uncovered (lexical-only).
     with _snapshot(engine) as connection:
         _require_owner(connection, authority)
         current_policy = read_policy(connection)
@@ -999,19 +1094,29 @@ def _rebuild_locked(
         ):
             _fail("currentness_changed")
         current = _owner_candidates(connection, engine.profile, authority)
-        eligibility = _eligibility(connection, authority, current_policy)
+        eligibility, digest = _currentness(connection, authority, current_policy)
     dropped = {
         identity
         for identity, record in planned.items()
         if identity not in current or current[identity].signature != record.signature
     }
-    kept = {
-        key: chunks
-        for key, chunks in built.items()
-        if (key[0].record_type, key[0].result_id) not in dropped
+    uncovered = {
+        identity
+        for identity, record in current.items()
+        if identity not in planned or planned[identity].signature != record.signature
     }
-    _check(cancelled)
-    digest = _digest("ob.embedding-eligibility.v1", eligibility)
+    excluded &= current.keys() - uncovered
+    # Expected coverage comes from the revalidation-time current set, not the plan.
+    kept: dict[tuple[ChunkRef, str], tuple[_Chunk, ...]] = {}
+    for identity, record in current.items():
+        if identity in uncovered or identity in excluded:
+            continue
+        for field in record.fields:
+            if field.text.strip():
+                if field.key not in built:
+                    _fail("cache_incomplete")
+                kept[field.key] = built[field.key]
+    checkpoint()
     generation_id = secrets.token_hex(16)
     try:
         manifest_sha256 = _write_generation(
@@ -1030,27 +1135,38 @@ def _rebuild_locked(
                 "expected_records": len({(ref.record_type, ref.result_id) for ref, _ in kept}),
                 "expected_chunks": sum(len(chunks) for chunks in kept.values()),
                 "dropped_changed": len(dropped),
+                "uncovered_count": len(uncovered),
+                "uncovered_digest": _refs_digest("ob.embedding-uncovered.v1", current, uncovered),
+                "excluded_oversize_count": len(excluded),
+                "excluded_oversize_digest": _refs_digest(
+                    "ob.embedding-excluded-oversize.v1", current, excluded
+                ),
             },
             items=kept,
         )
-        _check(cancelled)
-        # 4. Final eligibility check and pointer swap under the exclusive writer lease.
-        with engine._writer_lease.acquire_exclusive_writer(), _fenced(engine) as connection:
-            final_policy = read_policy(connection)
-            if not final_policy.enabled:
-                _fail("consent_required")
-            if final_policy.component_id != component_id or (
-                _digest(
-                    "ob.embedding-eligibility.v1",
-                    _eligibility(connection, authority, final_policy),
-                )
-                != digest
-            ):
-                _fail("currentness_changed")
-            _activate(root, generation_id, manifest_sha256)
+        checkpoint()
+        # 4. Final eligibility check and pointer swap under the exclusive writer lease. The
+        # check borrows that lease into the same authorized snapshot revalidation used.
+        with engine._writer_lease.hold_writer_transaction() as held:
+            with held.borrow(), _snapshot(engine) as connection:
+                final_policy = read_policy(connection)
+                if not final_policy.enabled:
+                    _fail("consent_required")
+                if (
+                    final_policy.component_id != component_id
+                    or _currentness(connection, authority, final_policy)[1] != digest
+                ):
+                    _fail("currentness_changed")
+            try:
+                _activate(root, generation_id, manifest_sha256)
+            except OSError:
+                # Translated here so the lease release cannot recast a swap failure.
+                _fail("cache_incomplete")
     except Exception as error:
-        with suppress(OSError, _Unavailable):
-            _remove_generation(root.generations, generation_id)
+        # Never remove the generation ``active.json`` already names.
+        if root.activated != generation_id:
+            with suppress(OSError, _Unavailable):
+                _remove_generation(root.generations, generation_id)
         if isinstance(error, OSError):
             _fail("cache_incomplete")
         raise
@@ -1060,6 +1176,8 @@ def _rebuild_locked(
         records=len({(ref.record_type, ref.result_id) for ref, _ in kept}),
         chunks=sum(len(chunks) for chunks in kept.values()),
         dropped_changed=len(dropped),
+        uncovered=len(uncovered),
+        excluded_oversize=len(excluded),
         reused_chunks=sum(
             len(chunks) for key, chunks in kept.items() if reusable.get(key) is chunks
         ),
@@ -1092,29 +1210,47 @@ def active_status(
         with _Root.open(engine.profile, create=False) as root:
             if root is None:
                 return CacheUnavailable("cache_incomplete")
-            pointer = root.pointer()
-            if pointer is None:
+            entry = root.pointer_entry()
+            if entry is None:
                 return CacheUnavailable("cache_incomplete")
             try:
-                loaded = root.load(*pointer)
+                identity, active = _decoded(root, *entry)
             except _Unavailable:
                 # A concurrent activation may have retired the generation just read.
-                retry = root.pointer()
-                if retry is None or retry == pointer:
+                retry = root.pointer_entry()
+                if retry is None or retry[0] == entry[0]:
                     raise
-                loaded = root.load(*retry)
+                identity, active = _decoded(root, *retry)
     except _Unavailable as error:
         return CacheUnavailable(error.reason)
     except OSError:
         return CacheUnavailable("cache_invalid")
-    manifest = loaded.manifest
     if (
-        manifest["component_id"] != policy.component_id
-        or manifest["policy_generation"] != policy.policy_generation
-        or _identity(manifest)[1:] != (PREPROCESS_ID, SEGMENTER_VERSION, PROJECTION_VERSION)
+        active.component_id != policy.component_id
+        or active.policy_generation != policy.policy_generation
+        or identity[1:] != (PREPROCESS_ID, SEGMENTER_VERSION, PROJECTION_VERSION)
     ):
         return CacheUnavailable("cache_incomplete")
-    return ActiveGeneration(
+    return active
+
+
+# One decoded generation per process, keyed by its pointer and the stat identities of
+# ``active.json`` and the generation files, so repeat loads skip the full re-hash and
+# decode. Custody checks and the policy check above still run on every call.
+_recent: tuple[tuple[object, ...], tuple[object, ...], ActiveGeneration] | None = None
+
+
+def _decoded(
+    root: _Root, pointer: tuple[str, str], pointer_identity: tuple[int, int, int, int]
+) -> tuple[tuple[object, ...], ActiveGeneration]:
+    global _recent
+    key = (*pointer, pointer_identity, root.file_identities(pointer[0]))
+    recent = _recent
+    if recent is not None and recent[0] == key:
+        return recent[1], recent[2]
+    loaded = root.load(*pointer)
+    manifest = loaded.manifest
+    active = ActiveGeneration(
         generation_id=manifest["generation_id"],
         component_id=manifest["component_id"],
         policy_generation=manifest["policy_generation"],
@@ -1124,6 +1260,8 @@ def active_status(
             for (ref, _), chunks in loaded.items.items()
         },
     )
+    _recent = (key, _identity(manifest), active)
+    return _recent[1], active
 
 
 def load_active(
