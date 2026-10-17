@@ -39,7 +39,7 @@ DIRECTORIES = (
 )
 TRIPLES = {"macos-arm64": "aarch64-apple-darwin", "linux-x86_64": "x86_64-unknown-linux-gnu"}
 
-_TEMPLATE = """#!{python} -I -S
+_TEMPLATE = """#!{python} -IS
 import hashlib, json, os, sys, time
 
 LIMITS = {limits!r}
