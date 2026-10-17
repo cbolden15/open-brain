@@ -116,6 +116,7 @@ fn run(id: &str, doc: &Value, dir: &Path, inf: &mut dyn Inference) -> Result<Str
                 return Err(Code::RequestInvalid);
             }
             let comp = Component::load(dir).ok_or(Code::ComponentMismatch)?;
+            tokenize::load(dir).map_err(|_| Code::ComponentMismatch)?;
             Ok(capabilities(id, &comp))
         }
         "embed" => {
@@ -194,9 +195,8 @@ fn embed(id: &str, doc: &Value, dir: &Path, inf: &mut dyn Inference) -> Result<S
         })?;
         let n = tokens.ids.len();
         let ranges = if query {
-            // The prefix is part of the model input, so it counts toward the cap.
-            let prefix_tokens = tokens.prefix_ids.len();
-            if n + prefix_tokens > comp.max_query_tokens {
+            // Section 6 caps content tokens; a profile's prefix is bounded by its own profile.
+            if n > comp.max_query_tokens {
                 return Err(Code::InputLimit);
             }
             vec![(0, n)]

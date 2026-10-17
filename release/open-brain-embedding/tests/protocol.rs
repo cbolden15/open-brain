@@ -240,6 +240,7 @@ fn strict_json_rejections() {
         assert!(json::parse_exact(bad).is_err(), "{bad}");
     }
     assert!(json::parse_exact("[[[[[[[1]]]]]]]").is_ok());
+    assert!(json::parse_exact("[[[[[[[[1]]]]]]]]").is_ok(), "depth 8 is the inclusive limit");
     assert_eq!(json::parse_exact("true").unwrap(), Value::Bool(true));
     assert_ne!(json::parse_exact("true").unwrap().as_int(), Some(1));
     assert_eq!(json::parse_exact("\"\\ud83d\\ude00\"").unwrap(), Value::Str("😀".into()));
