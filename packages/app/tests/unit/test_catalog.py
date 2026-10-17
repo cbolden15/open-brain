@@ -128,6 +128,7 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
         ("embedding", "status"),
         ("embedding", "enable"),
         ("embedding", "disable"),
+        ("embedding", "rebuild"),
         ("consumer-import", "preview"),
         ("consumer-import", "body"),
         ("consumer-import", "commit"),
@@ -160,7 +161,7 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
     }
     obsidian = next(item for item in commands if item["command"] == ["obsidian-plugin", "install"])
     assert obsidian["positional_choices"] == {"action": "install"}
-    assert len(commands) == 107
+    assert len(commands) == 108
     assert run_cli(("catalog", "--json", "--schema-version", "1")) == 2
     assert run_cli(("catalog", "--json", "--unknown")) == 2
 
@@ -176,7 +177,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
     assert parsed.command == "privacy"
     assert parsed.privacy_action == "repair"
     commands = cli_registrations(_parser())
-    assert len(commands) == 107
+    assert len(commands) == 108
     assert ("privacy", "repair") not in {
         tuple(cast(list[str], command["command"])) for command in commands
     }

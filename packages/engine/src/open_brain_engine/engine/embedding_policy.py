@@ -20,6 +20,8 @@ from .normalization import _timestamp
 from .t03_contracts import EffectiveAuthority, SessionOrigin
 
 if TYPE_CHECKING:
+    from .embedding_backend import EmbeddingBackend
+    from .embedding_cache import RebuildReceipt
     from .local import BrainEngine
 
 EMBEDDING_POLICY_STATUS_SCHEMA = "ob.embedding-policy-status.v1"
@@ -218,6 +220,18 @@ class EmbeddingPolicyTasks:
             return disable(
                 connection, authority=authority, changed_at=_timestamp(self._engine._clock())
             )
+
+    def rebuild_cache(
+        self,
+        *,
+        authority: EffectiveAuthority,
+        backend: EmbeddingBackend,
+        cancelled: Callable[[], bool] = lambda: False,
+    ) -> RebuildReceipt:
+        """Owner-only foreground rebuild of the derived embedding cache."""
+        from .embedding_cache import rebuild
+
+        return rebuild(self._engine, authority=authority, backend=backend, cancelled=cancelled)
 
 
 __all__ = [
