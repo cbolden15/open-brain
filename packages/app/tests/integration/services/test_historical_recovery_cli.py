@@ -212,7 +212,7 @@ def test_cli_recovers_pending_history_without_ordinary_startup(
         assert verify_historical_projection(connection, profile, record.proposed) == (record,)
         assert connection.execute("SELECT count(*) FROM captures").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM source_intakes").fetchone()[0] == 0
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
     finally:
         connection.close()
     monkeypatch.undo()
@@ -271,7 +271,7 @@ def test_current_cli_settles_schema_thirteen_pending_before_upgrade(
     ) == 0
     assert json.loads(capsys.readouterr().out)["profile"] == "local"
     with open_local_database_read_only(profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
         assert verify_historical_projection(connection, profile, record.proposed) == (record,)
 
 

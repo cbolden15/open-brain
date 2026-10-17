@@ -252,7 +252,7 @@ def register_consumer_capture(
 ) -> bool:
     """Register custodied immutable evidence, preserving an existing current head."""
     _transaction(connection)
-    if connection.execute("PRAGMA user_version").fetchone()[0] != 20:
+    if connection.execute("PRAGMA user_version").fetchone()[0] < 20:
         return False
     segment = _retained_segment(connection, row["capture_id"])
     if segment is None:

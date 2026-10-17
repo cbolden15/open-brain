@@ -156,7 +156,7 @@ def migrate_consumer_intake(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 20:
+        if state.state in {"current", "supported_old"} and state.version in {20, 21}:
             return
         if state.state != "supported_old" or state.version != 19:
             raise T03Error("operation_pending")
@@ -177,7 +177,7 @@ def migrate_consumer_intake(
                          migrations=LOCAL_MIGRATIONS[:20], schema_version=20)
         LifecycleJournalV2.for_engine(connection, brain_id=brain, issuer_epoch=epoch)._state()
         upgraded = classify_local_schema(connection)
-        if upgraded.state != "current" or upgraded.version != 20:
+        if upgraded.state not in {"current", "supported_old"} or upgraded.version != 20:
             raise T03Error("operation_pending")
         checkpoint("consumer_intake_before_commit")
         require_historical_snapshot_settled(connection, profile)

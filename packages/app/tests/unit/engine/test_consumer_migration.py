@@ -32,7 +32,16 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain_engine.storage.migrations import SchemaError
 
 from open_brain.profile import compile_single_user_local
+from open_brain.services import local_runtime_session
 from open_brain.services.local_runtime_session import hold_local_runtime_session
+
+
+@pytest.fixture(autouse=True)
+def _frozen_consumer_schema20(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the predecessor cutover's exact20/15 assertions and adapter semantics."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 20)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:20])
+    monkeypatch.setattr(local_runtime_session, "RUNTIME_SESSION_VERSION", 15)
 
 
 def _clock() -> datetime:

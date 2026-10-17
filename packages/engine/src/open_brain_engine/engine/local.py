@@ -184,7 +184,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18, 19, 20}
+            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18, 19, 20, 21}
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -280,7 +280,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19, 20}
+            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -380,6 +380,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                     18,
                     19,
                     20,
+                    21,
                 }:
                     raise
                 self._store = _LocalStore(profile, clock=self._clock, initialize=False)
@@ -389,6 +390,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         from .consumer_intake import ConsumerIntakeTasks
 
         self.consumer_imports = ConsumerIntakeTasks(self)
+        from .embedding_policy import EmbeddingPolicyTasks
+
+        self.embedding_policy = EmbeddingPolicyTasks(self)
         self.capture = CaptureTasks(self)
         self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
@@ -438,6 +442,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             developments=self.developments,
             lifecycle=self.lifecycle,
             consumer_imports=self.consumer_imports,
+            embedding_policy=self.embedding_policy,
         )
 
     @classmethod

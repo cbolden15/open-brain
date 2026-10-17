@@ -116,7 +116,7 @@ def open_lifecycle_journal(connection: sqlite3.Connection) -> LifecycleJournal:
         raise LifecycleError("invalid_evidence")
     journal_type = (
         LifecycleJournalV2
-        if connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        if connection.execute("PRAGMA user_version").fetchone()[0] >= 20
         else LifecycleJournal
     )
     return journal_type.for_engine(connection, brain_id=identity[0], issuer_epoch=identity[1])

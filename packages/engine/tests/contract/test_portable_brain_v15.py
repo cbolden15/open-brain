@@ -34,6 +34,15 @@ from packages.engine.tests.test_consumer_intake_engine import (
 from packages.engine.tests.test_consumer_intake_engine import active_profiles as active_profiles
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema20_producer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep frozen Portable15 recipes at their original schema20 boundary."""
+    from open_brain_engine.engine import local_schema, paging
+
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 20)
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 20)
+
+
 def _export(engine: BrainEngine, path: Path) -> dict[str, bytes]:
     assert (
         engine.tasks.portability.export(path, export_id="export_" + str(uuid4())).schema_version
