@@ -28,7 +28,9 @@ MAX_INPUT = 64 * 1024 * 1024
 MAX_MEMBER = 64 * 1024 * 1024
 MAX_EXPANDED = 256 * 1024 * 1024
 MAX_ENTRIES = 4096
-MAX_OBJECTS = 500_000
+# The owner-intake harness has 500,261 objects on macOS Python 3.14.7;
+# retain a bounded aggregate budget with headroom under the worker CPU limit.
+MAX_OBJECTS = 550_000
 MAX_DEPTH = 64
 MAX_ARCHIVE_DEPTH = 4
 MAX_MARSHAL = 8 * 1024 * 1024

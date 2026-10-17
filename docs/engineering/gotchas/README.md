@@ -339,6 +339,19 @@ internal session_origin. When adding an authority dimension, update both the exa
 key set and a one-field mutation variant proving the cursor digest changes. Keep
 the exact-key assertion intact.
 
+The 2026-10-16 consumer-intake CLI repeated the module-inventory failure:
+8,211 Python cases passed, but the new foreground adapter was missing from the
+exact set. Register intended app modules in the same patch and run this security
+file alongside focused adapter tests. The equality assertion remains mandatory.
+
+The same candidate passed all source checks but failed the macOS native harness
+archive audit: its shared module closure decoded 500,261 objects against a
+500,000-object aggregate cap. The measured local scan took 6.67 seconds without
+content findings. The cap is now 550,000; the 30-second worker CPU limit and all
+content rules remain intact. Exercise the actual native archive after foreground
+CLI additions, and test that the object budget remains aggregate across payloads.
+Category: Build Pipeline.
+
 Discovered: 2026-10-14, W2 full verification; failed logs and fixtures retained.
 
 ### BUILD-013: Settings observation callbacks need explicit types

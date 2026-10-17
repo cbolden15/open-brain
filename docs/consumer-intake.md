@@ -6,6 +6,10 @@ remain inactive. This does not add an archive parser, an `import-chat` command,
 a provider connection, or a model resource. Synthetic tests inject reviewed
 profile records and call the real engine tasks.
 
+The app exposes these tasks to owner-authorized shell agents through
+`open-brain consumer-import`; see `docs/consumer-intake-agents.md`. This adds
+neither an external archive parser nor delegated MCP authority.
+
 The tasks are available through `engine.consumer_imports` and
 `engine.tasks.consumer_imports`:
 

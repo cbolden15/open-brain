@@ -50,6 +50,7 @@ from open_brain_engine.engine import (
 )
 from open_brain_engine.engine import facet_contracts as fc
 from open_brain_engine.engine.consent_contracts import ConsentContractError, EgressMode
+from open_brain_engine.engine.consumer_profiles import ConsumerIntakeError
 from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
 from open_brain_engine.engine.owner_retraction_contracts import RetractionError
 from open_brain_engine.engine.portability import restore_portable_clean
@@ -74,6 +75,15 @@ from open_brain.services.agent_setup import (
     apply_agent_setup,
     preview_agent_setup,
     resolve_agent_runtime,
+)
+from open_brain.services.consumer_import import (
+    add_consumer_parsers,
+    consumer_grammar_requested,
+    read_consumer_plan,
+    run_consumer_command,
+    validate_consumer_arguments,
+    write_consumer_failure,
+    write_consumer_interrupted,
 )
 from open_brain.services.facets import (
     FacetAppAdapter,
@@ -210,6 +220,8 @@ def run_cli(
     try:
         parsed = _parser().parse_args(arguments)
     except _UsageError:
+        if consumer_grammar_requested(arguments):
+            return write_consumer_failure("invalid_arguments", json_output=json_output)
         if retraction_grammar_requested(arguments):
             return write_retraction_failure("invalid_arguments", json_output=json_output)
         _write_usage_failure(json_output=json_output)
@@ -219,6 +231,15 @@ def run_cli(
     if parsed.command is None:
         _write_usage_failure(json_output=json_output)
         return 2
+    if parsed.command == "consumer-import":
+        try:
+            validate_consumer_arguments(parsed)
+            if parsed.consumer_action in {"preview", "commit"}:
+                parsed.consumer_plan = read_consumer_plan()
+        except ConsumerIntakeError as error:
+            return write_consumer_failure(error.code, json_output=json_output)
+        except KeyboardInterrupt:
+            return write_consumer_interrupted(None, json_output=json_output)
     if parsed.command == "retract":
         try:
             validate_retraction_arguments(parsed)
@@ -429,6 +450,8 @@ def _run_parsed_command(
             platform_name=platform_name,
         )
     except LocalDataError:
+        if parsed.command == "consumer-import":
+            return write_consumer_failure("local_operation_failed", json_output=json_output)
         if parsed.command == "retract":
             return write_retraction_failure("local_operation_failed", json_output=json_output)
         if _is_workspace_recovery(parsed):
@@ -440,6 +463,36 @@ def _run_parsed_command(
         _write_private_data_failure(json_output=json_output)
         return 78
     try:
+        if parsed.command == "consumer-import":
+            try:
+                if not selection.brain_root.exists():
+                    code = (
+                        "preview_not_found"
+                        if parsed.consumer_action in {"body", "commit"}
+                        else "operation_not_found"
+                        if parsed.consumer_action != "preview"
+                        else "local_operation_failed"
+                    )
+                    return write_consumer_failure(code, json_output=json_output)
+                with open_local_brain(
+                    selection,
+                    filesystem_type_probe=filesystem_type_probe,
+                    existing_only=True,
+                ) as session:
+                    return run_consumer_command(parsed, session.tasks, json_output=json_output)
+            except ConsumerIntakeError as error:
+                return write_consumer_failure(error.code, json_output=json_output)
+            except KeyboardInterrupt:
+                plan = getattr(parsed, "consumer_plan", None)
+                operation_id = plan.operation_id if plan else getattr(parsed, "operation_id", None)
+                return write_consumer_interrupted(operation_id, json_output=json_output)
+            except Exception as error:
+                return write_consumer_failure(
+                    "local_operation_busy"
+                    if database_is_busy(error) or isinstance(error, LockBusyError)
+                    else "local_operation_failed",
+                    json_output=json_output,
+                )
         if parsed.command == "retract":
             try:
                 if not selection.brain_root.exists():
@@ -787,6 +840,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
     add_retraction_parsers(subparsers, _add_local_options)
+    add_consumer_parsers(subparsers, _add_local_options)
     facet_parser = add_facet_parsers(subparsers)
     _add_facet_local_options(facet_parser)
     privacy_parser = subparsers.add_parser(

@@ -80,6 +80,12 @@ helper at `PREFIX/libexec/open-brain-harness/open-brain-harness` when installed.
 Persistent adapter assets live at `PREFIX/share/open-brain/harness`; commands
 never point into a frozen executable's temporary extraction directory.
 
+Owner-authorized conversation intake is available separately through the
+`consumer-import` CLI when the agent has shell access. It is not an MCP grant
+or a hook action. Both production export profiles remain inactive. See
+`docs/consumer-intake-agents.md` for normalized input, preview/confirmation and
+explicit recovery.
+
 Pi loads the packaged `pi-entry.mjs` through the SDK's normal extension loader.
 The entry uses active branch message IDs for capture provenance and exposes
 `brain_search_page` and `brain_read_source`. Generic Pi has no trusted local confinement authority;

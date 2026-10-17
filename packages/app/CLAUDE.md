@@ -4,6 +4,11 @@ Conventions that apply only when working under `packages/app`.
 
 ## Agent setup, space/inbox, review publication, legacy write recovery
 
+`consumer-import` is an owner-local normalized stdin CLI for coding agents,
+using existing-only bootstrap and the engine's consumer intake tasks. It adds
+no MCP grant or parser activation; both production profiles remain inactive.
+Commit/recover/halt require `--confirm`. See `docs/consumer-intake-agents.md`.
+
 Agent setup uses `agent setup` in the CLI and named plugin operations. The CLI supports separate
 capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose, and review-decide grants,
 all off by default; desktop/plugin setup currently

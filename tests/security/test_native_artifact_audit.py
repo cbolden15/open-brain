@@ -364,6 +364,17 @@ def test_bad_or_trailing_compressed_stream_is_rejected(transform: Callable[[byte
         native.Scanner([]).inflate(transform(zlib.compress(b"safe")), 100)
 
 
+def test_marshal_object_budget_is_aggregate_across_payloads() -> None:
+    scanner = native.Scanner([])
+    # The supported harness now exceeds the old 500,000-object cap. Exercise
+    # the complete budget, then prove a second payload cannot reset it.
+    count = native.MAX_OBJECTS - 1
+    scanner.unmarshal(b"[" + struct.pack("<i", count) + b"N" * count, "first", code=False)
+    with pytest.raises(native.InvalidArtifact):
+        scanner.unmarshal(b"N", "second", code=False)
+    assert ("", "artifact-limit-exceeded") in scanner.findings
+
+
 def test_bombs_counts_depth_and_budget_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(native.InvalidArtifact):
         native.Scanner([]).inflate(zlib.compress(b"x" * 1000), 10)
