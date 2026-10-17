@@ -178,8 +178,13 @@ def _open_absolute(path: Path) -> int:
             os.close(descriptor)
             descriptor = child
             info = os.fstat(descriptor)
-            # Section 4: reject group/other-writable ancestors unless sticky (e.g. /tmp).
-            if info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX:
+            # Ancestors above the keg share the base executable's trust (Homebrew's
+            # Cellar is group-writable by design), so group write is admitted only for
+            # root- or user-owned directories (D15). Integrity rests on descriptor
+            # hashing and the private stage; other-writable still needs the sticky bit.
+            if info.st_mode & 0o002 and not info.st_mode & stat.S_ISVTX:
+                raise OSError("writable ancestor")
+            if info.st_mode & 0o020 and info.st_uid not in (0, os.getuid()):
                 raise OSError("writable ancestor")
         return descriptor
     except BaseException:

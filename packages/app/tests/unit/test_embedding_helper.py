@@ -732,6 +732,23 @@ def test_group_writable_ancestor_is_refused_unless_sticky(tmp_path: Path) -> Non
     os.close(eh._open_absolute(shared / "brain"))
 
 
+def test_user_owned_group_writable_ancestor_is_admitted(tmp_path: Path) -> None:
+    # Homebrew's Cellar is 0775 and owned by the installing user (D15).
+    cellar = tmp_path / "Cellar"
+    (cellar / "open-brain").mkdir(parents=True)
+    os.chmod(cellar, 0o775)
+    os.close(eh._open_absolute(cellar / "open-brain"))
+
+
+def test_resource_under_group_writable_cellar_verifies(make: Callable[..., Env]) -> None:
+    env = make()
+    assert env.prefix.parent.parent.name == "Cellar"
+    os.chmod(env.prefix.parent.parent, 0o775)
+    assert eh.verify_embedding_metadata(env.installed) is not None
+    os.chmod(env.prefix.parent.parent, 0o777)
+    assert failure(lambda: eh.verify_embedding_metadata(env.installed)) == "resource_missing"
+
+
 @process
 def test_cancel_before_launch(make: Callable[..., Env], popen: list[Any]) -> None:
     env = make()
