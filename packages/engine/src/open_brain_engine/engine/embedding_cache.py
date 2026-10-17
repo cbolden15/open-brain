@@ -1271,6 +1271,20 @@ def load_active(
     return status if isinstance(status, ActiveGeneration) else None
 
 
+def active_pointer(engine: BrainEngine) -> str | None:
+    """Generation ID ``active.json`` names now, or ``None`` when absent or unreadable.
+
+    Reads only the pointer, never a generation, so a caller can confirm inside its own read
+    snapshot that the generation it loaded earlier is still the active one.
+    """
+    try:
+        with _Root.open(engine.profile, create=False) as root:
+            pointer = None if root is None else root.pointer()
+    except _Unavailable, OSError:
+        return None
+    return None if pointer is None else pointer[0]
+
+
 __all__ = [
     "CACHE_SCHEMA",
     "FIELDS",
@@ -1281,6 +1295,7 @@ __all__ = [
     "CacheUnavailable",
     "ChunkRef",
     "RebuildReceipt",
+    "active_pointer",
     "active_status",
     "dependency_sha256",
     "field_texts",

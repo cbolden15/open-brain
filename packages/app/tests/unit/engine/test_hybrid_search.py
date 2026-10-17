@@ -5,14 +5,19 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import sqlite3
+import time
+import uuid
 from array import array
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine import BrainEngine, TextPayload
 from open_brain_engine.engine import embedding_cache as cache
@@ -71,30 +76,54 @@ def _vector(text: str) -> tuple[float, ...]:
     return tuple(value / norm for value in values)
 
 
-def _item(slot: int, text: str) -> EmbeddedItem:
+def _hashed_vector(text: str) -> tuple[float, ...]:
+    """Feature-hashed bag of words: distinct, deterministic cosines on any corpus."""
+    values = [0.0] * 384
+    values[383] = 0.05
+    for word in re.findall(r"\w+", text.lower()):
+        values[int.from_bytes(hashlib.sha256(word.encode("utf-8")).digest()[:4]) % 383] += 1.0
+    norm = math.sqrt(sum(value * value for value in values))
+    return tuple(value / norm for value in values)
+
+
+Vectorize = Callable[[str], tuple[float, ...]]
+
+
+def _item(slot: int, text: str, vectorize: Vectorize = _vector) -> EmbeddedItem:
     encoded = text.encode("utf-8")
     words = len(text.split())
     return EmbeddedItem(
         slot,
         hashlib.sha256(encoded).hexdigest(),
         words,
-        (EmbeddingChunk(0, 0, words, 0, len(encoded), _vector(text)),),
+        (EmbeddingChunk(0, 0, words, 0, len(encoded), vectorize(text)),),
     )
 
 
 class FakeBackend:
     """Deterministic in-process backend recording every exchange."""
 
-    def __init__(self, component_id: str = COMPONENT, *, fail: str | None = None) -> None:
+    def __init__(
+        self,
+        component_id: str = COMPONENT,
+        *,
+        fail: str | None = None,
+        vectorize: Vectorize = _vector,
+        on_query: Callable[[], None] | None = None,
+    ) -> None:
         self.component_id = component_id
         self.fail = fail
+        self.vectorize = vectorize
+        self.on_query = on_query
         self.calls: list[tuple[str, list[str]]] = []
 
     def embed(self, purpose: str, texts: Sequence[str]) -> list[EmbeddedItem]:
         self.calls.append((purpose, list(texts)))
         if purpose == "query" and self.fail is not None:
             raise EmbeddingFailure(self.fail)
-        return [_item(slot, text) for slot, text in enumerate(texts)]
+        if purpose == "query" and self.on_query is not None:
+            self.on_query()
+        return [_item(slot, text, self.vectorize) for slot, text in enumerate(texts)]
 
     @property
     def queries(self) -> list[str]:
@@ -107,9 +136,12 @@ class Factory:
     def __init__(self, backend: FakeBackend) -> None:
         self.backend = backend
         self.constructed = 0
+        self.missing = False
 
     def __call__(self) -> FakeBackend:
         self.constructed += 1
+        if self.missing:
+            raise EmbeddingFailure("resource_missing")
         return self.backend
 
 
@@ -132,10 +164,10 @@ def _scoped(*tiers: PrivacyTier) -> EffectiveAuthority:
 
 
 def _brain(
-    tmp_path: Path, corpus: Sequence[tuple[str, str]] = CORPUS
+    tmp_path: Path, corpus: Sequence[tuple[str, str]] = CORPUS, vectorize: Vectorize = _vector
 ) -> tuple[BrainEngine, Factory, dict[str, str]]:
     tmp_path.chmod(0o700)
-    factory = Factory(FakeBackend())
+    factory = Factory(FakeBackend(vectorize=vectorize))
     engine = BrainEngine.open(
         compile_single_user_local(tmp_path / "brain", starter_spaces=()),
         embedding_backend=factory,
@@ -180,6 +212,114 @@ def _ids(response: dict[str, Any]) -> list[str]:
     return [row["record_id"] for row in response["results"]]
 
 
+def _all_ids(engine: BrainEngine, query: str, **options: Any) -> list[str]:
+    rows: list[str] = []
+    cursor = None
+    while True:
+        page = _search(engine, query, cursor=cursor, **options)
+        rows.extend(_ids(page))
+        if page["complete"]:
+            return rows
+        cursor = page["next_cursor"]
+
+
+@contextmanager
+def _state(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
+    """Test fixture: one direct write transaction on the Brain's SQLite state."""
+    connection = sqlite3.connect(engine.profile.root / ".open-brain/state/phase1.sqlite3")
+    connection.row_factory = sqlite3.Row
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
+def _retitle(engine: BrainEngine, record_id: str, title: str, *, index: bool) -> None:
+    """Change the projected title; without ``index`` the search row is left stale."""
+    with _state(engine) as connection:
+        connection.execute("UPDATE captures SET title=? WHERE capture_id=?", (title, record_id))
+        if index:
+            connection.execute(
+                "UPDATE search_documents SET title=? WHERE result_id=?", (title, record_id)
+            )
+
+
+def _renamed(value: Any, renames: dict[str, str]) -> Any:
+    if isinstance(value, str):
+        for before, after in renames.items():
+            value = value.replace(before, after)
+    return value
+
+
+def _copy(
+    db: sqlite3.Connection,
+    renames: dict[str, str],
+    table: str,
+    column: str,
+    key: str,
+    **overrides: Any,
+) -> None:
+    for row in db.execute(f"SELECT * FROM {table} WHERE {column}=?", (key,)).fetchall():
+        values = {name: _renamed(value, renames) for name, value in dict(row).items()} | overrides
+        db.execute(
+            f"INSERT INTO {table}({','.join(values)}) VALUES ({','.join('?' * len(values))})",
+            list(values.values()),
+        )
+
+
+def _clone_sources(engine: BrainEngine, templates: Sequence[str], count: int) -> None:
+    """Test fixture: copy captured sources under fresh IDs in one SQLite transaction.
+
+    A real capture costs about 150 ms, so a 10,000-record Brain is built by duplicating the
+    rows and source file real captures wrote. Only identifiers and titles change; the
+    capture receipt digest is recomputed so the projector's Portable validation still holds.
+    """
+    with _state(engine) as db:
+        for index in range(count):
+            old = templates[index % len(templates)]
+            seed = uuid.UUID(bytes=hashlib.sha256(str(index).encode()).digest()[:16], version=4)
+            revision = db.execute(
+                "SELECT source_id,source_bytes FROM source_revisions WHERE capture_id=?", (old,)
+            ).fetchone()
+            receipt = db.execute(
+                "SELECT accepted_receipt_id FROM captures WHERE capture_id=?", (old,)
+            ).fetchone()[0]
+            source = revision["source_id"]
+            renames = {old: f"capture_{seed}", source: f"source_{seed}", receipt: f"receipt_{seed}"}
+            record = json.loads(_renamed(revision["source_bytes"].decode("utf-8"), renames))
+            for ref in record["receipt_refs"]:
+                ref["sha256"] = hashlib.sha256(
+                    portable_canonical_json_bytes(ref["payload"])
+                ).hexdigest()
+            data = portable_canonical_json_bytes(record)
+            title, delivery = f"Clone {index}", f"clone.{index}"
+            _copy(db, renames, "captures", "capture_id", old, delivery_id=delivery, title=title)
+            _copy(db, renames, "logical_sources", "source_id", source)
+            _copy(
+                db,
+                renames,
+                "source_revisions",
+                "capture_id",
+                old,
+                source_bytes=data,
+                source_sha256=hashlib.sha256(data).hexdigest(),
+            )
+            _copy(db, renames, "source_aliases", "source_id", source, delivery_id=delivery)
+            _copy(db, renames, "source_revision_privacy", "capture_id", old)
+            _copy(db, renames, "search_documents", "capture_id", old, title=title)
+            path = db.execute(
+                "SELECT source_path FROM source_revisions WHERE capture_id=?", (renames[old],)
+            ).fetchone()[0]
+            descriptor = os.open(
+                engine.profile.root / path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            try:
+                os.write(descriptor, data)
+            finally:
+                os.close(descriptor)
+
+
 # ------------------------------------------------------------- probe reference
 
 RRF_K = 60
@@ -190,14 +330,14 @@ def _literal(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
-def _reference(engine: BrainEngine, query: str) -> list[str]:
-    """``tools/g4_embedding_probe`` relevance: tier 1-4 lexical emulation + max-cosine RRF."""
-    fields: dict[str, dict[str, str]] = {}
-    with engine._store.connect() as connection:
-        connection.row_factory = sqlite3.Row
-        projector = RecordProjector(engine.profile, connection, _owner(engine))
-        for (record_id,) in connection.execute("SELECT result_id FROM search_documents"):
-            fields[record_id] = cache.field_texts(projector.read(record_id))
+def _reference(
+    fields: dict[str, dict[str, str]], query: str, vectorize: Vectorize = _vector
+) -> list[str]:
+    """Port of ``tools/g4_embedding_probe`` relevance: depth-50 tier 1-4 lexical + max cosine.
+
+    ``fields`` maps each caller-visible record ID to the exact title and body the caller
+    reads; the fusion is the probe's ``rrf`` over its ``LIST_DEPTH`` cut lists.
+    """
     db = sqlite3.connect(":memory:")
     db.execute(
         "CREATE VIRTUAL TABLE r USING fts5(rid UNINDEXED, title, body,"
@@ -222,10 +362,10 @@ def _reference(engine: BrainEngine, query: str) -> list[str]:
         for rid in matches(" OR ".join(literals))
     )
     lexical = [rid for tier, rid in ranked if tier <= 4][:LIST_DEPTH]
-    query_vector = _vector(query)
+    query_vector = vectorize(query)
     best = {
         rid: max(
-            math.sumprod(array("f", _vector(text)), query_vector)
+            math.sumprod(array("f", vectorize(text)), query_vector)
             for text in texts.values()
             if text.strip()
         )
@@ -239,8 +379,14 @@ def _reference(engine: BrainEngine, query: str) -> list[str]:
     return sorted(scores, key=lambda rid: (-scores[rid], rid))
 
 
+def _fields(
+    ids: dict[str, str], corpus: Sequence[tuple[str, str]] = CORPUS
+) -> dict[str, dict[str, str]]:
+    return {ids[title]: {"title": title, "body": body} for title, body in corpus}
+
+
 def test_hybrid_ranking_equals_probe_reference(tmp_path: Path) -> None:
-    engine, factory, _ = _brain(tmp_path)
+    engine, factory, ids = _brain(tmp_path)
     _rebuild(engine)
     for query in QUERIES:
         response = _search(engine, query)
@@ -256,10 +402,102 @@ def test_hybrid_ranking_equals_probe_reference(tmp_path: Path) -> None:
             "mode_used",
             "warnings",
         }
-        assert _ids(response) == _reference(engine, query)
+        assert _ids(response) == _reference(_fields(ids), query)
     assert factory.backend.queries == list(QUERIES)
     preferred = _search(engine, "automobile repair", mode="hybrid_preferred")
     assert preferred["mode_used"] == "hybrid" and preferred["warnings"] == []
+
+
+@pytest.mark.integration
+def test_frozen_corpus_fused_order_equals_reference_fusion(tmp_path: Path) -> None:
+    """D13: depth-50 input lists on the frozen 200-record corpus, every query, all pages."""
+    corpus = json.loads(
+        (
+            Path(__file__).resolve().parents[5]
+            / "tools/g4_embedding_probe/corpus/relevance-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    records = [(record["title"], record["body"]) for record in corpus["records"]]
+    engine, _, ids = _brain(tmp_path, records, _hashed_vector)
+    _rebuild(engine, FakeBackend(vectorize=_hashed_vector))
+    fields = _fields(ids, records)
+    longest = 0
+    for query in corpus["queries"]:
+        fused = _all_ids(engine, query["text"])
+        assert fused == _reference(fields, query["text"], _hashed_vector), query["id"]
+        longest = max(longest, len(fused))
+    # Depth 50 per list: every query fuses at most 100 of the 200 records.
+    assert 50 <= longest <= 100
+
+
+@pytest.mark.integration
+def test_warm_first_page_projection_count_is_bounded_at_10k_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, _, ids = _brain(tmp_path)
+    _clone_sources(engine, list(ids.values()), 10_000 - len(ids))
+    receipt = _rebuild(engine)
+    assert receipt.records == 10_000
+    _search(engine, "automobile repair", limit=10)
+    reads = 0
+    original = RecordProjector.read
+
+    def counted(self: RecordProjector, *args: Any, **kwargs: Any) -> Any:
+        nonlocal reads
+        reads += 1
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(RecordProjector, "read", counted)
+    # Semantic-only evidence, then a common word that fills both input lists.
+    for query in ("automobile repair", "the"):
+        reads = 0
+        started = time.perf_counter()
+        page = _search(engine, query, limit=10)
+        elapsed = time.perf_counter() - started
+        print(f"10k warm hybrid first page {query!r}: {elapsed * 1000:.0f} ms, {reads} projections")
+        assert page["mode_used"] == "hybrid" and len(page["results"]) == 10
+        assert reads <= 100 + 10 + 5
+
+
+def test_stale_candidate_fails_only_when_it_reaches_the_page(tmp_path: Path) -> None:
+    engine, _, ids = _brain(tmp_path)
+    _rebuild(engine)
+    query = "brake maintenance sedan"
+    top = _ids(_search(engine, query))
+    assert top[0] == ids["Sedan service log"]
+    # An off-page candidate whose search row disagrees with its projection.
+    _retitle(engine, ids["Monthly budget"], "Monthly budget revised", index=False)
+    page = _search(engine, query, limit=1)
+    assert _ids(page) == top[:1]
+    with pytest.raises(T03Error, match="^projection_stale$"):
+        _all_ids(engine, query, limit=1)
+    # A stale record on the returned page still fails it, as lexical search does; its
+    # body vector and lexical tier keep it first even without its title.
+    _retitle(engine, ids["Monthly budget"], "Monthly budget", index=False)
+    _retitle(engine, top[0], "Renamed", index=False)
+    with pytest.raises(T03Error, match="^projection_stale$"):
+        _search(engine, query, limit=1)
+
+
+@pytest.mark.parametrize("change", ["policy", "rebuild"])
+def test_currentness_change_between_embed_and_snapshot(tmp_path: Path, change: str) -> None:
+    engine, factory, _ = _brain(tmp_path)
+    _rebuild(engine)
+
+    def changed() -> None:
+        if change == "policy":
+            engine.embedding_policy.disable(authority=_owner(engine))
+            engine.embedding_policy.enable(COMPONENT, authority=_owner(engine))
+        _rebuild(engine)
+
+    factory.backend.on_query = changed
+    with pytest.raises(T03Error, match="^model_unavailable$"):
+        _search(engine, "car notes")
+    fallback = _search(engine, "car notes", mode="hybrid_preferred")
+    assert (fallback["mode_used"], fallback["warnings"]) == ("lexical", ["model_unavailable"])
+    assert fallback["results"] == _search(engine, "car notes", mode="lexical")["results"]
+    factory.backend.on_query = None
+    assert _search(engine, "car notes")["mode_used"] == "hybrid"
 
 
 def test_semantic_only_paraphrase_and_tier_five_records(tmp_path: Path) -> None:
@@ -290,9 +528,7 @@ def test_semantic_only_paraphrase_and_tier_five_records(tmp_path: Path) -> None:
     assert ids["Bread notes"] in hybrid
 
 
-def test_restricted_caller_scores_only_authorized_identical_projections(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_restricted_caller_scores_only_authorized_identical_projections(tmp_path: Path) -> None:
     engine, _, ids = _brain(tmp_path)
     personal = engine.capture.accept(
         TextPayload("Clandestine covert hidden diary."),
@@ -300,28 +536,32 @@ def test_restricted_caller_scores_only_authorized_identical_projections(
         title="Private diary",
         privacy_tier=PrivacyTier.PERSONAL,
     ).capture_id
-    redacted = ids["Weekend plans"]
-    original = cache.field_texts
-
-    def owner_only_text(projected: Any) -> dict[str, str]:
-        texts = original(projected)
-        if projected.summary["record_id"] == redacted:
-            texts = {name: text + " clandestine covert hidden" for name, text in texts.items()}
-        return texts
-
-    with monkeypatch.context() as patch:
-        # The owner projection embedded for this record differs from what callers read.
-        patch.setattr(cache, "field_texts", owner_only_text)
-        _rebuild(engine)
+    changed = engine.capture.accept(
+        TextPayload("Notes about the weekend."),
+        delivery_id="hybrid.changed",
+        title="Clandestine covert hidden",
+        privacy_tier=PrivacyTier.PUBLIC,
+    ).capture_id
+    _rebuild(engine)
+    # The real projection callers now read differs from the bytes the owner embedded, so
+    # the old title chunk never matches; only the unchanged body vector may score.
+    _retitle(engine, changed, "Weekend notes", index=True)
+    visible = _fields(ids) | {
+        changed: {"title": "Weekend notes", "body": "Notes about the weekend."}
+    }
     owner = _ids(_search(engine, "clandestine"))
+    assert owner == _reference(
+        visible
+        | {personal: {"title": "Private diary", "body": "Clandestine covert hidden diary."}},
+        "clandestine",
+    )
     assert owner[0] == personal
     public = _search(engine, "clandestine", authority=_scoped(PrivacyTier.PUBLIC))
     assert public["mode_used"] == "hybrid"
     rows = _ids(public)
+    # No hidden record and no score derived from it or from the stale title bytes.
     assert personal not in rows
-    # The redacted record's projection never matches its chunk hash, so it has no vector.
-    assert redacted not in rows and redacted not in owner
-    assert set(rows) == set(ids.values()) - {redacted}
+    assert rows == _reference(visible, "clandestine")
     assert "clandestine" not in json.dumps(public["results"]).lower()
 
 
@@ -366,11 +606,7 @@ def test_unavailable_backend_refuses_required_and_falls_back_preferred(
     elif failure == "helper":
         factory.backend = FakeBackend(fail="worker_failed")
     elif failure == "missing":
-
-        def missing() -> FakeBackend:
-            raise EmbeddingFailure("resource_missing")
-
-        engine._embedding_backend = missing
+        factory.missing = True
     with pytest.raises(T03Error, match="^model_unavailable$"):
         _search(engine, "car notes")
     fallback = _search(engine, "car notes", mode="hybrid_preferred")
@@ -473,9 +709,7 @@ def test_lexical_cursor_record_is_unchanged(tmp_path: Path) -> None:
     _rebuild(engine)
     authority = _owner(engine)
     page = _search(engine, "car notes", mode="lexical", limit=1, authority=authority)
-    record = CursorStore(engine.profile).resolve(
-        page["next_cursor"], now=engine._clock().timestamp()
-    )
+    record = CursorStore(engine.profile).resolve(page["next_cursor"], now=time.time())
     assert {"purpose", "binding", "generation", "last"} <= set(record)
     assert record["purpose"] == "search.page"
     assert record["binding"] == binding_digest(

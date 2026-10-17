@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import math
 import sqlite3
 import struct
@@ -24,7 +25,7 @@ from .embedding_backend import EmbeddingFailure
 from .historical_read_snapshot import historical_read_snapshot
 from .local_schema import PHASE1_STATE_SCHEMA_VERSION
 from .mcp_eligibility import implicit, install
-from .records import RecordProjector
+from .records import ProjectedRecord, RecordProjector
 from .sharing import (
     EligibilityMode,
     external_candidate_clause,
@@ -42,7 +43,7 @@ from .t03_contracts import (
 )
 
 if TYPE_CHECKING:
-    from .embedding_cache import ActiveGeneration
+    from .embedding_cache import ActiveGeneration, ChunkRef
     from .local import BrainEngine
 
 RANKING_VERSION = "fts5-match-tier-binary-v2"
@@ -50,6 +51,8 @@ RANKING_VERSION = "fts5-match-tier-binary-v2"
 # reciprocal-rank fusion of max-cosine semantic ranks and lexical tiers 1-4 only.
 HYBRID_RANKING_VERSION = "ob.hybrid-rrf.v2"
 _RRF_K = 60
+# Decision D13: each fusion input list is cut at 50, so a hybrid result set is at most 100.
+_LIST_DEPTH = 50
 # Leave transport framing and duplicate JSON string escaping room below 1 MiB.
 MAX_RESPONSE_BYTES = 240_000
 
@@ -185,10 +188,18 @@ def generations(
         local_projector = RecordProjector(profile, connection, authority)
 
         def historical_visible(capture_id: str) -> bool:
-            return historical_capture_visibility(
-                connection, profile, capture_id, local_history=True,
-                provider_id=None, brain_id=None, issuer_epoch=None,
-            ) is not False
+            return (
+                historical_capture_visibility(
+                    connection,
+                    profile,
+                    capture_id,
+                    local_history=True,
+                    provider_id=None,
+                    brain_id=None,
+                    issuer_epoch=None,
+                )
+                is not False
+            )
 
         def scoped_projection_visible(record_type: object, record_id: object) -> int:
             if not isinstance(record_id, str):
@@ -337,7 +348,7 @@ def _semantic_current(
     engine: BrainEngine, connection: sqlite3.Connection, active: ActiveGeneration
 ) -> bool:
     """Policy generation and active cache generation are unchanged inside the snapshot."""
-    from .embedding_cache import _Root, _Unavailable
+    from .embedding_cache import active_pointer
     from .embedding_policy import read_policy
 
     policy = read_policy(connection)
@@ -347,12 +358,7 @@ def _semantic_current(
         or policy.policy_generation != active.policy_generation
     ):
         return False
-    try:
-        with _Root.open(engine.profile, create=False) as root:
-            pointer = None if root is None else root.pointer()
-    except _Unavailable, OSError:
-        return False
-    return pointer is not None and pointer[0] == active.generation_id
+    return active_pointer(engine) == active.generation_id
 
 
 def _search_binding(
@@ -379,69 +385,122 @@ def _fused(
     rows: list[sqlite3.Row],
     projector: RecordProjector,
     semantic: _Semantic,
-) -> list[tuple[float, dict[str, Any]]]:
-    """``ob.hybrid-rrf.v2`` over caller-authorized candidates, best first.
+) -> list[tuple[float, dict[str, Any], bool]]:
+    """``ob.hybrid-rrf.v2`` over the top 50 of each input list (decision D13), best first.
 
-    A vector is scored only when the caller's own projected field bytes hash to exactly
-    the owner-built chunk's projection hash (decision D10). Coverage currency: a record
-    created or edited after the last rebuild has no matching chunk, so it is simply absent
-    from the semantic list and can still appear through lexical tiers 1-4; hybrid never
-    claims semantic coverage for it.
+    Semantic cosines come from the active generation alone, for caller-authorized candidates
+    only. Candidates are then confirmed in descending score order: a vector is scored only
+    when the caller's own projected field bytes hash to exactly the owner-built chunk's
+    projection hash (decision D10), until 50 records are confirmed or candidates run out.
+    The lexical list is the first 50 tier 1-4 rows in lexical order. Only confirmations
+    project, so a page reads about 100 records however large the Brain is.
+
+    Coverage currency: a record created or edited after the last rebuild has no matching
+    chunk, so it is simply absent from the semantic list and can still appear through
+    lexical tiers 1-4; hybrid never claims semantic coverage for it.
+
+    A stale candidate (its search row disagrees with its projection) takes no rank in
+    either list. It is returned flagged at the position its ranks would have given it, so
+    it fails only a page that reaches it, as lexical search does.
     """
-    from .embedding_cache import FIELDS, ChunkRef, field_texts, projection_sha256
+    from .embedding_cache import field_texts, projection_sha256
 
-    chunks = semantic.active.chunks
-    vectorized = {(ref.record_type, ref.result_id) for ref in chunks}
+    candidates = {(row["record_type"], row["result_id"]): row for row in rows}
+    projections: dict[tuple[str, str], ProjectedRecord | None] = {}
+
+    def project(identity: tuple[str, str]) -> ProjectedRecord | None:
+        if identity not in projections:
+            try:
+                projections[identity] = projector.read(identity[1])
+            except T03Error as error:
+                if error.code != "not_found":
+                    raise
+                projections[identity] = None
+        return projections[identity]
+
     summaries: dict[tuple[str, str], dict[str, Any]] = {}
-    lexical: list[tuple[int, str, str]] = []
-    best: dict[tuple[str, str], float] = {}
-    for row in rows:
-        tier = row["tier"]
-        if tier is None and (row["record_type"], row["result_id"]) not in vectorized:
-            continue
-        try:
-            projected = projector.read(row["result_id"])
-        except T03Error as error:
-            if error.code == "not_found":
-                continue
-            raise
+    stale: dict[tuple[str, str], list[int]] = {}
+
+    def confirmed(identity: tuple[str, str], projected: ProjectedRecord, rank: int) -> bool:
+        row = candidates[identity]
         summary = projected.summary
+        summaries[identity] = summary
         indexed_text = projected.text if projected.indexed_text is None else projected.indexed_text
         if row["body"] != indexed_text or row["title"] != summary["title"]:
-            raise T03Error("projection_stale")
-        identity = (summary["record_type"], summary["record_id"])
-        summaries[identity] = summary
-        if tier is not None:
-            lexical.append((int(tier), *identity))
-        texts = field_texts(projected)
-        scores = [
-            math.sumprod(vector, semantic.query)
-            for name in FIELDS
-            for vector in chunks.get(
-                ChunkRef(
-                    summary["record_type"],
-                    summary["record_id"],
-                    summary["revision_id"],
-                    name,
-                    projection_sha256(texts[name]),
-                ),
-                (),
+            stale.setdefault(identity, []).append(rank)
+            return False
+        return True
+
+    # An upper bound per record from every one of its chunks, before any projection.
+    scored: dict[tuple[str, str], list[tuple[ChunkRef, float]]] = {}
+    for ref, vectors in semantic.active.chunks.items():
+        identity = (ref.record_type, ref.result_id)
+        if identity in candidates and vectors:
+            scored.setdefault(identity, []).append(
+                (ref, max(math.sumprod(vector, semantic.query) for vector in vectors))
             )
-        ]
-        if scores:
-            best[identity] = max(scores)
+    pending = [
+        (-max(score for _ref, score in refs), identity, False) for identity, refs in scored.items()
+    ]
+    heapq.heapify(pending)
+    semantic_list: list[tuple[str, str]] = []
+    while pending and len(semantic_list) < _LIST_DEPTH:
+        bound, identity, exact = heapq.heappop(pending)
+        projected = project(identity)
+        if projected is None:
+            continue
+        if not exact:
+            revision = projected.summary["revision_id"]
+            hashes = {
+                name: projection_sha256(text) for name, text in field_texts(projected).items()
+            }
+            matched = [
+                score
+                for ref, score in scored[identity]
+                if ref.revision_id == revision and ref.projection_sha256 == hashes[ref.field]
+            ]
+            if not matched:
+                continue
+            if max(matched) < -bound:
+                # Reorder by the caller-visible score before confirming its rank.
+                heapq.heappush(pending, (-max(matched), identity, True))
+                continue
+        if confirmed(identity, projected, len(semantic_list) + 1):
+            semantic_list.append(identity)
+    lexical_list: list[tuple[str, str]] = []
+    for _tier, record_type, result_id in sorted(
+        (int(row["tier"]), *identity)
+        for identity, row in candidates.items()
+        if row["tier"] is not None
+    ):
+        if len(lexical_list) == _LIST_DEPTH:
+            break
+        identity = (record_type, result_id)
+        projected = project(identity)
+        if projected is not None and confirmed(identity, projected, len(lexical_list) + 1):
+            lexical_list.append(identity)
     fused: dict[tuple[str, str], float] = {}
-    rankings = (
-        sorted(best, key=lambda identity: (-best[identity], *identity)),
-        [(record_type, record_id) for _tier, record_type, record_id in sorted(lexical)],
-    )
-    for ranking in rankings:
+    for ranking in (semantic_list, lexical_list):
         for rank, identity in enumerate(ranking, start=1):
             fused[identity] = fused.get(identity, 0.0) + 1.0 / (_RRF_K + rank)
-    return sorted(
-        ((score, summaries[identity]) for identity, score in fused.items()),
-        key=lambda item: (-item[0], item[1]["record_type"], item[1]["record_id"]),
+    entries = [(score, summaries[identity], False) for identity, score in fused.items()]
+    entries.extend(
+        (sum(1.0 / (_RRF_K + rank) for rank in ranks), summaries[identity], True)
+        for identity, ranks in stale.items()
     )
+    return sorted(
+        entries, key=lambda item: (-item[0], item[1]["record_type"], item[1]["record_id"])
+    )
+
+
+def _reached(
+    entries: list[tuple[float, dict[str, Any], bool]],
+) -> Iterator[tuple[float, dict[str, Any]]]:
+    """Fused entries in page order; a stale entry fails the page that reaches it."""
+    for score, summary, stale in entries:
+        if stale:
+            raise T03Error("projection_stale")
+        yield score, summary
 
 
 def search_page(
@@ -501,7 +560,7 @@ def search_page(
             "mcp_record_visible(d.record_type,d.result_id)=1",
             "(d.record_type='canonical' OR EXISTS (SELECT 1 FROM logical_sources s "
             "WHERE s.head_capture_id=d.result_id AND s.historical_only=0 "
-            "AND s.lifecycle='active' AND s.availability='available'))"
+            "AND s.lifecycle='active' AND s.availability='available'))",
         ]
         readable_tiers = tuple(
             tier.value for tier in PrivacyTier if authority.permits_read_tier(tier)
@@ -614,7 +673,7 @@ def search_page(
                     for item in fused
                     if (-item[0], item[1]["record_type"], item[1]["record_id"]) > after
                 ]
-            ranked = iter(fused)
+            ranked = _reached(fused)
         results: list[dict[str, Any]] = []
         next_key: list[Any] | None = None
         complete = True
@@ -749,7 +808,10 @@ def read_record(
 
         if projected.summary["record_type"] == "source":
             selection = read_selection(
-                connection, engine.profile, projected.summary["record_id"], authority,
+                connection,
+                engine.profile,
+                projected.summary["record_id"],
+                authority,
                 history=history,
             )
             if selection is not None:
