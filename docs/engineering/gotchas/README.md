@@ -4424,6 +4424,23 @@ first run after install cannot be met by layout alone on this host.
 
 Discovered: 2026-10-17, T5.1 timings.
 
+### NATIVE-EMBED-006: The NW0 Graphify probes run only in CI and still assumed a one-file base
+
+Category: Native / CI.
+
+Symptom: after the base became a one-folder build, `make verify`, `make native-audit` and the
+Homebrew smoke all passed locally, but both CI platform jobs failed at "Verify experimental Graphify
+native helper" with `IsADirectoryError` on `build/native/dist/open-brain`.
+
+Cause: `tools/nw0_graphify_probe/run.py` and `startup.py` defaulted `--base` to the one-file path.
+No local target runs them, so nothing caught it before the PR.
+
+Action: when the base layout changes, run `uv run --frozen --python 3.14 --no-dev --group
+native-build python -m tools.nw0_graphify_probe.run` locally (delete `build/nw0-graphify` first), and
+search for `dist/open-brain` across `tools/` and `.github/`.
+
+Discovered: 2026-10-18, PR #89 CI.
+
 ### TESTING-012: Low free disk turns capture tests into `storage_high`/`storage_critical` refusals
 
 Category: Testing / Host.
