@@ -6,6 +6,10 @@ import json
 import subprocess
 import sys
 
+from open_brain_engine import __version__
+
+_VERSION_LINE = f"open-brain {__version__}\n"
+
 # Measured on the search path: none of these is needed to build the parser or search.
 _SEARCH_UNUSED = (
     "email",
@@ -39,7 +43,7 @@ def test_version_imports_no_engine() -> None:
         " 'engine': 'open_brain_engine.engine' in sys.modules,"
         " 'cli': 'open_brain.services.local_entrypoints' in sys.modules}))"
     )
-    assert result == {"code": 0, "out": "open-brain 0.1.0\n", "engine": False, "cli": False}
+    assert result == {"code": 0, "out": _VERSION_LINE, "engine": False, "cli": False}
 
 
 def test_version_output_matches_the_parser() -> None:
@@ -51,7 +55,7 @@ def test_version_output_matches_the_parser() -> None:
         "    code = run_cli(('--version',))\n"
         "print(json.dumps({'code': code, 'out': out.getvalue()}))"
     )
-    assert result == {"code": 0, "out": "open-brain 0.1.0\n"}
+    assert result == {"code": 0, "out": _VERSION_LINE}
 
 
 def test_parser_construction_skips_search_unused_modules() -> None:

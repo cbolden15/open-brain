@@ -481,6 +481,10 @@ class LifecycleJournal:
         return request
 
     def _append(self, state: _State, operation_id: str, kind: str, payload: object) -> None:
+        held = self._snapshot
+        if held is not None and held[1] is state:
+            # The snapshot-cached state is shared by every read; a write must not touch it.
+            raise LifecycleError("local_operation_failed")
         # Validate against complete retained history before recording a new transition.
         state.apply(operation_id, kind, payload)
         last = self.connection.execute(
@@ -697,7 +701,7 @@ def restore_lifecycle_journal(
     """Validate in a disposable database before touching the empty destination."""
     try:
         value = decode_canonical(evidence)
-    except (ValueError, TypeError, RecursionError):
+    except ValueError, TypeError, RecursionError:
         raise LifecycleError("invalid_evidence") from None
     return restore_lifecycle_journal_value(
         connection, value, brain_id=brain_id, issuer_epoch=issuer_epoch

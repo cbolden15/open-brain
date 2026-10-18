@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import sqlite3
 from collections.abc import Callable, Iterator
 from hashlib import sha256
@@ -24,6 +25,7 @@ from open_brain_engine.engine.capture_lifecycle_journal import (
     LifecycleJournal,
     install_lifecycle_journal,
     restore_lifecycle_journal,
+    snapshot_token,
 )
 
 BRAIN = "brn_aaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -658,3 +660,18 @@ def test_frozen_schema_and_restore_fixture_preserve_retractions_and_halted_custo
         assert _snapshot(connection) == before
     finally:
         connection.close()
+
+
+def test_a_write_inside_a_read_snapshot_never_mutates_the_cached_state(
+    db: tuple[sqlite3.Connection, LifecycleJournal],
+) -> None:
+    connection, journal = db
+    group = _group(1, (1,))
+    journal.reserve(_import(1, group))
+    journal._snapshot = (snapshot_token(connection), None)
+    cached = journal._state()
+    before = {name: copy.copy(value) for name, value in vars(cached).items()}
+    with pytest.raises(LifecycleError):
+        journal.stage_group(_uuid(1), group)
+    assert journal._state() is cached
+    assert vars(cached) == before
