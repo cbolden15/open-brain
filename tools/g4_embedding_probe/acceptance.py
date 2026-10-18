@@ -8,6 +8,12 @@ query through ``search-page`` in ``hybrid_required`` and ``lexical`` modes. It p
 JSON receipt holding metrics only: no corpus text and no path outside the scratch
 directory. Latency is the wall-clock time of one complete CLI invocation, so it includes
 process start; ``process_start_ms`` records ``--version`` on the same host for context.
+
+The ``whole_command`` section applies the D17/D18 budgets to ``--version``, lexical and
+``hybrid_required`` ``search-page``: warm runs reuse the prepared Brain, while each cold run
+is the first command of a fresh process against a fresh copy of that Brain with no helper
+stage. ``first_invocation_ms`` is the driver's first command; it is the first launch after
+install only when the prefix was installed immediately before.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ import math
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -36,6 +43,10 @@ WARM_P95_MAX_MS = 500.0
 COLD_MAX_MS = 3000.0
 PROCESS_START_SAMPLES = 5
 COMMAND_TIMEOUT = 900
+WHOLE_COMMAND_RUNS = 20
+WHOLE_COMMANDS = ("version", "lexical", "hybrid_required")
+# Mirrors open_brain.services.embedding_helper.STAGE_PARTS (pinned by a test).
+STAGE_PARTS = (".open-brain", "cache", "embedding-v1", "stage")
 
 
 class AcceptanceError(RuntimeError):
@@ -134,6 +145,41 @@ def criteria(
     }
 
 
+def whole_command_summary(latencies_ms: Sequence[float]) -> dict[str, float | int]:
+    return {
+        "runs": len(latencies_ms),
+        "p50_ms": round(percentile(latencies_ms, 0.50), 1),
+        "p95_ms": round(percentile(latencies_ms, 0.95), 1),
+        "max_ms": round(max(latencies_ms), 1),
+    }
+
+
+def whole_command_criteria(
+    warm: Mapping[str, Mapping[str, Any]], cold: Mapping[str, Mapping[str, Any]]
+) -> dict[str, bool]:
+    result = {
+        f"warm_{name}_p95_le_500_ms": warm[name]["p95_ms"] <= WARM_P95_MAX_MS for name in warm
+    }
+    result.update(
+        {f"cold_{name}_p95_le_3000_ms": cold[name]["p95_ms"] <= COLD_MAX_MS for name in cold}
+    )
+    return result
+
+
+def copy_brain_without_stage(source: Path, target: Path) -> None:
+    """Copy a prepared Brain, leaving out the helper stage so the copy starts cold."""
+    stage_parent = source.joinpath(*STAGE_PARTS[:-1])
+
+    def ignore(directory: str, names: list[str]) -> list[str]:
+        if Path(directory) == stage_parent and STAGE_PARTS[-1] in names:
+            return [STAGE_PARTS[-1]]
+        return []
+
+    if not stage_parent.joinpath(STAGE_PARTS[-1]).is_dir():
+        raise AcceptanceError("prepared Brain has no helper stage to leave out")
+    shutil.copytree(source, target, symlinks=True, ignore=ignore)
+
+
 def note_filename(title: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
     if not slug:
@@ -193,13 +239,57 @@ def _ranked_ids(page: Mapping[str, Any], ids_by_title: Mapping[str, str]) -> lis
     return [ids_by_title.get(item.get("title"), "unknown") for item in page["results"]]
 
 
-def run_acceptance(prefix: Path, scratch: Path, corpus_path: Path = CORPUS) -> dict[str, Any]:
+def _whole_command(cli: Cli, name: str, query: str) -> float:
+    if name == "version":
+        return cli.run("--version", local=False)[1]
+    page, elapsed = cli.run("search-page", query, "--mode", name, "--limit", str(TOP_K))
+    if page.get("status") != "ok" or page.get("mode_used") is None:
+        raise AcceptanceError("search-page answered outside its shape")
+    return elapsed
+
+
+def measure_whole_commands(
+    cli: Cli, corpus: Corpus, scratch: Path, runs: int = WHOLE_COMMAND_RUNS
+) -> dict[str, Any]:
+    """Warm runs reuse the prepared Brain; each cold run gets a fresh HOME and Brain copy."""
+    queries = [corpus.queries[index % len(corpus.queries)].text for index in range(runs)]
+    warm = {
+        name: whole_command_summary([_whole_command(cli, name, query) for query in queries])
+        for name in WHOLE_COMMANDS
+    }
+    cold_root = scratch / "cold"
+    cold_root.mkdir(mode=0o700)
+    cold_samples: dict[str, list[float]] = {name: [] for name in WHOLE_COMMANDS}
+    for index, query in enumerate(queries):
+        for name in WHOLE_COMMANDS:
+            run_root = cold_root / f"{name}-{index}"
+            run_root.mkdir(mode=0o700)
+            fresh = Cli(cli.executable, run_root)
+            if name != "version":
+                copy_brain_without_stage(cli.data_dir, fresh.data_dir)
+            cold_samples[name].append(_whole_command(fresh, name, query))
+            shutil.rmtree(run_root)
+    cold = {name: whole_command_summary(samples) for name, samples in cold_samples.items()}
+    return {
+        "measure": "wall_clock_per_cli_invocation",
+        "warm": warm,
+        "cold": cold,
+        "criteria": whole_command_criteria(warm, cold),
+    }
+
+
+def run_acceptance(
+    prefix: Path,
+    scratch: Path,
+    corpus_path: Path = CORPUS,
+    runs: int = WHOLE_COMMAND_RUNS,
+) -> dict[str, Any]:
     corpus = load_corpus(corpus_path)
     executable = prefix / "bin" / "open-brain"
     cli = Cli(executable, scratch)
     started = time.perf_counter()
 
-    version, _ = cli.run("--version", local=False)
+    version, first_invocation_ms = cli.run("--version", local=False)
     process_start = [cli.run("--version", local=False)[1] for _ in range(PROCESS_START_SAMPLES)]
 
     notes = scratch / "notes"
@@ -236,6 +326,7 @@ def run_acceptance(prefix: Path, scratch: Path, corpus_path: Path = CORPUS) -> d
             latencies[mode].append(elapsed)
             modes_used[mode].add(str(page.get("mode_used")))
 
+    whole_command = measure_whole_commands(cli, corpus, scratch, runs)
     after, _ = cli.run("embedding", "status")
     health = after["embedding_health"]
     metrics = evaluate(corpus, rankings["hybrid_required"], rankings["lexical"])
@@ -259,6 +350,8 @@ def run_acceptance(prefix: Path, scratch: Path, corpus_path: Path = CORPUS) -> d
         "schema": RECEIPT_SCHEMA,
         "platform": f"{platform.system().lower()}-{platform.machine()}",
         "version": version.strip(),
+        "first_invocation_ms": round(first_invocation_ms, 1),
+        "whole_command": whole_command,
         "corpus": {
             "schema": "ob.g4-relevance-corpus.v1",
             "sha256": hashlib.sha256(corpus_path.read_bytes()).hexdigest(),
@@ -287,14 +380,17 @@ def _main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tools.g4_embedding_probe.acceptance")
     parser.add_argument("--prefix", type=Path, required=True)
     parser.add_argument("--scratch", type=Path, required=True, help="Empty, owner-only directory.")
+    parser.add_argument("--runs", type=int, default=WHOLE_COMMAND_RUNS)
     namespace = parser.parse_args(argv)
+    if namespace.runs < 1:
+        parser.error("--runs must be positive")
     prefix = namespace.prefix.resolve(strict=True)
     scratch = namespace.scratch.resolve(strict=True)
     if any(scratch.iterdir()):
         print("acceptance: scratch directory must be empty", file=sys.stderr)
         return 2
     try:
-        receipt = run_acceptance(prefix, scratch)
+        receipt = run_acceptance(prefix, scratch, runs=namespace.runs)
     except (AcceptanceError, OSError, subprocess.TimeoutExpired, ValueError) as error:
         print(f"acceptance: {error}", file=sys.stderr)
         return 1
