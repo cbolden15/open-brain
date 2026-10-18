@@ -147,3 +147,22 @@ def test_main_rejects_mismatch_and_preserves_failure_evidence(
     else:
         assert calls == []
         assert not output.exists()
+
+
+def test_probes_default_to_the_one_folder_base_executable() -> None:
+    from tools.nw0_graphify_probe import run
+
+    for module in (run, startup):
+        assert module.DEFAULT_BASE.parts[-3:] == ("dist", "open-brain", "open-brain")
+
+
+def test_copy_base_brings_the_one_folder_runtime(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    (bundle / "_internal").mkdir(parents=True)
+    (bundle / "_internal" / "lib.dylib").write_bytes(b"runtime")
+    (bundle / "open-brain").write_bytes(b"executable")
+    target = tmp_path / "baseline"
+    target.mkdir()
+    startup.copy_base(bundle / "open-brain", target)
+    assert (target / "open-brain").read_bytes() == b"executable"
+    assert (target / "_internal" / "lib.dylib").read_bytes() == b"runtime"

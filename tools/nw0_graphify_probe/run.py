@@ -20,6 +20,8 @@ from tools.open_brain_dev import artifact_audit, base_native
 
 SOURCE = Path(__file__).resolve().parent
 REPO = SOURCE.parents[1]
+# The base is a one-folder build; its executable sits beside `_internal`.
+DEFAULT_BASE = REPO / "build/native/dist/open-brain/open-brain"
 
 
 def digest(path: Path) -> str:
@@ -231,7 +233,7 @@ def audit(output: Path, baseline: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=REPO / "build/nw0-graphify")
-    parser.add_argument("--base", type=Path, default=REPO / "build/native/dist/open-brain")
+    parser.add_argument("--base", type=Path, default=DEFAULT_BASE)
     args = parser.parse_args()
     baseline = args.base.resolve(strict=True)
     output = args.output.resolve()
