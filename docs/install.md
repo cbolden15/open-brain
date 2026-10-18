@@ -23,10 +23,16 @@ Install Open Brain:
 brew install cbolden15/tap/open-brain
 ```
 
-Homebrew downloads the platform's base and Graphify archives from immutable GitHub Release URLs and
-verifies both SHA-256 values stored in the formula. It installs the app, the separately confined
-Graphify structural helper, and the three compiled Obsidian plugin assets as one versioned resource
-set.
+Homebrew downloads the platform's base, Graphify and embedding archives from immutable GitHub Release
+URLs and verifies every SHA-256 value stored in the formula. The base is a one-folder build. The
+formula installs the app, the separately confined Graphify structural helper, the three compiled
+Obsidian plugin assets, and the embedding resource as one versioned resource set described by a
+component manifest (version 2 when the embedding resource is included).
+
+The embedding resource holds a pinned local model and a small native helper with its inference
+runtime statically linked. It does nothing until you opt in with `open-brain embedding enable`; see
+[offline semantic search](semantic-search.md). It makes no network call, and searching never
+downloads a model.
 
 ## First use
 
@@ -83,7 +89,8 @@ back to another provider. Removing access revokes consent and deletes the select
 key. It cannot retract content already sent to the provider.
 
 Semantic refresh is intentional network egress to the selected provider. Ordinary local capture,
-import, search, workspace, structural graph, export, status, and doctor operations remain offline.
+import, search, workspace, structural graph, export, status, and doctor operations remain offline,
+including [offline semantic search](semantic-search.md), which runs a local model and is not egress.
 Claude subscription access is unavailable with `subscription_isolation_unproven` because an
 unprivileged, tool-free client path has not been proven. Do not run Open Brain with root, capabilities,
 namespaces, alternate fixture ownership, or broader host access to bypass that block.

@@ -91,6 +91,12 @@ manifests including the harness must include it consistently across platforms.
 The helper runs bounded foreground operations without a listener or recurring service.
 See `docs/harness-setup.md` for preview-bound optional integration setup and removal.
 
+The base archive is a one-folder build. A separate embedding archive carries the pinned model and a
+native helper with ONNX Runtime statically linked; a release that includes it uses component
+manifest v2, whose archives hold final installed prefix-relative paths and their own inventories.
+Offline semantic search stays off until `open-brain embedding enable`, runs only the installed
+helper, and is not network egress. See `docs/semantic-search.md`.
+
 Semantic refresh is the core's only active product network-egress path. It requires current owner consent,
 eligible note revisions, exclusions, redaction, and one explicit direct API-key provider. Never use
 ambient provider credentials or cross-provider fallback. Claude subscription remains closed with
