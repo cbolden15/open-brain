@@ -131,7 +131,8 @@ def test_desktop_selects_exact_pair_from_generated_manifest(
         "runtime/libexec/open-brain-graphify",
         "desktop-component-manifest-v1.json",
     }
-    for link in (base + "_internal/Python", framework + "Python", framework + "Versions/Current/Python"):
+    links = (base + "_internal/Python", framework + "Python", framework + "Versions/Current/Python")
+    for link in links:
         assert (output / link).read_bytes() == b"python-bytes"
         assert os.access(output / link, os.X_OK)
     assert not os.access(output / framework / "Resources/Info.plist", os.X_OK)
@@ -143,10 +144,24 @@ def test_desktop_selects_exact_pair_from_generated_manifest(
 @pytest.mark.parametrize(
     "damage",
     [
-        "duplicate-base", "duplicate-graphify", "duplicate-harness", "unknown-role",
-        "unknown-platform", "archive-digest", "executable-digest", "filename-version",
-        "destination", "role-filename", "malformed-row", "noncanonical", "mixed-harness",
-        "missing-base", "missing-graphify", "version", "non-ascii", "blank-row",
+        "duplicate-base",
+        "duplicate-graphify",
+        "duplicate-harness",
+        "unknown-role",
+        "unknown-platform",
+        "archive-digest",
+        "executable-digest",
+        "filename-version",
+        "destination",
+        "role-filename",
+        "malformed-row",
+        "noncanonical",
+        "mixed-harness",
+        "missing-base",
+        "missing-graphify",
+        "version",
+        "non-ascii",
+        "blank-row",
     ],
 )
 def test_desktop_rejects_invalid_authority_rows_even_on_other_platform(
@@ -193,7 +208,10 @@ def test_desktop_rejects_invalid_authority_rows_even_on_other_platform(
     assert not paths[3].exists()
 
 
-@pytest.mark.parametrize(("member", "message"), [(0, "does not match the inventory"), (1, "digest does not match")])
+@pytest.mark.parametrize(
+    ("member", "message"),
+    [(0, "does not match the inventory"), (1, "digest does not match")],
+)
 def test_desktop_rejects_wrong_executable_bytes(tmp_path: Path, member: int, message: str) -> None:
     paths = fixture(tmp_path, ("macos-arm64",))
     paths[member].write_bytes(b"wrong-synthetic-executable")
@@ -260,13 +278,24 @@ def internal(paths: tuple[Path, Path, Path, Path]) -> Path:
         {"a/loop": ".."},
         {"outside-internal": "../open-brain"},
         {
-            "hop1": "hop2", "hop2": "hop3", "hop3": "hop4", "hop4": "hop5",
+            "hop1": "hop2",
+            "hop2": "hop3",
+            "hop3": "hop4",
+            "hop4": "hop5",
             "hop5": "base_library.zip",
         },
     ],
     ids=[
-        "escape", "absolute", "backslash", "dot", "missing", "cycle", "self", "ancestor",
-        "outside-internal", "depth-5",
+        "escape",
+        "absolute",
+        "backslash",
+        "dot",
+        "missing",
+        "cycle",
+        "self",
+        "ancestor",
+        "outside-internal",
+        "depth-5",
     ],
 )
 def test_desktop_refuses_unsafe_links(tmp_path: Path, links: dict[str, str]) -> None:
@@ -301,6 +330,7 @@ def test_desktop_replaces_a_stale_runtime_tree(tmp_path: Path) -> None:
 
 VERIFY = """
 import {{ readFileSync }} from "node:fs";
+const fs = await import("node:fs/promises");
 import {{ readArchiveInventory, planFlatten, flattenInto, verifyFlattened }} from "{script}";
 const members = readArchiveInventory(readFileSync(process.argv[3]));
 const plan = planFlatten(members);
@@ -314,14 +344,16 @@ await verifyFlattened(plan, process.argv[2]);
     ("tamper", "message"),
     [
         ("", None),
-        ('await (await import("node:fs/promises")).writeFile(process.argv[2] + "/_internal/Python", "x");',
-         "does not match the inventory"),
-        ('await (await import("node:fs/promises")).writeFile(process.argv[2] + "/extra", "x");',
-         "extra file"),
-        ('await (await import("node:fs/promises")).rm(process.argv[2] + "/_internal/base_library.zip");',
-         "differ from the inventory"),
-        ('await (await import("node:fs/promises")).symlink("open-brain", process.argv[2] + "/link");',
-         "keeps a symlink"),
+        (
+            'await fs.writeFile(process.argv[2] + "/_internal/Python", "x");',
+            "does not match the inventory",
+        ),
+        ('await fs.writeFile(process.argv[2] + "/extra", "x");', "extra file"),
+        (
+            'await fs.rm(process.argv[2] + "/_internal/base_library.zip");',
+            "differ from the inventory",
+        ),
+        ('await fs.symlink("open-brain", process.argv[2] + "/link");', "keeps a symlink"),
     ],
     ids=["clean", "hash-mismatch", "extra-file", "missing-file", "symlink-left"],
 )
@@ -332,7 +364,15 @@ def test_flattened_output_is_verified_against_the_inventory(
     archive = tmp_path / "open-brain-0.1.0-macos-arm64.tar.gz"
     script = VERIFY.format(script=(DESKTOP / "scripts/flatten-base.mjs").as_uri(), tamper=tamper)
     completed = subprocess.run(
-        ["node", "--input-type=module", "-e", script, str(paths[0].parent), str(tmp_path / "out"), str(archive)],
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            script,
+            str(paths[0].parent),
+            str(tmp_path / "out"),
+            str(archive),
+        ],
         capture_output=True,
         text=True,
         timeout=10,
