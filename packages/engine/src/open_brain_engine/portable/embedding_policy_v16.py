@@ -83,4 +83,3 @@ def validate_embedding_policy_evidence(files: Mapping[str, bytes]) -> list[dict[
             raise PortableValidationError("Portable16 embedding policy evidence is not canonical")
         rows.append(value)
     return validate_history_rows(rows)
-

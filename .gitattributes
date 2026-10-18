@@ -4,3 +4,5 @@ tools/nw0_api_probe/licenses/*/pycparser/LICENSE whitespace=-blank-at-eol
 tools/nw0_api_probe/payload/direct_api.py.txt whitespace=-blank-at-eof
 tools/nw0_authority_probe/licenses/*/cffi/LICENSE whitespace=-blank-at-eol,-blank-at-eof
 tools/nw0_authority_probe/licenses/*/pycparser/LICENSE whitespace=-blank-at-eol
+# Embedding helper protocol fixture: bytes after the frame are the input under test.
+release/open-brain-embedding/tests/fixtures/trailing_bytes.request whitespace=-blank-at-eol,-blank-at-eof
