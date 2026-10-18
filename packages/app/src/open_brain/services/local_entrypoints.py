@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import json
 import os
 import re
@@ -85,7 +84,6 @@ from open_brain.services.consumer_import import (
     write_consumer_failure,
     write_consumer_interrupted,
 )
-from open_brain.services.embedding_health import embedding_health
 from open_brain.services.embedding_policy_cli import (
     EmbeddingPolicyError,
     add_embedding_parsers,
@@ -3104,6 +3102,8 @@ def _write_export(
 
 
 def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
+    from open_brain.services.embedding_health import embedding_health
+
     maintenance = read_maintenance_snapshot(session.profile)
     journal_summary = _journal_summary(tasks=session.tasks)
     payload = {
@@ -3141,6 +3141,8 @@ def _write_doctor(
     *,
     json_output: bool,
 ) -> int:
+    from open_brain.services.embedding_health import embedding_health
+
     checks = {
         "private-data-directory": _private_data_directory_is_safe,
         "foreground-runtime": _foreground_runtime_is_safe,
@@ -3181,6 +3183,8 @@ def _foreground_runtime_is_safe(session: LocalBrainSession) -> bool:
 
 
 def _base_dependency_closure_is_safe(_session: LocalBrainSession) -> bool:
+    import importlib.metadata
+
     for distribution, expected in _BASE_DEPENDENCY_REQUIREMENTS.items():
         try:
             requirements = importlib.metadata.requires(distribution)

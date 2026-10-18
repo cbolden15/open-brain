@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.models import (
     Authority,
@@ -53,13 +53,13 @@ from open_brain.services.launcher_policy import (
     LauncherPolicyError,
     validate_startup_policy,
 )
-from open_brain.services.managed_providers import (
-    ManagedGraphProviderResult,
-    ManagedProviderFailure,
-)
+
+if TYPE_CHECKING:
+    # The provider client (http.client, ssl) loads only for a graph refresh.
+    from open_brain.services.managed_providers import ManagedGraphProviderResult
 
 _MCP_IDENTITY = "cf350566-c33d-49ab-bef7-e0d760171ae1"
-GraphProvider = Callable[[str, int, int], ManagedGraphProviderResult]
+GraphProvider = Callable[[str, int, int], "ManagedGraphProviderResult"]
 
 
 def mcp_capture_sink(tasks: EngineTaskSet) -> PublicJobCaptureSink:
@@ -438,6 +438,8 @@ def refresh_graph(
     remaining_input_bytes: int,
 ) -> tuple[dict[str, object], int, int]:
     """Run one exact-source graph attempt for an already configured provider."""
+    from open_brain.services.managed_providers import ManagedProviderFailure
+
     if remaining_attempts < 1 or remaining_input_bytes < 1:
         raise ValueError("graph refresh process budget is exhausted")
     status = tasks.managed_workspace.status()
