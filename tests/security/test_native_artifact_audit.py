@@ -342,6 +342,7 @@ def test_one_folder_base_archive_scans_the_folder_and_assets() -> None:
         {"links": {**BASE_LINKS, "open-brain/_internal/Python": "/outside"}},
         {"links": {**BASE_LINKS, "obsidian-plugin/alias": "main.js"}},
         {"links": {**BASE_LINKS, "open-brain/alias": "open-brain"}},
+        {"links": {**BASE_LINKS, "open-brain/_internal/Python.framework/Versions/3.14/loop": ".."}},
         {"directories": BASE_DIRECTORIES[1:]},
         {"directories": tuple(d for d in BASE_DIRECTORIES if d != "open-brain/_internal")},
         {"extra": {"stray": b"x"}},

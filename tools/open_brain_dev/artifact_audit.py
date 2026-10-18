@@ -790,7 +790,8 @@ class Scanner:
                     None,
                 )
                 if replacement is None:
-                    require(resolved in members)
+                    # A link to its own ancestor would make a filesystem cycle.
+                    require(resolved in members and not name.startswith(resolved + "/"))
                     break
                 require(replacement not in seen)
                 seen.add(replacement)

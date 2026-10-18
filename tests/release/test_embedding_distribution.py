@@ -492,9 +492,12 @@ def test_formula_refuses_a_regular_file_where_a_link_is_declared(tmp_path: Path)
 
 
 @pytest.mark.skipif(shutil.which("ruby") is None, reason="ruby is unavailable")
-@pytest.mark.parametrize(("linkname", "accepted"), [("libexec/helper", True), ("other", False)])
+@pytest.mark.parametrize(
+    ("linkname", "repeat", "accepted"),
+    [("libexec/helper", False, True), ("other", False, False), ("libexec/helper", True, False)],
+)
 def test_formula_archive_check_admits_only_declared_links(
-    tmp_path: Path, linkname: str, accepted: bool
+    tmp_path: Path, linkname: str, repeat: bool, accepted: bool
 ) -> None:
     inventory = json.dumps(
         {
@@ -518,6 +521,11 @@ def test_formula_archive_check_admits_only_declared_links(
         alias.type = tarfile.SYMTYPE
         alias.linkname = linkname
         bundle.addfile(alias)
+        if repeat:
+            # A later same-name entry must not replace the checked link.
+            shadow = tarfile.TarInfo("libexec/alias")
+            shadow.size = 1
+            bundle.addfile(shadow, io.BytesIO(b"x"))
         for name, data in (("libexec/helper", b"helper"), (_INVENTORY, inventory)):
             info = tarfile.TarInfo(name)
             info.size = len(data)
@@ -537,6 +545,8 @@ def test_formula_archive_check_admits_only_declared_links(
         check=False,
     )
     assert (checked.returncode == 0) is accepted, checked.stderr
+    if repeat:
+        assert "repeats" in checked.stderr
 
 
 # ----------------------------------------------------- v2 archives and smoke

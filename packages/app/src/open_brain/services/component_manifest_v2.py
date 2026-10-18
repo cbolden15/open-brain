@@ -66,7 +66,8 @@ _LINK_ROOTS: Final = {
     "base": "libexec/open-brain/",
     "harness": "libexec/open-brain-harness/",
 }
-_ROOT_LINKS: Final = {"base": frozenset({"bin/open-brain"})}
+# Entry links outside the role root, each with its one exact target.
+_ROOT_LINKS: Final = {"base": {"bin/open-brain": "../libexec/open-brain/open-brain"}}
 MAX_LINK_DEPTH: Final = 4
 _RUNTIME_NAME: Final = re.compile(r"^libonnxruntime[0-9A-Za-z._-]*$")
 _TRIPLES: Final = {
@@ -437,8 +438,11 @@ def _validate_links(inventory: Inventory) -> None:
     kinds = {member.path: member.kind for member in inventory.members}
     for path, target in links.items():
         assert target is not None
-        if not path.startswith(root) and path not in _ROOT_LINKS.get(inventory.role, ()):
+        entry = _ROOT_LINKS.get(inventory.role, {}).get(path)
+        if not path.startswith(root) and entry is None:
             _fail("symlink member is outside its role root")
+        if entry is not None and target != entry:
+            _fail("entry link does not target the role executable")
         resolved = _join_link(path.rpartition("/")[0], target)
         seen = {path}
         for _ in range(MAX_LINK_DEPTH):
@@ -451,6 +455,8 @@ def _validate_links(inventory: Inventory) -> None:
             if through is None:
                 if kinds.get(resolved) not in ("file", "directory"):
                     _fail("symlink target is not a declared member")
+                if path.startswith(resolved + "/"):
+                    _fail("symlink targets its own ancestor")
                 break
             if through in seen:
                 _fail("symlink cycle")
@@ -514,6 +520,11 @@ def _validate_members(inventory: Inventory) -> None:
         _fail("inventory exceeds the total byte limit")
     if kinds.get(inventory_path(inventory.role).rpartition("/")[0]) != "directory":
         _fail("inventory directory is not declared")
+    executable = EXECUTABLES[inventory.role]
+    if not any(
+        m.path == executable and m.kind == "file" and m.mode == 0o755 for m in members
+    ):
+        _fail("role executable is not a declared 0755 regular file")
     _validate_links(inventory)
 
 

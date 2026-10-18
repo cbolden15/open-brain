@@ -3718,6 +3718,25 @@ decide the result. A branch is suspect when the relevant test also fails alone.
 
 Discovered: 2026-09-21, twice during the OSS-G5 release gate while GLM workers ran pytest.
 
+### DESKTOP-002: Tauri resources cannot carry the one-folder base, so desktop runtime targets fail
+
+Category: Desktop / Packaging.
+
+Symptom: since the base became a one-folder build (T5.1), `make desktop-runtime`, `make
+desktop-native` and therefore `make contributor-check` fail. `prepare-runtime.mjs` reports "the
+one-folder base cannot be packaged as a Tauri resource".
+
+Cause: Tauri walks resources without following links and copies each entry with `fs::copy`. File
+symlinks would become duplicate files, and directory links (`Python.framework/Versions/Current`)
+cannot be copied at all. The spec no longer builds a one-file base, so the desktop has no core to
+package.
+
+Action: this is a known failure until the owner picks a desktop runtime path: flatten the links,
+unpack an archive on first run, or build a separate one-file desktop core. `make verify`, including
+`desktop-test`, still passes.
+
+Discovered: 2026-10-17, T5.1.
+
 ### OBSIDIAN-003: Untrusted previews need display projection, not inbox rejection
 
 Symptom: One capture with terminal control characters prevents the entire publication capture
@@ -4360,6 +4379,42 @@ user (decision D15 in the G4 workstream); the Brain root keeps the strict rule b
 launched by a path beneath it. Run the real Homebrew smoke for any change to installed-path checks.
 
 Discovered: 2026-10-17, G4 gate 5.
+
+### NATIVE-EMBED-004: Homebrew rewrites the `@rpath` dylibs inside the one-folder base
+
+Category: Native / Homebrew.
+
+Symptom: after a real `brew install`, 7 base `_internal` members no longer match
+`inventories/base.json`: `Python.framework/Versions/3.14/Python`, `libcrypto.3`, `libssl.3`,
+`liblzma.5`, `libmpdec.4`, `libsqlite3` and `libzstd.1` (`.dylib`). The base still runs and every
+smoke passes.
+
+Cause: `fix_dynamic_linkage` runs after `install`. It rewrites the install ID of every Mach-O dylib
+whose ID is `@rpath/...` and re-signs it. The EXE, the `.so` extension modules and the links are
+unchanged. `install_component` verifies before this rewrite, and no runtime check compares base bytes
+to the inventory.
+
+Action: do not hash installed base dylibs against the archive inventory. Verify before relocation, or
+place the tree after relocation, as the embedding resource does. Run the real Homebrew smoke whenever
+the base layout changes.
+
+Discovered: 2026-10-17, T5.1 one-folder base smoke.
+
+### NATIVE-EMBED-005: The first run of a freshly installed one-folder base takes about 10 s on macOS
+
+Category: Native / Performance.
+
+Symptom: on the development Mac, `open-brain --version` takes about 285 ms warm but 9.6–10.2 s on the
+first run from freshly written bytes (a new install or copy). Hybrid search takes up to 14 s. The
+old one-file base paid this cost on every call, because it extracted fresh files each time.
+
+Cause: macOS validates each freshly written Mach-O file once, as in NATIVE-EMBED-001, and the folder
+holds about 50 of them. Linux (X1) does not show the cost.
+
+Action: measure warm runs and the first run after install separately. A cold budget that counts the
+first run after install cannot be met by layout alone on this host.
+
+Discovered: 2026-10-17, T5.1 timings.
 
 ### TESTING-012: Low free disk turns capture tests into `storage_high`/`storage_critical` refusals
 

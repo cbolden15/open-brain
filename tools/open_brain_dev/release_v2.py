@@ -299,6 +299,7 @@ _HELPERS: Final = """\
            !(entry.file? || entry.directory? || entry.symlink?)
           odie "open-brain: #{role} archive has an unsafe entry #{path}"
         end
+        odie "open-brain: #{role} archive repeats #{path}" if entries.key?(path)
         entries[path] = if entry.directory?
           "directory"
         elsif entry.symlink?

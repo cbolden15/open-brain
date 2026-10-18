@@ -870,12 +870,31 @@ def base_with(links: dict[str, str], *, role: str = "base") -> v2.Inventory:
         },
         {**BASE_LINKS, "share/open-brain/alias": "../../libexec/open-brain/open-brain"},
         {**BASE_LINKS, "bin/other": "../libexec/open-brain/open-brain"},
+        {**BASE_LINKS, "bin/open-brain": "../libexec/open-brain/_internal/Python"},
+        {**BASE_LINKS, f"{INTERNAL}/Python.framework/Versions/3.14/loop": ".."},
+        {**BASE_LINKS, f"{INTERNAL}/up": "."},
     ],
 )
 def test_inventory_rejects_uncontained_symlinks(links: dict[str, str]) -> None:
     inventory = base_with(links)
     with pytest.raises(ComponentManifestError):
         v2.render_inventory(inventory)
+
+
+def test_inventory_requires_the_role_executable_as_a_regular_file() -> None:
+    members = base_members()
+    executable = v2.EXECUTABLES["base"]
+    linked = tuple(
+        link(executable, "_internal/Python") if m.path == executable else m for m in members
+    )
+    missing = tuple(m for m in members if m.path != executable)
+    for edited in (linked, missing):
+        with pytest.raises(ComponentManifestError):
+            v2.render_inventory(v2.Inventory("0.1.0", "base", "macos-arm64", edited, None))
+    executable_missing = tuple(m for m in embedding_inventory().members
+                               if m.path != v2.EXECUTABLES["embedding"])
+    with pytest.raises(ComponentManifestError):
+        v2.render_inventory(with_members(executable_missing))
 
 
 def test_inventory_admits_contained_chains_up_to_depth_four() -> None:
