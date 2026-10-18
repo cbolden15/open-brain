@@ -4402,8 +4402,8 @@ unchanged. `install_component` verifies before this rewrite, and no runtime chec
 to the inventory.
 
 Action: do not hash installed base dylibs against the archive inventory. Verify before relocation, or
-place the tree after relocation, as the embedding resource does. Run the real Homebrew smoke whenever
-the base layout changes.
+ship no dylib that Homebrew relocates, as the statically linked embedding helper does (D18). Run the
+real Homebrew smoke whenever the base layout changes.
 
 Discovered: 2026-10-17, T5.1 one-folder base smoke.
 
@@ -4412,7 +4412,8 @@ Discovered: 2026-10-17, T5.1 one-folder base smoke.
 Category: Native / Performance.
 
 Symptom: on the development Mac, `open-brain --version` takes about 285 ms warm but 9.6–10.2 s on the
-first run from freshly written bytes (a new install or copy). Hybrid search takes up to 14 s. The
+first run from freshly written bytes (a new install or copy). Hybrid search takes up to 14 s. A later
+measurement (T5.4, 2026-10-18) put the first command after `brew install` at 6.2 s. The
 old one-file base paid this cost on every call, because it extracted fresh files each time.
 
 Cause: macOS validates each freshly written Mach-O file once, as in NATIVE-EMBED-001, and the folder
