@@ -23,6 +23,8 @@ from open_brain_engine.storage.filesystem import (
     read_confined_tree,
 )
 
+from open_brain.services.installed_layout import base_prefix
+
 PLUGIN_ID: Final = "open-brain"
 PLUGIN_DIRECTORY: Final = ".obsidian/plugins/open-brain"
 PLUGIN_MARKER: Final = f"{PLUGIN_DIRECTORY}/.open-brain-owned.json"
@@ -67,9 +69,10 @@ def discover_obsidian_plugin_assets(base_executable: Path | None = None) -> Path
         metadata = executable.stat(follow_symlinks=False)
     except OSError:
         raise ObsidianPluginFailure("assets_unavailable") from None
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o111 == 0:
+    prefix = base_prefix(executable)
+    if prefix is None or not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o111 == 0:
         raise ObsidianPluginFailure("assets_unavailable")
-    directory = executable.parent.parent / "share/open-brain/obsidian-plugin"
+    directory = prefix / "share/open-brain/obsidian-plugin"
     try:
         directory_metadata = directory.stat(follow_symlinks=False)
     except OSError:

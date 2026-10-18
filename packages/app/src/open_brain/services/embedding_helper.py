@@ -39,6 +39,7 @@ from open_brain_engine.engine.embedding_backend import (
 
 from open_brain.services import component_manifest_v2 as v2
 from open_brain.services import embedding_pin
+from open_brain.services.installed_layout import base_prefix
 
 PROTOCOL: Final = v2.PROTOCOL
 ZERO_REQUEST_ID: Final = "0" * 32
@@ -143,13 +144,9 @@ def discover_embedding_resource(base_executable: Path | None = None) -> Installe
     try:
         resolved = base_executable.resolve(strict=True)
         metadata = resolved.stat(follow_symlinks=False)
-        if (
-            resolved.name != "open-brain"
-            or resolved.parent.name != "bin"
-            or not stat.S_ISREG(metadata.st_mode)
-        ):
+        prefix = base_prefix(resolved)
+        if prefix is None or not stat.S_ISREG(metadata.st_mode):
             _fail("resource_missing")
-        prefix = resolved.parent.parent
         for relative in (MANIFEST_PATH, INVENTORY_PATH, v2.EXECUTABLES["embedding"]):
             if not stat.S_ISREG((prefix / relative).lstat().st_mode):
                 _fail("resource_untrusted")

@@ -272,6 +272,25 @@ def test_fast_helper_and_custom_profiles(tmp_path: Path) -> None:
     assert apply(opts)["status"] == "removed"
 
 
+def test_fast_helper_and_assets_follow_the_one_folder_base(tmp_path: Path) -> None:
+    opts = options(tmp_path, "claude-code")
+    prefix = tmp_path / "prefix"
+    executable = prefix / "libexec/open-brain/open-brain"
+    executable.parent.mkdir(parents=True)
+    opts["runtime_path"].replace(executable)
+    opts["runtime_path"].symlink_to("../libexec/open-brain/open-brain")
+    opts["node_path"] = executable
+    helper = prefix / "libexec/open-brain-harness/open-brain-harness"
+    helper.parent.mkdir(parents=True)
+    shutil.copy2(executable, helper)
+    assets = prefix / "share/open-brain/harness"
+    shutil.copytree(ASSETS, assets)
+    del opts["assets_dir"]
+    preview = preview_harness_setup(**opts)
+    assert str(helper) in json.dumps(preview)
+    assert str(assets / "harness-hook.mjs") in json.dumps(preview)
+
+
 def test_pi_entry_subprocess_fixture_optout_and_private_denial(tmp_path: Path) -> None:
     node = shutil.which("node")
     if node is None:

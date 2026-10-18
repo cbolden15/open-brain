@@ -266,15 +266,18 @@ def manifest_for(inventory_bytes: bytes, platform: str, executable_sha256: str) 
 def install(
     root: Path, files: Mapping[str, bytes], preprocess: Mapping[str, object] | None = None
 ) -> Path:
-    """Write a synthetic installed prefix; return the base executable path."""
+    """Write a synthetic installed prefix; return the base ``bin`` link path."""
     platform = embedding_helper.current_platform()
     prefix = root / "Cellar" / "open-brain" / VERSION
-    for directory in ("bin", *DIRECTORIES):
+    for directory in ("bin", "libexec/open-brain", *DIRECTORIES):
         (prefix / directory).mkdir(parents=True, exist_ok=True)
         os.chmod(prefix / directory, 0o755)
+    # The release layout: one-folder executable plus a relative bin symlink.
+    executable = prefix / "libexec" / "open-brain" / "open-brain"
+    executable.write_bytes(b"synthetic base")
+    os.chmod(executable, 0o755)
     base = prefix / "bin" / "open-brain"
-    base.write_bytes(b"synthetic base")
-    os.chmod(base, 0o755)
+    base.symlink_to("../libexec/open-brain/open-brain")
     inventory = inventory_for(files, platform, preprocess)
     for member in inventory.members:
         if member.kind == "file":

@@ -278,6 +278,28 @@ def test_helper_discovery_binds_to_same_keg_and_rejects_symlinked_helper(
         discover_graphify_executable(linked_base)
 
 
+def test_helper_discovery_follows_the_one_folder_base_layout(tmp_path: Path) -> None:
+    prefix = tmp_path / "Cellar/open-brain/0.1.0"
+    executable = prefix / "libexec/open-brain/open-brain"
+    helper = prefix / "libexec/open-brain-graphify"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("base", encoding="utf-8")
+    helper.write_text("helper", encoding="utf-8")
+    executable.chmod(0o755)
+    helper.chmod(0o755)
+    (prefix / "bin").mkdir()
+    (prefix / "bin/open-brain").symlink_to("../libexec/open-brain/open-brain")
+
+    assert discover_graphify_executable(prefix / "bin/open-brain") == helper
+    assert discover_graphify_executable(executable) == helper
+
+    stray = prefix / "libexec/other/open-brain"
+    stray.parent.mkdir()
+    stray.write_text("base", encoding="utf-8")
+    with pytest.raises(GraphifyFailure, match="adapter_unavailable"):
+        discover_graphify_executable(stray)
+
+
 def test_projection_store_publishes_complete_generation_and_detects_staleness(
     tmp_path: Path,
 ) -> None:

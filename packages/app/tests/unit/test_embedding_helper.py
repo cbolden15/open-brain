@@ -93,6 +93,23 @@ def test_discovery_resolves_the_base_symlink_once(make: Callable[..., Env], tmp_
     assert eh.discover_embedding_resource(env.prefix / "bin" / "open-brain") == env.installed
 
 
+def test_discovery_accepts_the_one_folder_executable_and_one_file_bin(
+    make: Callable[..., Env],
+) -> None:
+    env = make()
+    executable = env.prefix / "libexec" / "open-brain" / "open-brain"
+    assert eh.discover_embedding_resource(executable) == env.installed
+    link = env.prefix / "bin" / "open-brain"
+    link.unlink()
+    link.write_bytes(b"synthetic one-file base")
+    link.chmod(0o755)
+    assert eh.discover_embedding_resource(link) == env.installed
+    (env.prefix / "libexec" / "open-brain-harness").mkdir()
+    harness = env.prefix / "libexec" / "open-brain-harness" / "open-brain"
+    harness.write_bytes(b"x")
+    assert failure(lambda: eh.discover_embedding_resource(harness)) == "resource_missing"
+
+
 @pytest.mark.parametrize("relative", [eh.MANIFEST_PATH, eh.INVENTORY_PATH])
 def test_discovery_requires_fixed_regular_paths(make: Callable[..., Env], relative: str) -> None:
     env = make()

@@ -76,6 +76,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/harness_retrieval.py",
         "services/harness_setup.py",
         "services/harness_workflow.py",
+        "services/installed_layout.py",
         "services/launcher_policy.py",
         "services/local_mcp.py",
         "services/local_native_entrypoint.py",
