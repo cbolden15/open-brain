@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -32,7 +32,7 @@ if (versionFields?.length !== 2 || versionFields[0] !== "version"
   throw new Error("invalid Open Brain component version");
 }
 const destinations = new Map([
-  ["base", "bin/open-brain"],
+  ["base", "libexec/open-brain/open-brain"],
   ["graphify", "libexec/open-brain-graphify"],
   ["harness", "libexec/open-brain-harness/open-brain-harness"],
 ]);
@@ -70,6 +70,13 @@ if (resourceSets.size !== 1
 const components = resources.get(platform);
 if (!components?.has("base") || !components.has("graphify")) {
   throw new Error("the desktop runtime requires one matched base and Graphify pair");
+}
+
+// Tauri resources dereference file symlinks and cannot copy directory symlinks, so the
+// one-folder base (bin link, Python.framework links) cannot ship as a resource. The
+// contributor desktop keeps its one-file runtime/bin/open-brain core layout.
+if (await lstat(path.join(path.dirname(coreSource), "_internal")).then(() => true, () => false)) {
+  throw new Error("the one-folder base cannot be packaged as a Tauri resource");
 }
 
 await mkdir(outputDirectory, { recursive: true, mode: 0o700 });

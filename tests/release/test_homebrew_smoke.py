@@ -95,7 +95,8 @@ elif a[0] == "tap":
 elif a == ["install", formula]:
     text = (repo / "Formula/open-brain-smoke.rb").read_text()
     assert "class OpenBrainSmoke < Formula" in text and "keg_only" in text
-    assert 'bin.install "open-brain"' in text
+    assert 'libexec.install "open-brain"' in text
+    assert 'bin.install_symlink libexec/"open-brain/open-brain"' in text
     assert 'resource "graphify" do' in text
     assert 'libexec.install "open-brain" => "open-brain-graphify"' in text
     assert formula not in state
@@ -143,7 +144,7 @@ class Harness:
                     filename="open-brain-0.1.0-macos-arm64.tar.gz",
                     role="base",
                     executable_sha256="c" * 64,
-                    destination="bin/open-brain",
+                    destination="libexec/open-brain/open-brain",
                 ),
                 ReleaseArtifact(
                     version="0.1.0",

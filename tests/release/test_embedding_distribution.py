@@ -244,6 +244,10 @@ def test_v2_formula_installs_every_resource_from_the_manifest(tmp_path: Path) ->
         'system "open-brain',
     ):
         assert forbidden not in install + post_install + helpers
+    # Links are created only for inventory symlink members, never ad hoc (D14 option a).
+    assert "File.symlink" not in install + post_install
+    assert helpers.count("File.symlink(") == 1
+    assert 'File.symlink(member["target"], target)' in helpers
     test = formula.split("  test do\n", 1)[1]
     assert 'operation:  "capabilities",' in test
     assert 'assert_equal Digest::SHA256.hexdigest(component), capabilities["component_id"]' in test
@@ -366,26 +370,225 @@ def test_formula_verifies_every_embedding_archive_entry_before_extraction(
         assert "open-brain: embedding archive" in checked.stderr
 
 
+def _helper_script(tmp_path: Path, method: str, call: str) -> Path:
+    formula = _render(tmp_path, FIXTURE.read_bytes())
+    body = f"  def {method}" + formula.split(f"  def {method}", 1)[1].split("\n  end\n", 1)[0]
+    script = tmp_path / f"{method}.rb"
+    script.write_text(
+        'require "fileutils"\nrequire "pathname"\n'
+        "def odie(message) = abort(message)\n"
+        f"{body}\n  end\n"
+        f'require "json"\n{call}\n',
+        encoding="utf-8",
+    )
+    return script
+
+
+def _linked_tree(root: Path, *, target: str = "3.14") -> dict[str, object]:
+    """A staged one-folder tree with a directory link; returns its manifest record."""
+    framework = root / "libexec/open-brain/_internal/Python.framework"
+    (framework / "Versions/3.14").mkdir(parents=True)
+    (framework / "Versions/3.14/Python").write_bytes(b"python")
+    (framework / "Versions/Current").symlink_to(target)
+    (framework / "Python").symlink_to("Versions/Current/Python")
+    (root / "share/open-brain/inventories").mkdir(parents=True)
+    members = [
+        {"path": "libexec", "kind": "directory", "mode": 0o755},
+        {"path": "libexec/open-brain", "kind": "directory", "mode": 0o755},
+        {"path": "libexec/open-brain/_internal", "kind": "directory", "mode": 0o755},
+        {"path": str(framework.relative_to(root)), "kind": "directory", "mode": 0o755},
+        {
+            "path": str((framework / "Python").relative_to(root)),
+            "kind": "symlink",
+            "mode": 0o777,
+            "target": "Versions/Current/Python",
+        },
+        {
+            "path": str((framework / "Versions").relative_to(root)),
+            "kind": "directory",
+            "mode": 0o755,
+        },
+        {
+            "path": str((framework / "Versions/3.14").relative_to(root)),
+            "kind": "directory",
+            "mode": 0o755,
+        },
+        {
+            "path": str((framework / "Versions/3.14/Python").relative_to(root)),
+            "kind": "file",
+            "mode": 0o755,
+            "bytes": 6,
+            "sha256": hashlib.sha256(b"python").hexdigest(),
+        },
+        {
+            "path": str((framework / "Versions/Current").relative_to(root)),
+            "kind": "symlink",
+            "mode": 0o777,
+            "target": "3.14",
+        },
+        {"path": "share", "kind": "directory", "mode": 0o755},
+        {"path": "share/open-brain", "kind": "directory", "mode": 0o755},
+        {"path": "share/open-brain/inventories", "kind": "directory", "mode": 0o755},
+    ]
+    inventory = json.dumps({"members": members}).encode()
+    (root / "share/open-brain/inventories/base.json").write_bytes(inventory)
+    return {
+        "role": "base",
+        "inventory": "share/open-brain/inventories/base.json",
+        "inventory_sha256": hashlib.sha256(inventory).hexdigest(),
+    }
+
+
+@pytest.mark.skipif(shutil.which("ruby") is None, reason="ruby is unavailable")
+@pytest.mark.parametrize("target", ["3.14", "3.13"])
+def test_formula_installs_symlink_members_exactly(tmp_path: Path, target: str) -> None:
+    staged = tmp_path / "staged"
+    record = _linked_tree(staged, target=target)
+    record_target = "3.14"
+    script = _helper_script(
+        tmp_path,
+        "install_component",
+        "install_component(ARGV[0], JSON.parse(ARGV[1]), Pathname.new(ARGV[2]))",
+    )
+    prefix = tmp_path / "prefix"
+    prefix.mkdir()
+    checked = subprocess.run(
+        ("ruby", str(script), str(staged), json.dumps(record), str(prefix)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if target != record_target:
+        assert checked.returncode != 0
+        assert "does not match its inventory" in checked.stderr
+        return
+    assert checked.returncode == 0, checked.stderr
+    framework = prefix / "libexec/open-brain/_internal/Python.framework"
+    assert (framework / "Versions/Current").is_symlink()
+    assert (framework / "Versions/Current").readlink() == Path("3.14")
+    assert (framework / "Python").readlink() == Path("Versions/Current/Python")
+    assert (framework / "Python").read_bytes() == b"python"
+    assert (framework / "Versions/3.14/Python").stat().st_mode & 0o777 == 0o755
+
+
+@pytest.mark.skipif(shutil.which("ruby") is None, reason="ruby is unavailable")
+def test_formula_refuses_a_regular_file_where_a_link_is_declared(tmp_path: Path) -> None:
+    staged = tmp_path / "staged"
+    record = _linked_tree(staged)
+    current = staged / "libexec/open-brain/_internal/Python.framework/Python"
+    current.unlink()
+    current.write_bytes(b"python")
+    script = _helper_script(
+        tmp_path, "install_component", "install_component(ARGV[0], JSON.parse(ARGV[1]))"
+    )
+    checked = subprocess.run(
+        ("ruby", str(script), str(staged), json.dumps(record)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode != 0
+    assert "does not match its inventory" in checked.stderr
+
+
+@pytest.mark.skipif(shutil.which("ruby") is None, reason="ruby is unavailable")
+@pytest.mark.parametrize(("linkname", "accepted"), [("libexec/helper", True), ("other", False)])
+def test_formula_archive_check_admits_only_declared_links(
+    tmp_path: Path, linkname: str, accepted: bool
+) -> None:
+    inventory = json.dumps(
+        {
+            "members": [
+                {"path": "libexec", "kind": "directory"},
+                {"path": "libexec/alias", "kind": "symlink", "target": "libexec/helper"},
+                {"path": "libexec/helper", "kind": "file"},
+                {"path": "share", "kind": "directory"},
+                {"path": "share/open-brain", "kind": "directory"},
+                {"path": "share/open-brain/inventories", "kind": "directory"},
+            ],
+        }
+    ).encode()
+    archive = tmp_path / "base.tar.gz"
+    with tarfile.open(archive, "w:gz", format=tarfile.USTAR_FORMAT) as bundle:
+        for name in ("libexec", "share", "share/open-brain", "share/open-brain/inventories"):
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.DIRTYPE
+            bundle.addfile(info)
+        alias = tarfile.TarInfo("libexec/alias")
+        alias.type = tarfile.SYMTYPE
+        alias.linkname = linkname
+        bundle.addfile(alias)
+        for name, data in (("libexec/helper", b"helper"), (_INVENTORY, inventory)):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            bundle.addfile(info, io.BytesIO(data))
+    record = {
+        "role": "base",
+        "inventory": _INVENTORY,
+        "inventory_sha256": hashlib.sha256(inventory).hexdigest(),
+    }
+    script = _helper_script(
+        tmp_path, "verify_archive", "verify_archive(ARGV[0], JSON.parse(ARGV[1]))"
+    )
+    checked = subprocess.run(
+        ("ruby", str(script), str(archive), json.dumps(record)),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (checked.returncode == 0) is accepted, checked.stderr
+
+
 # ----------------------------------------------------- v2 archives and smoke
 
 
-def _v1_archive(path: Path, members: dict[str, bytes], *, link: str | None = None) -> Path:
+V1_EXECUTABLES = {"open-brain", "open-brain/open-brain", "open-brain/_internal/tool"}
+V1_LINKS = {"open-brain/_internal/alias": "data.txt"}
+
+
+def _v1_archive(
+    path: Path,
+    members: dict[str, bytes],
+    *,
+    link: str | None = None,
+    links: dict[str, str] | None = None,
+    hardlink: str | None = None,
+) -> Path:
+    linked = {**(links or {}), **({link: "open-brain"} if link is not None else {})}
+    directories = {
+        str(parent)
+        for name in (*members, *linked)
+        for parent in Path(name).parents
+        if str(parent) != "."
+    }
     with tarfile.open(path, "w:gz", format=tarfile.USTAR_FORMAT) as bundle:
-        for name, data in members.items():
+        for name in sorted({*directories, *members, *linked}):
             info = tarfile.TarInfo(name)
-            info.size = len(data)
-            info.mode = 0o755 if name == "open-brain" else 0o644
-            bundle.addfile(info, io.BytesIO(data))
-        if link is not None:
-            info = tarfile.TarInfo(link)
-            info.type = tarfile.SYMTYPE
-            info.linkname = "open-brain"
+            if name in directories:
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                bundle.addfile(info)
+            elif name in linked:
+                info.type = tarfile.SYMTYPE
+                info.mode = 0o777
+                info.linkname = linked[name]
+                bundle.addfile(info)
+            else:
+                info.size = len(members[name])
+                info.mode = 0o755 if name in V1_EXECUTABLES else 0o644
+                bundle.addfile(info, io.BytesIO(members[name]))
+        if hardlink is not None:
+            info = tarfile.TarInfo(hardlink)
+            info.type = tarfile.LNKTYPE
+            info.linkname = "open-brain/open-brain"
             bundle.addfile(info)
     return path
 
 
 BASE_V1 = {
-    "open-brain": b"synthetic base",
+    "open-brain/open-brain": b"synthetic base",
+    "open-brain/_internal/data.txt": b"data",
+    "open-brain/_internal/tool": b"tool",
     "obsidian-plugin/main.js": b"main",
     "obsidian-plugin/manifest.json": b"{}",
     "obsidian-plugin/styles.css": b"css",
@@ -393,7 +596,9 @@ BASE_V1 = {
 
 
 def test_v1_base_archive_converts_to_prefix_relative_v2(tmp_path: Path) -> None:
-    archive = _v1_archive(tmp_path / "open-brain-0.1.0-macos-arm64.tar.gz", BASE_V1)
+    archive = _v1_archive(
+        tmp_path / "open-brain-0.1.0-macos-arm64.tar.gz", BASE_V1, links=V1_LINKS
+    )
     resource = release_v2.convert_v1_archive(
         archive, role="base", version="0.1.0", platform="macos-arm64", output=tmp_path / "v2"
     )
@@ -406,31 +611,48 @@ def test_v1_base_archive_converts_to_prefix_relative_v2(tmp_path: Path) -> None:
         inventory_bytes = bundle.extractfile(v2.inventory_path("base")).read()  # type: ignore[union-attr]
     inventory = v2.parse_inventory(inventory_bytes)
     assert {member.path for member in inventory.members if member.kind == "file"} == {
-        "bin/open-brain",
+        "libexec/open-brain/open-brain",
+        "libexec/open-brain/_internal/data.txt",
+        "libexec/open-brain/_internal/tool",
         "share/open-brain/obsidian-plugin/main.js",
         "share/open-brain/obsidian-plugin/manifest.json",
         "share/open-brain/obsidian-plugin/styles.css",
     }
+    assert {m.path: m.target for m in inventory.members if m.kind == "symlink"} == {
+        "bin/open-brain": "../libexec/open-brain/open-brain",
+        "libexec/open-brain/_internal/alias": "data.txt",
+    }
+    modes = {member.path: member.mode for member in inventory.members}
+    assert modes["libexec/open-brain/_internal/tool"] == 0o755
+    assert modes["libexec/open-brain/_internal/data.txt"] == 0o644
     v2.validate_resource_inventory(resource, "0.1.0", inventory)
     destination = tmp_path / "prefix"
     v2.safe_extract(converted, destination, inventory)
     v2.verify_extracted_resource(destination, inventory)
+    assert (destination / "bin/open-brain").read_bytes() == b"synthetic base"
     record = converted.with_name(converted.name.removesuffix(".tar.gz") + ".resource.json")
     assert json.loads(record.read_bytes())["inventory_sha256"] == resource.inventory_sha256
 
 
 @pytest.mark.parametrize(
-    ("members", "link"),
+    ("members", "options"),
     (
-        ({**BASE_V1, "unexpected.txt": b"x"}, None),
-        (BASE_V1, "obsidian-plugin/link"),
-        ({key: value for key, value in BASE_V1.items() if key != "open-brain"}, None),
+        ({**BASE_V1, "unexpected.txt": b"x"}, {}),
+        (BASE_V1, {"link": "obsidian-plugin/link"}),
+        (BASE_V1, {"links": {"open-brain/_internal/evil": "../../../../outside"}}),
+        (BASE_V1, {"links": {"open-brain/_internal/evil": "missing"}}),
+        (BASE_V1, {"hardlink": "open-brain/_internal/hard"}),
+        ({key: value for key, value in BASE_V1.items() if key != "open-brain/open-brain"}, {}),
     ),
 )
 def test_v1_conversion_refuses_unmapped_linked_or_incomplete_archives(
-    tmp_path: Path, members: dict[str, bytes], link: str | None
+    tmp_path: Path, members: dict[str, bytes], options: dict[str, object]
 ) -> None:
-    archive = _v1_archive(tmp_path / "open-brain-0.1.0-macos-arm64.tar.gz", members, link=link)
+    archive = _v1_archive(
+        tmp_path / "open-brain-0.1.0-macos-arm64.tar.gz",
+        members,
+        **options,  # type: ignore[arg-type]
+    )
     with pytest.raises(release_v2.ReleaseV2Error):
         release_v2.convert_v1_archive(
             archive, role="base", version="0.1.0", platform="macos-arm64", output=tmp_path / "v2"

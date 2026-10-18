@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import gzip
 import hashlib
 import importlib
 import importlib.metadata
@@ -34,8 +33,9 @@ _ARCHIVE_PATTERN: Final = re.compile(
     r"(?P<version>[0-9A-Za-z][0-9A-Za-z._-]*)-"
     r"(?P<platform>linux-x86_64|macos-arm64)\.tar\.gz$"
 )
+_BASE_EXECUTABLE_MEMBER: Final = "open-brain/open-brain"
 _RESOURCE_DESTINATIONS: Final = {
-    "base": "bin/open-brain",
+    "base": "libexec/open-brain/open-brain",
     "graphify": "libexec/open-brain-graphify",
     "harness": "libexec/open-brain-harness/open-brain-harness",
 }
@@ -430,9 +430,10 @@ def _verify_installed_embedding(executable: Path, helper: Path) -> tuple[str, st
 
     from open_brain.services import embedding_helper
     from open_brain.services.component_manifest_v2 import EXECUTABLES
+    from open_brain.services.installed_layout import base_prefix
 
-    prefix = executable.parent.parent
-    if helper.resolve(strict=True) != prefix / EXECUTABLES["embedding"]:
+    prefix = base_prefix(executable.resolve(strict=True))
+    if prefix is None or helper.resolve(strict=True) != prefix / EXECUTABLES["embedding"]:
         raise BaseNativeError("native embedding helper is not in the base prefix")
     platform_tag = native_platform_tag()
     pinned = _pinned_inventory_sha256(executable, platform_tag)
@@ -588,16 +589,20 @@ def write_base_archive(
     version: str,
     obsidian_plugin_directory: Path,
 ) -> Path:
+    from tools.open_brain_dev.artifact_audit import inspect_artifact
+
     audit = audit_base_artifact(artifact)
     selected_destination = destination.resolve()
     selected_destination.mkdir(parents=True, exist_ok=True)
     archive = selected_destination / f"open-brain-{version}-{audit.platform_tag}.tar.gz"
     _write_reproducible_archive(
-        artifact.resolve(strict=True),
+        artifact,
         archive,
         obsidian_plugin_directory=obsidian_plugin_directory,
         version=version,
     )
+    if inspect_artifact(archive, ()):
+        raise BaseNativeError("base archive failed the strict content audit")
     return archive
 
 
@@ -759,7 +764,9 @@ def render_homebrew_formula(
     lines.extend(
         (
             "  def install",
-            f'    bin.install "{_EXECUTABLE}"',
+            # One-folder base: the folder moves intact; bin holds a relative link to it.
+            f'    libexec.install "{_EXECUTABLE}"',
+            f'    bin.install_symlink libexec/"{_BASE_EXECUTABLE_MEMBER}"',
             '    (share/"open-brain/obsidian-plugin").install Dir["obsidian-plugin/*"]',
             '    resource("graphify").stage do',
             '      libexec.install "open-brain" => "open-brain-graphify"',
@@ -889,7 +896,7 @@ def build_base_artifact(
         check=True,
         timeout=1800,
     )
-    artifact = output.resolve() / "dist/open-brain"
+    artifact = output.resolve() / "dist/open-brain/open-brain"
     audit_base_artifact(artifact)
     if embedding_pin is not None:
         audit_base_embedding(artifact, platform=embedding_pin[0], inventory_sha256=embedding_pin[1])
@@ -967,7 +974,11 @@ def _validate_release_artifact(artifact: ReleaseArtifact) -> None:
 def _archive_executable_sha256(archive: Path) -> str:
     try:
         name = (
-            "open-brain-harness/open-brain-harness" if "-harness-" in archive.name else _EXECUTABLE
+            "open-brain-harness/open-brain-harness"
+            if "-harness-" in archive.name
+            else _EXECUTABLE
+            if "-graphify-" in archive.name
+            else _BASE_EXECUTABLE_MEMBER
         )
         with tarfile.open(archive, "r:gz") as bundle:
             matches = [
@@ -1726,7 +1737,12 @@ def _smoke_graphify_projection(
     home: Path,
     environment: Mapping[str, str],
 ) -> None:
-    expected = executable.parent.parent / "libexec/open-brain-graphify"
+    from open_brain.services.installed_layout import base_prefix
+
+    prefix = base_prefix(executable.resolve(strict=True))
+    if prefix is None:
+        raise BaseNativeError("installed Graphify helper is not in the base keg")
+    expected = prefix / "libexec/open-brain-graphify"
     try:
         if graphify_artifact.resolve(strict=True) != expected.resolve(strict=True):
             raise BaseNativeError("installed Graphify helper is not in the base keg")
@@ -1856,30 +1872,43 @@ def _write_reproducible_archive(
     obsidian_plugin_directory: Path,
     version: str,
 ) -> None:
+    """Archive the one-folder base, keeping its relative links, plus the plugin assets."""
+    from tools.open_brain_dev.harness_distribution import _record, write_records_archive
+
     plugin_assets = _validated_obsidian_plugin_assets(obsidian_plugin_directory, version=version)
-    with (
-        archive.open("wb") as raw,
-        gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed,
-        tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as bundle,
-        executable.open("rb") as stream,
+    folder = executable.parent
+    if (
+        executable.name != _EXECUTABLE
+        or folder.name != _EXECUTABLE
+        or folder.is_symlink()
+        or not folder.is_dir()
     ):
-        info = bundle.gettarinfo(os.fspath(executable), arcname=_EXECUTABLE)
-        info.uid = 0
-        info.gid = 0
-        info.uname = ""
-        info.gname = ""
-        info.mtime = 0
-        bundle.addfile(info, stream)
+        raise BaseNativeError("native base folder is invalid")
+    root = folder.resolve(strict=True)
+    paths = [(root, _EXECUTABLE)]
+    paths.extend(
+        (path, f"{_EXECUTABLE}/{path.relative_to(root).as_posix()}")
+        for path in sorted(root.rglob("*"))
+    )
+    records: list[dict[str, object]] = [
+        {"path": "obsidian-plugin", "kind": "directory", "mode": 0o755}
+    ]
+    payloads: dict[str, bytes] = {}
+    try:
+        for path, name in paths:
+            record, payload = _record(path, name, label="base")
+            records.append(record)
+            if payload is not None:
+                payloads[name] = payload
         for name, path in plugin_assets:
-            with path.open("rb") as asset_stream:
-                asset_info = bundle.gettarinfo(os.fspath(path), arcname=f"obsidian-plugin/{name}")
-                asset_info.uid = 0
-                asset_info.gid = 0
-                asset_info.uname = ""
-                asset_info.gname = ""
-                asset_info.mode = 0o644
-                asset_info.mtime = 0
-                bundle.addfile(asset_info, asset_stream)
+            member = f"obsidian-plugin/{name}"
+            records.append(
+                {"path": member, "kind": "file", "mode": 0o644, "size": path.stat().st_size}
+            )
+            payloads[member] = path.read_bytes()
+    except OSError:
+        raise BaseNativeError("native base folder is unavailable") from None
+    write_records_archive(archive, records, payloads)
 
 
 def _validated_obsidian_plugin_assets(

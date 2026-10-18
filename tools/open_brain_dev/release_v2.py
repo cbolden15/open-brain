@@ -1,7 +1,7 @@
 """Component manifest v2 release: prefix-relative archives and the v2 Homebrew formula.
 
 A release that includes the embedding role uses manifest v2 (``EMBEDDING-RESOURCE.md``
-section 3); v1 manifests and their formula stay in ``base_native`` unchanged. Every v2
+section 3); v1 manifests and their formula stay in ``base_native``. Every v2
 archive holds final installed prefix-relative paths plus its own inventory, so the formula
 copies each staged tree into the keg exactly per that inventory.
 
@@ -47,7 +47,7 @@ PENDING_EMBEDDING: Final = "open-brain-embedding.pending.tar.gz"
 # v1 archive member prefix -> installed prefix-relative path (the v1 formula's install rules).
 V1_LAYOUTS: Final = {
     "base": (
-        ("open-brain", "bin/open-brain"),
+        ("open-brain/", "libexec/open-brain/"),
         ("obsidian-plugin/", "share/open-brain/obsidian-plugin/"),
     ),
     "graphify": (
@@ -55,6 +55,8 @@ V1_LAYOUTS: Final = {
         ("licenses/graphify/", "share/open-brain/licenses/graphify/"),
     ),
 }
+# The formula's bin.install_symlink for the one-folder base, as an inventory member.
+V1_ENTRY_LINKS: Final = {"base": (("bin/open-brain", "../libexec/open-brain/open-brain"),)}
 _V1_MEMBER_LIMIT: Final = 512 * 1024 * 1024
 
 
@@ -62,30 +64,41 @@ class ReleaseV2Error(RuntimeError):
     """A v2 release archive or manifest cannot be produced."""
 
 
-def _v1_members(archive: Path, role: str) -> list[tuple[str, int, bytes]]:
+def _v1_location(role: str, name: str) -> str:
+    for source, target in V1_LAYOUTS[role]:
+        if name == source or (source.endswith("/") and name.startswith(source)):
+            return target + name[len(source) :] if source.endswith("/") else target
+    raise ReleaseV2Error(f"{role} archive member has no v2 location")
+
+
+def _v1_members(
+    archive: Path, role: str
+) -> tuple[list[tuple[str, int, bytes]], list[tuple[str, str]], list[str]]:
+    """Files with their exec bit, relative links and directories at v2 locations."""
     files: list[tuple[str, int, bytes]] = []
+    links: list[tuple[str, str]] = list(V1_ENTRY_LINKS.get(role, ()))
+    directories: list[str] = []
     try:
         with tarfile.open(archive, "r:gz") as bundle:
             for info in bundle.getmembers():
                 if info.isdir():
+                    if info.name + "/" not in {source for source, _ in V1_LAYOUTS[role]}:
+                        directories.append(_v1_location(role, info.name))
+                    continue
+                if info.issym():
+                    # Containment is enforced when the inventory is rendered below.
+                    links.append((_v1_location(role, info.name), info.linkname))
                     continue
                 if not info.isreg() or info.size > _V1_MEMBER_LIMIT:
                     raise ReleaseV2Error(f"{role} archive member is not a regular file")
-                for source, target in V1_LAYOUTS[role]:
-                    if info.name == source or (
-                        source.endswith("/") and info.name.startswith(source)
-                    ):
-                        path = target + info.name[len(source) :] if source.endswith("/") else target
-                        break
-                else:
-                    raise ReleaseV2Error(f"{role} archive member has no v2 location")
+                path = _v1_location(role, info.name)
                 stream = bundle.extractfile(info)
                 if stream is None:
                     raise ReleaseV2Error(f"{role} archive member is unreadable")
-                files.append((path, 0o755 if path == EXECUTABLES[role] else 0o644, stream.read()))
+                files.append((path, 0o755 if info.mode & 0o111 else 0o644, stream.read()))
     except (OSError, tarfile.TarError) as error:
         raise ReleaseV2Error(f"{role} archive cannot be read") from error
-    return files
+    return files, links, directories
 
 
 def _canonical_record(resource: ResourceV2) -> bytes:
@@ -109,11 +122,15 @@ def convert_v1_archive(
     """Rewrite an audited v1 base or Graphify archive at v2 prefix-relative paths."""
     from tools.open_brain_dev.embedding_native import _directories, _File, _write_archive
 
-    files = sorted(_v1_members(archive, role))
+    found, links, archived = _v1_members(archive, role)
+    files = sorted(found)
     paths = [path for path, _, _ in files]
-    if EXECUTABLES[role] not in paths or len(set(paths)) != len(paths):
+    linked = [path for path, _ in links]
+    if EXECUTABLES[role] not in paths or len({*paths, *linked}) != len(paths) + len(linked):
         raise ReleaseV2Error(f"{role} archive does not hold exactly one executable")
-    directories = _directories([*paths, inventory_path(role)])
+    directories = sorted(
+        set(_directories([*paths, *linked, inventory_path(role)])) | set(archived)
+    )
     members = sorted(
         [
             *(Member(path, "directory", 0o755, 0, None) for path in directories),
@@ -121,6 +138,7 @@ def convert_v1_archive(
                 Member(path, "file", mode, len(data), hashlib.sha256(data).hexdigest())
                 for path, mode, data in files
             ),
+            *(Member(path, "symlink", 0o777, 0, None, target) for path, target in links),
         ],
         key=lambda member: member.path,
     )
@@ -137,6 +155,7 @@ def convert_v1_archive(
             _File(inventory_path(role), 0o644, inventory_bytes),
         ],
         directories,
+        links,
     )
     archive_bytes = target.read_bytes()
     executable = next(data for path, _, data in files if path == EXECUTABLES[role])
@@ -230,6 +249,10 @@ _HELPERS: Final = """\
       info = File.lstat(source)
       if member["kind"] == "directory"
         odie "open-brain: #{role} member #{path} is not a directory" unless info.directory?
+      elsif member["kind"] == "symlink"
+        unless info.symlink? && File.readlink(source) == member["target"]
+          odie "open-brain: #{role} member #{path} does not match its inventory"
+        end
       elsif !info.file? || info.nlink != 1 || info.size != member["bytes"] ||
             Digest::SHA256.file(source).hexdigest != member["sha256"]
         odie "open-brain: #{role} member #{path} does not match its inventory"
@@ -237,6 +260,12 @@ _HELPERS: Final = """\
       next if destination.nil?
 
       target = destination/path
+      if member["kind"] == "symlink"
+        # The inventory parser proved the relative target resolves to a declared member.
+        File.symlink(member["target"], target)
+        next
+      end
+
       if member["kind"] == "directory"
         target.mkpath
       else
@@ -254,7 +283,7 @@ _HELPERS: Final = """\
     (destination/record["inventory"]).chmod 0644
   end
 
-  # Before extraction: only relative, link-free entries the inventory declares.
+  # Before extraction: only relative entries the inventory declares, links with their target.
   def verify_archive(archive, record)
     require "digest"
     require "json"
@@ -267,10 +296,16 @@ _HELPERS: Final = """\
       Gem::Package::TarReader.new(gzip).each do |entry|
         path = entry.full_name.delete_suffix("/")
         if path.split("/", -1).any? { |part| ["", ".", ".."].include?(part) } ||
-           !(entry.file? || entry.directory?)
+           !(entry.file? || entry.directory? || entry.symlink?)
           odie "open-brain: #{role} archive has an unsafe entry #{path}"
         end
-        entries[path] = entry.directory? ? "directory" : "file"
+        entries[path] = if entry.directory?
+          "directory"
+        elsif entry.symlink?
+          "symlink:#{entry.header.linkname}"
+        else
+          "file"
+        end
         inventory_bytes = entry.read if path == record["inventory"]
       end
     end
@@ -279,7 +314,10 @@ _HELPERS: Final = """\
       odie "open-brain: #{role} archive inventory does not match the component manifest"
     end
     kinds = { record["inventory"] => "file" }
-    JSON.parse(inventory_bytes)["members"].each { |member| kinds[member["path"]] = member["kind"] }
+    JSON.parse(inventory_bytes)["members"].each do |member|
+      kind = member["kind"]
+      kinds[member["path"]] = kind == "symlink" ? "symlink:#{member["target"]}" : kind
+    end
     entries.each do |path, kind|
       odie "open-brain: #{role} archive has an undeclared entry #{path}" unless kinds[path] == kind
     end

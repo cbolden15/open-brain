@@ -33,7 +33,7 @@ _ROLE_SETS: Final = (
     frozenset({"base", "graphify", "harness", "embedding"}),
 )
 EXECUTABLES: Final = {
-    "base": "bin/open-brain",
+    "base": "libexec/open-brain/open-brain",
     "graphify": "libexec/open-brain-graphify",
     "harness": "libexec/open-brain-harness/open-brain-harness",
     "embedding": "libexec/open-brain-embedding/open-brain-embedding",
@@ -60,6 +60,14 @@ _EMBEDDING_DIRECTORIES: Final = frozenset(
         _LICENSES_ROOT,
     }
 )
+# Roles whose one-folder trees carry relative symlinks (D14 option a). Each link and its
+# fully resolved target stay below the role root; base also owns the ``bin`` entry link.
+_LINK_ROOTS: Final = {
+    "base": "libexec/open-brain/",
+    "harness": "libexec/open-brain-harness/",
+}
+_ROOT_LINKS: Final = {"base": frozenset({"bin/open-brain"})}
+MAX_LINK_DEPTH: Final = 4
 _RUNTIME_NAME: Final = re.compile(r"^libonnxruntime[0-9A-Za-z._-]*$")
 _TRIPLES: Final = {
     "linux-x86_64": frozenset({"x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"}),
@@ -339,6 +347,7 @@ class Member:
     mode: int
     bytes: int
     sha256: str | None
+    target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -354,6 +363,7 @@ _INVENTORY_FIELDS: Final = frozenset(
     {"schema", "release_version", "role", "platform", "members", "component"}
 )
 _MEMBER_FIELDS: Final = frozenset({"path", "kind", "mode", "bytes", "sha256"})
+_LINK_FIELDS: Final = _MEMBER_FIELDS | {"target"}
 
 
 def _limits(role: str) -> tuple[int, int, int]:
@@ -395,6 +405,63 @@ def _check_embedding_path(member: Member) -> None:
     _fail("file outside the embedding resource")
 
 
+def _join_link(parent: str, target: str) -> str:
+    """Resolve a relative link target lexically; ``..`` may only lead the target."""
+    if not target or target.startswith("/") or "\\" in target or "\0" in target:
+        _fail("invalid symlink target")
+    parts = parent.split("/") if parent else []
+    leading = True
+    for part in target.split("/"):
+        if part in ("", "."):
+            _fail("invalid symlink target")
+        if part == "..":
+            if not leading:
+                _fail("symlink target has an inner parent reference")
+            if not parts:
+                _fail("symlink target escapes its root")
+            parts.pop()
+        else:
+            leading = False
+            parts.append(part)
+    return "/".join(parts)
+
+
+def _validate_links(inventory: Inventory) -> None:
+    """Every link resolves, within ``MAX_LINK_DEPTH`` hops, to a declared real member."""
+    links = {m.path: m.target for m in inventory.members if m.kind == "symlink"}
+    if not links:
+        return
+    root = _LINK_ROOTS.get(inventory.role)
+    if root is None:
+        _fail("role does not admit symlink members")
+    kinds = {member.path: member.kind for member in inventory.members}
+    for path, target in links.items():
+        assert target is not None
+        if not path.startswith(root) and path not in _ROOT_LINKS.get(inventory.role, ()):
+            _fail("symlink member is outside its role root")
+        resolved = _join_link(path.rpartition("/")[0], target)
+        seen = {path}
+        for _ in range(MAX_LINK_DEPTH):
+            if not resolved.startswith(root):
+                _fail("symlink target escapes its role root")
+            through = next(
+                (link for link in links if resolved == link or resolved.startswith(link + "/")),
+                None,
+            )
+            if through is None:
+                if kinds.get(resolved) not in ("file", "directory"):
+                    _fail("symlink target is not a declared member")
+                break
+            if through in seen:
+                _fail("symlink cycle")
+            seen.add(through)
+            hop = links[through]
+            assert hop is not None
+            resolved = _join_link(through.rpartition("/")[0], hop) + resolved[len(through) :]
+        else:
+            _fail("symlink chain is too deep")
+
+
 def _validate_members(inventory: Inventory) -> None:
     members = inventory.members
     max_members, max_total, max_file = _limits(inventory.role)
@@ -430,8 +497,15 @@ def _validate_members(inventory: Inventory) -> None:
             _integer(member.bytes, minimum=0)
             _hex64(member.sha256)
             total += member.bytes
+        elif member.kind == "symlink":
+            if member.mode != 0o777 or member.bytes != 0 or member.sha256 is not None:
+                _fail("invalid symlink member")
+            if not isinstance(member.target, str) or len(member.target) > 1024:
+                _fail("invalid symlink target")
         else:
             _fail("unsupported member kind")
+        if member.kind != "symlink" and member.target is not None:
+            _fail("only symlink members carry a target")
         if inventory.role == "embedding":
             _check_embedding_path(member)
         elif member.path.startswith((_EMBEDDING_ROOT, _LICENSES_ROOT)):
@@ -440,16 +514,20 @@ def _validate_members(inventory: Inventory) -> None:
         _fail("inventory exceeds the total byte limit")
     if kinds.get(inventory_path(inventory.role).rpartition("/")[0]) != "directory":
         _fail("inventory directory is not declared")
+    _validate_links(inventory)
 
 
 def _member_dict(member: Member) -> dict[str, object]:
-    return {
+    result: dict[str, object] = {
         "path": member.path,
         "kind": member.kind,
         "mode": member.mode,
         "bytes": member.bytes,
         "sha256": member.sha256,
     }
+    if member.kind == "symlink":
+        result["target"] = member.target
+    return result
 
 
 def render_inventory(inventory: Inventory) -> bytes:
@@ -488,7 +566,8 @@ def parse_inventory(data: bytes) -> Inventory:
         _fail("members must be an array")
     members = []
     for entry in raw:
-        fields = _object(entry, _MEMBER_FIELDS)
+        linked = isinstance(entry, dict) and entry.get("kind") == "symlink"
+        fields = _object(entry, _LINK_FIELDS if linked else _MEMBER_FIELDS)
         sha = fields["sha256"]
         members.append(
             Member(
@@ -497,6 +576,7 @@ def parse_inventory(data: bytes) -> Inventory:
                 mode=_integer(fields["mode"]),
                 bytes=_integer(fields["bytes"]),
                 sha256=None if sha is None else _hex64(sha),
+                target=_string(fields["target"], limit=1024) if linked else None,
             )
         )
     component = root["component"]
@@ -767,8 +847,16 @@ def verify_extracted_resource(root: Path, inventory: Inventory) -> None:
                     _fail("file disagrees with the inventory")
                 if _hash_regular(full, member) != member.sha256:
                     _fail("file hash disagrees with the inventory")
+            elif stat.S_ISLNK(info.st_mode):
+                # Never followed: the inventory already proved the target is contained.
+                try:
+                    target = os.readlink(full)
+                except OSError:
+                    _fail("resource link is unreadable")
+                if member.kind != "symlink" or target != member.target:
+                    _fail("link disagrees with the inventory")
             else:
-                _fail("resource contains a link or special file")
+                _fail("resource contains a hard link or special file")
 
     walk(os.fspath(root), "")
     if seen != set(expected):
@@ -869,6 +957,14 @@ def safe_extract(archive: Path, destination: Path, inventory: Inventory) -> None
                     if written != want or digest.hexdigest() != expected_digest:
                         _fail("archive file differs from the inventory")
                     os.chmod(target, 0o644 if record is None else record.mode)
+                elif member.issym():
+                    if (
+                        record is None
+                        or record.kind != "symlink"
+                        or member.linkname != record.target
+                    ):
+                        _fail("archive link disagrees with the inventory")
+                    os.symlink(member.linkname, target)
                 else:
                     _fail("archive member type is not allowed")
         if seen != set(expected) | {own}:

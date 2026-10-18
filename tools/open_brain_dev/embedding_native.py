@@ -453,9 +453,17 @@ def _directories(paths: Iterable[str]) -> list[str]:
     return sorted(found)
 
 
-def _write_archive(destination: Path, files: Sequence[_File], directories: Sequence[str]) -> None:
-    entries: list[tuple[str, int, bytes | None]] = [(item, 0o755, None) for item in directories]
+def _write_archive(
+    destination: Path,
+    files: Sequence[_File],
+    directories: Sequence[str],
+    links: Sequence[tuple[str, str]] = (),
+) -> None:
+    entries: list[tuple[str, int, bytes | str | None]] = [
+        (item, 0o755, None) for item in directories
+    ]
     entries += [(item.path, item.mode, item.data) for item in files]
+    entries += [(path, 0o777, target) for path, target in links]
     entries.sort(key=lambda entry: entry[0])
     temporary = destination.with_name(destination.name + ".partial")
     try:
@@ -472,6 +480,10 @@ def _write_archive(destination: Path, files: Sequence[_File], directories: Seque
                 info.uname = info.gname = ""
                 if data is None:
                     info.type = tarfile.DIRTYPE
+                    tar.addfile(info)
+                elif isinstance(data, str):
+                    info.type = tarfile.SYMTYPE
+                    info.linkname = data
                     tar.addfile(info)
                 else:
                     info.size = len(data)

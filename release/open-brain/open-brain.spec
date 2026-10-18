@@ -125,12 +125,13 @@ if pin_source:
         Path(pin_source).read_text(encoding="utf-8"), pin_modules[0][1], "exec"
     )
 pyz = PYZ(analysis.pure)
+# The base is a one-folder build: a one-file bundle waits on a fresh extraction for
+# every command (about 10 s per call on macOS). The folder installs persistently.
 executable = EXE(
     pyz,
     analysis.scripts,
-    analysis.binaries,
-    analysis.datas,
     [],
+    exclude_binaries=True,
     name="open-brain",
     debug=False,
     bootloader_ignore_signals=False,
@@ -142,6 +143,14 @@ executable = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+base_runtime = COLLECT(
+    executable,
+    analysis.binaries,
+    analysis.datas,
+    strip=False,
+    upx=False,
+    name="open-brain",
 )
 
 # Optional integration commands have strict startup budgets. Keep their shared

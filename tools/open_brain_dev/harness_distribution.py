@@ -18,22 +18,24 @@ EXECUTABLE = "open-brain-harness/open-brain-harness"
 ASSETS = frozenset({"harness/harness-hook.mjs", "harness/pi-memory.mjs", "harness/pi-entry.mjs"})
 
 
-def _record(path: Path, name: str) -> tuple[dict[str, object], bytes | None]:
+def _record(
+    path: Path, name: str, *, label: str = "harness"
+) -> tuple[dict[str, object], bytes | None]:
     from .base_native import BaseNativeError
 
     info = path.lstat()
     if info.st_mode & 0o022 and not stat.S_ISLNK(info.st_mode):
-        raise BaseNativeError("harness resource permissions are invalid")
+        raise BaseNativeError(f"{label} resource permissions are invalid")
     if stat.S_ISLNK(info.st_mode):
         target = os.readlink(path)
         return {"path": name, "kind": "symlink", "mode": 0o777, "target": target}, None
     if stat.S_ISDIR(info.st_mode):
         return {"path": name, "kind": "directory", "mode": 0o755}, None
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 64 * 1024 * 1024:
-        raise BaseNativeError("harness resource file is invalid")
+        raise BaseNativeError(f"{label} resource file is invalid")
     data = path.read_bytes()
     if len(data) != info.st_size:
-        raise BaseNativeError("harness resource changed during read")
+        raise BaseNativeError(f"{label} resource changed during read")
     mode = 0o755 if info.st_mode & 0o111 else 0o644
     return {
         "path": name,
@@ -92,6 +94,16 @@ def write_harness_archive(runtime: Path, assets: Path, destination: Path, *, ver
     selected = destination.resolve()
     selected.mkdir(parents=True, exist_ok=True)
     target = selected / f"open-brain-harness-{version}-{audit.platform_tag}.tar.gz"
+    write_records_archive(target, entries, payloads)
+    if inspect_artifact(target, ()):
+        raise BaseNativeError("harness archive failed the strict content audit")
+    return target
+
+
+def write_records_archive(
+    target: Path, entries: list[dict[str, object]], payloads: dict[str, bytes]
+) -> None:
+    """Reproducible USTAR archive of directory, file and relative symlink records."""
     with (
         target.open("wb") as raw,
         gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as compressed,
@@ -116,6 +128,3 @@ def write_harness_archive(runtime: Path, assets: Path, destination: Path, *, ver
                 data = payloads[str(record["path"])]
                 info.size = len(data)
                 archive.addfile(info, io.BytesIO(data))
-    if inspect_artifact(target, ()):
-        raise BaseNativeError("harness archive failed the strict content audit")
-    return target

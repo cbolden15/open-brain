@@ -66,7 +66,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
 | `tools/open_brain_dev/base_native.py` | Paired native build, module audit, component manifest, and formula renderer |
-| `release/open-brain/open-brain.spec` | One-file core and optional onedir foreground harness specification |
+| `release/open-brain/open-brain.spec` | One-folder core and optional onedir foreground harness specification |
 | `release/open-brain-graphify` | Pinned, patched, separately frozen Graphify structural helper |
 
 The engine cannot import the app, connectors, archives, or workspace modules. The app depends

@@ -1,7 +1,7 @@
 .PHONY: dev build test test-fast test-integration test-tiers-audit test-profile lint typecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit embedding-native smoke homebrew-smoke native-integration-smoke verify contributor-check
 
 NATIVE_OUTPUT ?= build/native
-NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain
+NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain/open-brain
 NATIVE_GRAPHIFY_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain-graphify
 NATIVE_MANIFEST = $(NATIVE_OUTPUT)/release/open-brain-component-manifest-v1.txt
 EMBEDDING_OUTPUT ?= build/embedding

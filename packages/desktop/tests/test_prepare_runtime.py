@@ -17,7 +17,7 @@ TARGETS = {
     "x86_64-unknown-linux-gnu": "linux-x86_64",
 }
 DESTINATIONS = {
-    "base": "bin/open-brain",
+    "base": "libexec/open-brain/open-brain",
     "graphify": "libexec/open-brain-graphify",
     "harness": "libexec/open-brain-harness/open-brain-harness",
 }
@@ -153,4 +153,17 @@ def test_desktop_requires_requested_platform_pair(tmp_path: Path) -> None:
     paths = fixture(tmp_path, ("linux-x86_64",))
     completed = prepare(paths, "aarch64-apple-darwin")
     assert completed.returncode != 0
+    assert not paths[3].exists()
+
+
+def test_desktop_refuses_the_one_folder_base(tmp_path: Path) -> None:
+    # Tauri resources dereference file links and cannot copy directory links, so the
+    # desktop stays on its one-file runtime/bin/open-brain core (T5.1 limitation).
+    paths = fixture(tmp_path, ("macos-arm64",))
+    folder = tmp_path / "open-brain"
+    (folder / "_internal").mkdir(parents=True)
+    paths[0].replace(folder / "open-brain")
+    completed = prepare((folder / "open-brain", *paths[1:]), "aarch64-apple-darwin")
+    assert completed.returncode != 0
+    assert "one-folder base" in completed.stderr
     assert not paths[3].exists()

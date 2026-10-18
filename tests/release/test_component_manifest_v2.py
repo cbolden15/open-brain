@@ -137,17 +137,49 @@ def embedding_inventory(
     return dataclasses.replace(base, component=None) if drop_component else base
 
 
-BASE_FILES = {"bin/open-brain": b"synthetic base"}
+INTERNAL = "libexec/open-brain/_internal"
+FRAMEWORK = f"{INTERNAL}/Python.framework"
+BASE_FILES = {
+    "libexec/open-brain/open-brain": b"synthetic base",
+    f"{FRAMEWORK}/Versions/3.14/Python": b"synthetic interpreter",
+}
+# The one-folder layout: a bin link plus PyInstaller's framework links (D14 option a).
+BASE_LINKS = {
+    "bin/open-brain": "../libexec/open-brain/open-brain",
+    f"{INTERNAL}/Python": "Python.framework/Versions/3.14/Python",
+    f"{FRAMEWORK}/Python": "Versions/Current/Python",
+    f"{FRAMEWORK}/Versions/Current": "3.14",
+}
+BASE_DIRECTORIES = [
+    "bin",
+    "libexec",
+    "libexec/open-brain",
+    INTERNAL,
+    FRAMEWORK,
+    f"{FRAMEWORK}/Versions",
+    f"{FRAMEWORK}/Versions/3.14",
+    "share",
+    "share/open-brain",
+    "share/open-brain/inventories",
+]
+
+
+def link(path: str, target: str) -> v2.Member:
+    return v2.Member(path, "symlink", 0o777, 0, None, target)
+
+
+def base_members(links: dict[str, str] | None = None) -> tuple[v2.Member, ...]:
+    members = members_for(BASE_FILES, BASE_DIRECTORIES)
+    members = tuple(
+        dataclasses.replace(m, mode=0o755) if m.path in v2.EXECUTABLES.values() else m
+        for m in members
+    )
+    rows = (*members, *(link(path, target) for path, target in (links or BASE_LINKS).items()))
+    return tuple(sorted(rows, key=lambda row: row.path))
 
 
 def base_inventory(platform: str = "macos-arm64") -> v2.Inventory:
-    members = members_for(
-        BASE_FILES, ["bin", "share", "share/open-brain", "share/open-brain/inventories"]
-    )
-    members = tuple(
-        dataclasses.replace(m, mode=0o755) if m.path == "bin/open-brain" else m for m in members
-    )
-    return v2.Inventory("0.1.0", "base", platform, members, None)
+    return v2.Inventory("0.1.0", "base", platform, base_members(), None)
 
 
 def build_manifest(roles: tuple[str, ...] = ("base", "graphify", "embedding")) -> v2.ManifestV2:
@@ -518,6 +550,9 @@ def write_tree(root: Path, inventory: v2.Inventory, files: dict[str, bytes]) -> 
         if member.kind == "directory":
             target.mkdir()
             target.chmod(member.mode)
+        elif member.kind == "symlink":
+            assert member.target is not None
+            target.symlink_to(member.target)
         else:
             target.write_bytes(files[member.path])
             target.chmod(member.mode)
@@ -534,6 +569,7 @@ def make_archive(
     extra: Callable[[tarfile.TarFile], None] | None = None,
     skip: str | None = None,
     modes: dict[str, int] | None = None,
+    links: dict[str, str] | None = None,
 ) -> Path:
     own = v2.inventory_path(inventory.role)
     with tarfile.open(path, "w:gz", format=tarfile.USTAR_FORMAT) as archive:
@@ -545,6 +581,10 @@ def make_archive(
             info.mode = (modes or {}).get(name, record.mode)
             if record.kind == "directory":
                 info.type = tarfile.DIRTYPE
+                archive.addfile(info)
+            elif record.kind == "symlink":
+                info.type = tarfile.SYMTYPE
+                info.linkname = (links or {}).get(name, record.target or "")
                 archive.addfile(info)
             else:
                 data = files[name]
@@ -791,12 +831,171 @@ def test_nonembedding_extract_round_trip(tmp_path: Path) -> None:
     v2.verify_extracted_resource(tmp_path / "out", inventory)
     with gzip.open(archive) as handle:
         assert handle.read(1)
+    out = tmp_path / "out"
+    for path, target in BASE_LINKS.items():
+        assert os.readlink(out / path) == target
+    assert (out / "bin/open-brain").read_bytes() == b"synthetic base"
+    assert (out / f"{FRAMEWORK}/Python").read_bytes() == b"synthetic interpreter"
+
+
+# ------------------------------------------------------- contained symlinks
+
+
+def base_with(links: dict[str, str], *, role: str = "base") -> v2.Inventory:
+    return v2.Inventory("0.1.0", role, "macos-arm64", base_members(links), None)
+
+
+@pytest.mark.parametrize(
+    "links",
+    [
+        {**BASE_LINKS, "bin/open-brain": "/abs/open-brain"},
+        {**BASE_LINKS, "bin/open-brain": ""},
+        {**BASE_LINKS, "bin/open-brain": "../libexec/open-brain/open\0brain"},
+        {**BASE_LINKS, "bin/open-brain": "..\\libexec/open-brain/open-brain"},
+        {**BASE_LINKS, "bin/open-brain": "../libexec/open-brain/./open-brain"},
+        {**BASE_LINKS, "bin/open-brain": "../libexec//open-brain/open-brain"},
+        {**BASE_LINKS, "bin/open-brain": "../../../etc/passwd"},
+        {**BASE_LINKS, "bin/open-brain": "../share/open-brain/inventories"},
+        {**BASE_LINKS, "bin/open-brain": "../libexec/open-brain/missing"},
+        {**BASE_LINKS, f"{INTERNAL}/Python": "Python.framework/Versions/3.14/../3.14/Python"},
+        {**BASE_LINKS, f"{INTERNAL}/Python": "../../../bin/open-brain"},
+        {**BASE_LINKS, f"{INTERNAL}/a": "b", f"{INTERNAL}/b": "a"},
+        {
+            **BASE_LINKS,
+            f"{INTERNAL}/a": "b",
+            f"{INTERNAL}/b": "c",
+            f"{INTERNAL}/c": "d",
+            f"{INTERNAL}/d": "e",
+            f"{INTERNAL}/e": "Python",
+        },
+        {**BASE_LINKS, "share/open-brain/alias": "../../libexec/open-brain/open-brain"},
+        {**BASE_LINKS, "bin/other": "../libexec/open-brain/open-brain"},
+    ],
+)
+def test_inventory_rejects_uncontained_symlinks(links: dict[str, str]) -> None:
+    inventory = base_with(links)
+    with pytest.raises(ComponentManifestError):
+        v2.render_inventory(inventory)
+
+
+def test_inventory_admits_contained_chains_up_to_depth_four() -> None:
+    chain = {
+        **BASE_LINKS,
+        f"{INTERNAL}/a": "b",
+        f"{INTERNAL}/b": "c",
+        f"{INTERNAL}/c": "Python",
+    }
+    data = v2.render_inventory(base_with(chain))
+    assert v2.parse_inventory(data) == base_with(chain)
+
+
+def test_inventory_rejects_malformed_symlink_members() -> None:
+    members = base_members()
+    path = "bin/open-brain"
+    for changed in (
+        {"mode": 0o755},
+        {"bytes": 1},
+        {"sha256": sha(b"x")},
+        {"target": None},
+    ):
+        edited = tuple(dataclasses.replace(m, **changed) if m.path == path else m for m in members)
+        with pytest.raises(ComponentManifestError):
+            v2.render_inventory(v2.Inventory("0.1.0", "base", "macos-arm64", edited, None))
+    with_target = tuple(
+        dataclasses.replace(m, target="x") if m.path == "libexec/open-brain/open-brain" else m
+        for m in members
+    )
+    with pytest.raises(ComponentManifestError):
+        v2.render_inventory(v2.Inventory("0.1.0", "base", "macos-arm64", with_target, None))
+    beneath = tuple(
+        sorted(
+            (*members, v2.Member(f"{FRAMEWORK}/Versions/Current/x", "file", 0o644, 1, sha(b"x"))),
+            key=lambda row: row.path,
+        )
+    )
+    with pytest.raises(ComponentManifestError):
+        v2.render_inventory(v2.Inventory("0.1.0", "base", "macos-arm64", beneath, None))
+
+
+def test_symlink_members_need_an_exact_target_field() -> None:
+    data = v2.render_inventory(base_inventory())
+    document = json.loads(data)
+    links = [row for row in document["members"] if row["kind"] == "symlink"]
+    assert links and all(set(row) == {"path", "kind", "mode", "bytes", "sha256", "target"}
+                         for row in links)
+    assert all("target" not in row for row in document["members"] if row["kind"] != "symlink")
+    with pytest.raises(ComponentManifestError):
+        v2.parse_inventory(mutated(data, lambda v: [r.pop("target", None) for r in v["members"]]))
+    with pytest.raises(ComponentManifestError):
+        v2.parse_inventory(mutated(data, lambda v: v["members"][0].update(target="x")))
+
+
+def test_graphify_and_embedding_inventories_stay_link_free() -> None:
+    with pytest.raises(ComponentManifestError):
+        v2.render_inventory(base_with(BASE_LINKS, role="graphify"))
+    notice = f"{LICENSES}/NOTICE.txt"
+    linked = tuple(
+        sorted(
+            (
+                *(m for m in embedding_inventory().members if m.path != notice),
+                link(notice, "../../../../libexec/open-brain-embedding/model/model.onnx"),
+            ),
+            key=lambda row: row.path,
+        )
+    )
+    with pytest.raises(ComponentManifestError):
+        v2.render_inventory(with_members(linked))
+
+
+def test_verify_checks_symlink_targets_without_following(tmp_path: Path) -> None:
+    inventory = base_inventory()
+    root = tmp_path / "t"
+    write_tree(root, inventory, BASE_FILES)
+    v2.verify_extracted_resource(root, inventory)
+    entry = root / "bin/open-brain"
+    entry.unlink()
+    entry.symlink_to("../libexec/open-brain/_internal/Python")
+    with pytest.raises(ComponentManifestError):
+        v2.verify_extracted_resource(root, inventory)
+    entry.unlink()
+    entry.write_bytes(b"synthetic base")
+    with pytest.raises(ComponentManifestError):
+        v2.verify_extracted_resource(root, inventory)
+    entry.unlink()
+    entry.symlink_to("../libexec/open-brain/open-brain")
+    executable = root / "libexec/open-brain/open-brain"
+    executable.unlink()
+    executable.symlink_to("_internal/Python")
+    with pytest.raises(ComponentManifestError):
+        v2.verify_extracted_resource(root, inventory)
+
+
+@pytest.mark.parametrize(
+    ("options", "extra"),
+    [
+        ({"links": {"bin/open-brain": "../libexec/open-brain/_internal/Python"}}, None),
+        ({"links": {"bin/open-brain": "/etc/passwd"}}, None),
+        ({"modes": {"bin/open-brain": 0o755}}, None),
+        ({}, add("bin/extra", kind=tarfile.SYMTYPE, link="../libexec/open-brain/open-brain")),
+        ({}, add("bin/hard", kind=tarfile.LNKTYPE, link="libexec/open-brain/open-brain")),
+    ],
+)
+def test_extract_refuses_symlink_mismatches(
+    tmp_path: Path,
+    options: dict[str, Any],
+    extra: Callable[[tarfile.TarFile], None] | None,
+) -> None:
+    inventory = base_inventory()
+    archive = make_archive(tmp_path / "b.tar.gz", inventory, BASE_FILES, extra=extra, **options)
+    extract_error(tmp_path, archive, inventory)
 
 
 # ------------------------------------------------------------ v1 unchanged
 
-V1_MANIFEST_SHA256 = "849a2107207b29be9e82e62849ddd2ad0ffe5a16c2f1a6b95dbfe9856b413072"
-V1_FORMULA_SHA256 = "c87a16a8861bce0be905019c36dda9740574cd99da0ad8badca49260b0b82f49"
+# Re-pinned once for the one-folder base (T5.1): destination libexec/open-brain/open-brain
+# and the formula's libexec.install plus bin.install_symlink.
+V1_MANIFEST_SHA256 = "4e27ec1757074577148f9d3c4e13a3e831c485b60dc910b2eb448a10c895dfde"
+V1_FORMULA_SHA256 = "fb54d781e91009d4362a9fd7dd31147716f739bc0960177acfe823e2bd1c9838"
 
 
 def test_v1_manifest_and_formula_output_are_unchanged(tmp_path: Path) -> None:
@@ -811,7 +1010,7 @@ def test_v1_manifest_and_formula_output_are_unchanged(tmp_path: Path) -> None:
             sha256="a" * 64,
             executable_sha256="b" * 64,
             destination={
-                "base": "bin/open-brain",
+                "base": "libexec/open-brain/open-brain",
                 "graphify": "libexec/open-brain-graphify",
             }[role],
         )
