@@ -5,6 +5,7 @@ from open_brain_engine.storage.migrations import Migration, _migration
 from .capture_lifecycle_schema import CAPTURE_LIFECYCLE_MIGRATION
 from .consumer_schema import CONSUMER_INTAKE_MIGRATION
 from .development_schema import DEVELOPMENT_MIGRATION
+from .embedding_policy_schema import EMBEDDING_POLICY_MIGRATION
 from .facet_schema_migration import FACET_MIGRATION
 from .historical_compatibility_schema import HISTORICAL_STORED_V2_BOUNDS
 from .historical_schema import HISTORICAL_AUTHORITY_SCHEMA
@@ -1579,3 +1580,5 @@ LOCAL_MIGRATIONS += (CAPTURE_LIFECYCLE_MIGRATION,)
 LOCAL_MIGRATIONS += (OWNER_RETRACTION_MIGRATION,)
 
 LOCAL_MIGRATIONS += (CONSUMER_INTAKE_MIGRATION,)
+
+LOCAL_MIGRATIONS += (EMBEDDING_POLICY_MIGRATION,)

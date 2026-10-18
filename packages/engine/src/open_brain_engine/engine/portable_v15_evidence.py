@@ -151,6 +151,7 @@ def serialize_portable_v15_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    _expected_schema: int = 20,
 ) -> PortableV5StateEvidence:
     identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
     journal = LifecycleJournalV2.for_engine(
@@ -179,7 +180,7 @@ def serialize_portable_v15_state(
             projected,
             profile,
             relationship_sidecar_present=relationship_sidecar_present,
-            _expected_schema=20,
+            _expected_schema=_expected_schema,
         )
     finally:
         if staging is not None:
@@ -212,6 +213,7 @@ def serialize_legacy_successor_state(
     *,
     relationship_sidecar_present: bool,
     portable_version: int,
+    _expected_schema: int = 20,
 ) -> PortableV5StateEvidence:
     """Project only legacy journal2 requests into independently validated frozen v1 bytes."""
     from open_brain_engine.portable.lifecycle_v13 import (
@@ -227,7 +229,7 @@ def serialize_legacy_successor_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=20,
+        _expected_schema=_expected_schema,
     )
     identity = connection.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
     journal = LifecycleJournalV2.for_engine(

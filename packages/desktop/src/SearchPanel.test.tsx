@@ -112,4 +112,20 @@ describe("negotiated desktop search", () => {
     await screen.findByRole("alert");
     expect(screen.queryByText("Synthetic 9")).toBeNull();
   });
+
+  it("shows hybrid results and a model_unavailable lexical fallback without error", async () => {
+    for (const [modeUsed, warnings, label] of [["hybrid", [], "hybrid"], ["lexical", ["model_unavailable"], "lexical · model_unavailable"]] as const) {
+      mockedInvoke.mockReset();
+      mockedInvoke.mockResolvedValueOnce({ status: "ok", dto_version: 1, results: [hit(7)], next_cursor: null, complete: true, mode_used: modeUsed, warnings });
+      render(<SearchPanel disabled={false} operations={operations} onCapture={() => undefined} />);
+      fireEvent.change(screen.getByLabelText("Search mode"), { target: { value: "hybrid_preferred" } });
+      fireEvent.change(screen.getByLabelText("Search your Brain"), { target: { value: "paraphrase" } });
+      fireEvent.click(screen.getByRole("button", { name: "Search" }));
+      await screen.findByText("Excerpt 7");
+      expect(screen.getByText(label)).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect((mockedInvoke.mock.calls[0]?.[1] as { arguments: { mode: string } }).arguments.mode).toBe("hybrid_preferred");
+      cleanup();
+    }
+  });
 });

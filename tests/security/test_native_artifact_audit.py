@@ -259,21 +259,117 @@ def executable(pkg: bytes, platform: str, prefix: bytes = b"") -> bytes:
     )
 
 
-def archive(binary: bytes, *, plugin_assets: bool = True) -> bytes:
+BASE_LINKS = {
+    "open-brain/_internal/Python": "Python.framework/Versions/3.14/Python",
+    "open-brain/_internal/Python.framework/Python": "Versions/Current/Python",
+    "open-brain/_internal/Python.framework/Versions/Current": "3.14",
+}
+BASE_DIRECTORIES = (
+    "obsidian-plugin",
+    "open-brain",
+    "open-brain/_internal",
+    "open-brain/_internal/Python.framework",
+    "open-brain/_internal/Python.framework/Versions",
+    "open-brain/_internal/Python.framework/Versions/3.14",
+)
+
+
+def archive(
+    binary: bytes,
+    *,
+    plugin_assets: bool = True,
+    links: dict[str, str] | None = None,
+    extra: dict[str, bytes] | None = None,
+    directories: tuple[str, ...] = BASE_DIRECTORIES,
+    modes: dict[str, int] | None = None,
+) -> bytes:
+    """The one-folder base release archive: executable folder plus plugin assets."""
+    payloads = {
+        "open-brain/open-brain": binary,
+        "open-brain/_internal/Python.framework/Versions/3.14/Python": b"synthetic interpreter",
+        **(extra or {}),
+    }
+    if plugin_assets:
+        for name in ("main.js", "manifest.json", "styles.css"):
+            payloads[f"obsidian-plugin/{name}"] = b"synthetic plugin asset"
+    linked = BASE_LINKS if links is None else links
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.USTAR_FORMAT) as tar:
-        entry = tarfile.TarInfo("open-brain")
-        entry.size = len(binary)
-        entry.mode = 0o755
-        tar.addfile(entry, io.BytesIO(binary))
-        if plugin_assets:
-            for name in ("main.js", "manifest.json", "styles.css"):
-                payload = b"synthetic plugin asset"
-                entry = tarfile.TarInfo(f"obsidian-plugin/{name}")
-                entry.size = len(payload)
-                entry.mode = 0o644
-                tar.addfile(entry, io.BytesIO(payload))
+        for name in sorted({*directories, *payloads, *linked}):
+            entry = tarfile.TarInfo(name)
+            if name in directories:
+                entry.type = tarfile.DIRTYPE
+                entry.mode = 0o755
+                tar.addfile(entry)
+            elif name in linked:
+                entry.type = tarfile.SYMTYPE
+                entry.mode = 0o777
+                entry.linkname = linked[name]
+                tar.addfile(entry)
+            else:
+                entry.size = len(payloads[name])
+                entry.mode = 0o755 if name == "open-brain/open-brain" else 0o644
+                entry.mode = (modes or {}).get(name, entry.mode)
+                tar.addfile(entry, io.BytesIO(payloads[name]))
     return buffer.getvalue()
+
+
+def base_binary() -> bytes:
+    return executable(package([("PYZ.pyz", b"z", pyz(module()))]), "linux-x86_64")
+
+
+def test_one_folder_base_archive_admits_contained_links() -> None:
+    scanner = native.Scanner([])
+    scanner.archive(archive(base_binary()), "open-brain-0.1.0-linux-x86_64.tar.gz")
+    assert not scanner.findings
+
+
+def test_one_folder_base_archive_scans_the_folder_and_assets() -> None:
+    scanner = native.Scanner([TERM])
+    scanner.archive(
+        archive(base_binary(), extra={"open-brain/_internal/data.txt": TERM.encode()}),
+        "open-brain-0.1.0-linux-x86_64.tar.gz",
+    )
+    assert ("open-brain/_internal/data.txt", "private-denylist-term") in scanner.findings
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"links": {**BASE_LINKS, "open-brain/_internal/Python": "../../outside"}},
+        {"links": {**BASE_LINKS, "open-brain/_internal/Python": "missing"}},
+        {"links": {**BASE_LINKS, "open-brain/_internal/Python": "Python"}},
+        {"links": {**BASE_LINKS, "open-brain/_internal/Python": "/outside"}},
+        {"links": {**BASE_LINKS, "obsidian-plugin/alias": "main.js"}},
+        {"links": {**BASE_LINKS, "open-brain/alias": "open-brain"}},
+        {"links": {**BASE_LINKS, "open-brain/_internal/Python.framework/Versions/3.14/loop": ".."}},
+        {"directories": BASE_DIRECTORIES[1:]},
+        {"directories": tuple(d for d in BASE_DIRECTORIES if d != "open-brain/_internal")},
+        {"extra": {"stray": b"x"}},
+        {"extra": {"open-brain/_internal/hidden.zip": b"PK\x03\x04hidden"}},
+        {"modes": {"open-brain/open-brain": 0o777}},
+        {"modes": {"obsidian-plugin/main.js": 0o755}},
+        {"plugin_assets": False},
+    ],
+)
+def test_one_folder_base_archive_refuses_invalid_closure(options: dict[str, object]) -> None:
+    with pytest.raises(native.InvalidArtifact):
+        native.Scanner([]).archive(
+            archive(base_binary(), **options),  # type: ignore[arg-type]
+            "open-brain-0.1.0-linux-x86_64.tar.gz",
+        )
+
+
+def test_symlinks_stay_findings_outside_the_one_folder_resources() -> None:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.USTAR_FORMAT) as tar:
+        entry = tarfile.TarInfo("alias")
+        entry.type = tarfile.SYMTYPE
+        entry.linkname = "target"
+        tar.addfile(entry)
+    scanner = native.Scanner([])
+    scanner.archive(buffer.getvalue(), "generic.tar.gz")
+    assert ("alias", "symlink-not-allowed") in scanner.findings
 
 
 def scan(

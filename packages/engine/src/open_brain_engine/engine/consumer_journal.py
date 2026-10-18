@@ -367,8 +367,7 @@ class LifecycleJournalV2(LifecycleJournal):
             tuple(row) for row in connection.execute("SELECT * FROM lifecycle_journal_identity")
         ]
         if (
-            version != 20
-            or floor != [(1, 15, 20)]
+            (version, floor) not in ((20, [(1, 15, 20)]), (21, [(1, 16, 21)]))
             or identity is None
             or tuple(identity) != (brain_id, issuer_epoch)
             or journal_identity != [(1, JOURNAL_CONTRACT_V2, brain_id)]
@@ -386,6 +385,9 @@ class LifecycleJournalV2(LifecycleJournal):
         return journal
 
     def _state(self) -> _ConsumerState:
+        return cast(_ConsumerState, super()._state())
+
+    def _verify_state(self) -> _ConsumerState:
         if not self.connection.in_transaction:
             raise LifecycleError("local_operation_failed")
         if not self._shape_matches() or [

@@ -1,0 +1,348 @@
+"""G4 reference embedder: graph inspection, publisher parity and relevance.
+
+Run only from the isolated probe environment, never the workspace environment:
+
+    build/g4-ref/bin/python -I tools/g4_embedding_probe/payload/reference.py.txt <command> ...
+
+It reads only verified asset directories and the committed synthetic corpus. It sets
+offline flags before importing any Hugging Face library and never opens a Brain.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import sqlite3
+import statistics
+import sys
+import time
+from pathlib import Path
+
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["ORT_DISABLE_TELEMETRY"] = "1"
+
+import numpy as np  # noqa: E402
+import onnxruntime as ort  # noqa: E402
+from tokenizers import Tokenizer  # noqa: E402
+
+PROFILES = {
+    "minilm": {
+        "id": "ob.minilm-wordpiece-mean.v1",
+        "pool": "mean",
+        "window": 224,
+        "stride": 192,
+        "max_query": 254,
+        "query_prefix": "",
+        "st_max_seq": 256,
+    },
+    "bge": {
+        "id": "ob.g4-probe-bge-cls-query-prefix",
+        "pool": "cls",
+        "window": 224,
+        "stride": 192,
+        "max_query": 254,
+        "query_prefix": "Represent this sentence for searching relevant passages: ",
+        "st_max_seq": 512,
+    },
+}
+RRF_K = 60
+LIST_DEPTH = 50
+
+
+class OrtEmbedder:
+    def __init__(self, assets: Path, profile: dict, threads: int = 2) -> None:
+        self.profile = profile
+        self.tok = Tokenizer.from_file(str(assets / "tokenizer.json"))
+        self.tok.no_truncation()
+        self.tok.no_padding()
+        self.cls = self.tok.token_to_id("[CLS]")
+        self.sep = self.tok.token_to_id("[SEP]")
+        self.pad = self.tok.token_to_id("[PAD]")
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = threads
+        options.inter_op_num_threads = 1
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        self.session = ort.InferenceSession(
+            str(assets / "onnx" / "model.onnx"), options, providers=["CPUExecutionProvider"]
+        )
+        self.inputs = {i.name for i in self.session.get_inputs()}
+
+    def content_ids(self, text: str) -> list[int]:
+        return list(self.tok.encode(text, add_special_tokens=False).ids)
+
+    def windows(self, text: str, purpose: str) -> list[list[int]]:
+        ids = self.content_ids(text)
+        if not ids:
+            raise ValueError("empty tokenization")
+        if purpose == "query":
+            if len(ids) > self.profile["max_query"]:
+                raise ValueError("query exceeds token limit")
+            return [ids]
+        window, stride = self.profile["window"], self.profile["stride"]
+        spans, start = [], 0
+        while True:
+            end = min(start + window, len(ids))
+            spans.append(ids[start:end])
+            if end == len(ids):
+                return spans
+            start += stride
+
+    def run(self, id_lists: list[list[int]]) -> np.ndarray:
+        rows = [[self.cls, *ids, self.sep] for ids in id_lists]
+        width = max(len(r) for r in rows)
+        input_ids = np.full((len(rows), width), self.pad, dtype=np.int64)
+        mask = np.zeros((len(rows), width), dtype=np.int64)
+        for i, row in enumerate(rows):
+            input_ids[i, : len(row)] = row
+            mask[i, : len(row)] = 1
+        feed = {"input_ids": input_ids, "attention_mask": mask}
+        if "token_type_ids" in self.inputs:
+            feed["token_type_ids"] = np.zeros_like(input_ids)
+        states = self.session.run(None, feed)[0]
+        if states.ndim != 3:
+            raise ValueError(f"expected token states, got shape {states.shape}")
+        if self.profile["pool"] == "mean":
+            weights = mask[:, :, None].astype(np.float32)
+            pooled = (states * weights).sum(axis=1) / weights.sum(axis=1)
+        else:
+            pooled = states[:, 0, :]
+        norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+        return (pooled / norms).astype(np.float32)
+
+    def embed_query(self, text: str) -> np.ndarray:
+        return self.run(self.windows(self.profile["query_prefix"] + text, "query"))[0]
+
+    def embed_document(self, text: str, batch: int = 16) -> np.ndarray:
+        spans = self.windows(text, "document")
+        return np.concatenate([self.run(spans[i : i + batch]) for i in range(0, len(spans), batch)])
+
+
+def cmd_graph(args: argparse.Namespace) -> dict:
+    options = ort.SessionOptions()
+    session = ort.InferenceSession(
+        str(args.assets / "onnx" / "model.onnx"), options, providers=["CPUExecutionProvider"]
+    )
+
+    def describe(values):
+        return [{"name": v.name, "type": v.type, "shape": [str(d) for d in v.shape]} for v in values]
+
+    return {
+        "ort_version": ort.__version__,
+        "providers": ort.get_available_providers(),
+        "inputs": describe(session.get_inputs()),
+        "outputs": describe(session.get_outputs()),
+    }
+
+
+def load_records(corpus_path: Path) -> tuple[dict, list]:
+    document = json.loads(corpus_path.read_text(encoding="utf-8"))
+    records = {r["id"]: (r["title"], r["body"]) for r in document["records"]}
+    return records, document["queries"]
+
+
+def cmd_parity(args: argparse.Namespace) -> dict:
+    from sentence_transformers import SentenceTransformer
+
+    profile = PROFILES[args.profile]
+    embedder = OrtEmbedder(args.assets, profile)
+    composite = args.output.parent / f"st-{args.profile}"
+    if composite.exists():
+        raise SystemExit(f"refusing existing {composite}")
+    shutil.copytree(args.assets, composite)
+    shutil.copy(args.reference / "model.safetensors", composite / "model.safetensors")
+    (composite / "2_Normalize").mkdir()
+    model = SentenceTransformer(str(composite), device="cpu", local_files_only=True)
+
+    records, queries = load_records(args.corpus)
+    candidates = [t for t, _ in records.values()] + [q["text"] for q in queries]
+    candidates += [b for _, b in records.values()]
+    limit = min(profile["window"], profile["st_max_seq"] - 2)
+    texts = [t for t in candidates if len(embedder.content_ids(t)) <= limit][: args.count]
+    ours = np.stack([embedder.run([embedder.content_ids(t)])[0] for t in texts])
+    theirs = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True, batch_size=16)
+    cosine = (ours * theirs).sum(axis=1)
+    return {
+        "profile": profile["id"],
+        "texts": len(texts),
+        "min_cosine": float(cosine.min()),
+        "max_abs_component_diff": float(np.abs(ours - theirs).max()),
+        "sentence_transformers_max_seq": int(model.max_seq_length),
+    }
+
+
+def _literal(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def lexical_ranking(records: dict) -> callable:
+    """Emulate engine `fts5-match-tier-binary-v2` (retrieval._compile_query + paging tiers).
+
+    Returns (rid, tier) pairs ordered by tier then record id; tier 5 is the any-term
+    disjunction, which the engine orders only by identity, not relevance.
+    """
+    db = sqlite3.connect(":memory:")
+    db.execute(
+        "CREATE VIRTUAL TABLE r USING fts5(rid UNINDEXED, title, body,"
+        " tokenize='unicode61 remove_diacritics 2')"
+    )
+    db.executemany("INSERT INTO r VALUES (?, ?, ?)", [(k, t, b) for k, (t, b) in records.items()])
+
+    def rank(text: str) -> list[tuple[str, int]]:
+        chunks = [c for c in text.split() if any(ch.isalnum() for ch in c)]
+        if not chunks:
+            return []
+        literals = [_literal(c) for c in chunks]
+        phrase = _literal(" ".join(chunks))
+        conjunction = " AND ".join(literals)
+        tiers = [
+            f"title : {phrase}",
+            f"title : ({conjunction})",
+            phrase,
+            conjunction,
+        ]
+
+        def matches(expression: str) -> set[str]:
+            return {row[0] for row in db.execute("SELECT rid FROM r WHERE r MATCH ?", (expression,))}
+
+        tier_sets = [matches(expression) for expression in tiers]
+        hits = matches(" OR ".join(literals))
+        ranked = []
+        for rid in hits:
+            tier = next((i + 1 for i, s in enumerate(tier_sets) if rid in s), 5)
+            ranked.append((tier, rid))
+        return [(rid, tier) for tier, rid in sorted(ranked)]
+
+    return rank
+
+
+def first_hit(ranking: list[str], relevant: list[str]) -> int | None:
+    for index, rid in enumerate(ranking, start=1):
+        if rid in relevant:
+            return index
+    return None
+
+
+def rrf(lists: list[list[str]]) -> list[str]:
+    scores: dict[str, float] = {}
+    for ranking in lists:
+        for rank, rid in enumerate(ranking, start=1):
+            scores[rid] = scores.get(rid, 0.0) + 1.0 / (RRF_K + rank)
+    return sorted(scores, key=lambda rid: (-scores[rid], rid))
+
+
+def percentile(values: list[float], fraction: float) -> float:
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(round(fraction * (len(ordered) - 1))))]
+
+
+def cmd_relevance(args: argparse.Namespace) -> dict:
+    profile = PROFILES[args.profile]
+    embedder = OrtEmbedder(args.assets, profile, threads=args.threads)
+    records, queries = load_records(args.corpus)
+
+    started = time.perf_counter()
+    chunk_ids, chunk_vectors = [], []
+    for rid, (title, body) in records.items():
+        for text in (title, body):
+            vectors = embedder.embed_document(text)
+            chunk_ids += [rid] * len(vectors)
+            chunk_vectors.append(vectors)
+    matrix = np.concatenate(chunk_vectors).astype(np.float64)
+    index_seconds = time.perf_counter() - started
+
+    lexical = lexical_ranking(records)
+    latencies, rows = [], []
+    for query in queries:
+        begin = time.perf_counter()
+        vector = embedder.embed_query(query["text"]).astype(np.float64)
+        scores = matrix @ vector
+        best: dict[str, float] = {}
+        for rid, score in zip(chunk_ids, scores, strict=True):
+            if score > best.get(rid, -2.0):
+                best[rid] = float(score)
+        semantic = sorted(best, key=lambda rid: (-best[rid], rid))[:LIST_DEPTH]
+        lexical_pairs = lexical(query["text"])
+        lexical_list = [rid for rid, _ in lexical_pairs][:LIST_DEPTH]
+        ranked_lexical = [rid for rid, tier in lexical_pairs if tier <= 4][:LIST_DEPTH]
+        hybrid = rrf([semantic, lexical_list])
+        hybrid_v2 = rrf([semantic, ranked_lexical])
+        latencies.append((time.perf_counter() - begin) * 1000)
+        rows.append(
+            {
+                "id": query["id"],
+                "kind": query["kind"],
+                "lexical": first_hit(lexical_list, query["relevant"]),
+                "semantic": first_hit(semantic, query["relevant"]),
+                "hybrid": first_hit(hybrid, query["relevant"]),
+                "hybrid_v2": first_hit(hybrid_v2, query["relevant"]),
+            }
+        )
+
+    def hit_rate(kind: str, column: str, k: int = 5) -> float:
+        selected = [r for r in rows if r["kind"] == kind]
+        return sum(1 for r in selected if r[column] is not None and r[column] <= k) / len(selected)
+
+    summary = {
+        kind: {
+            column: hit_rate(kind, column)
+            for column in ("lexical", "semantic", "hybrid", "hybrid_v2")
+        }
+        for kind in ("paraphrase", "exact_id")
+    }
+    exact_regressions = {
+        column: [
+            r["id"]
+            for r in rows
+            if r["kind"] == "exact_id"
+            and r["lexical"] is not None
+            and r["lexical"] <= 5
+            and (r[column] is None or r[column] > 5)
+        ]
+        for column in ("hybrid", "hybrid_v2")
+    }
+    return {
+        "profile": profile["id"],
+        "ort_version": ort.__version__,
+        "threads": args.threads,
+        "chunks": int(matrix.shape[0]),
+        "index_seconds": round(index_seconds, 3),
+        "chunks_per_second": round(matrix.shape[0] / index_seconds, 2),
+        "query_ms_p50_in_process": round(statistics.median(latencies), 2),
+        "query_ms_p95_in_process": round(percentile(latencies, 0.95), 2),
+        "hit_at_5": summary,
+        "exact_id_regressions": exact_regressions,
+        "queries": rows,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=["graph", "parity", "relevance"])
+    parser.add_argument("--assets", type=Path, required=True)
+    parser.add_argument("--profile", choices=sorted(PROFILES), default="minilm")
+    parser.add_argument("--reference", type=Path)
+    parser.add_argument("--corpus", type=Path)
+    parser.add_argument("--count", type=int, default=120)
+    parser.add_argument("--threads", type=int, default=2)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    if args.output.exists():
+        print(f"refusing existing output {args.output}", file=sys.stderr)
+        return 2
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    result = {"graph": cmd_graph, "parity": cmd_parity, "relevance": cmd_relevance}[args.command](
+        args
+    )
+    args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    printable = {k: v for k, v in result.items() if k != "queries"}
+    print(json.dumps(printable, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

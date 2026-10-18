@@ -84,6 +84,9 @@ def coordinate_local_migration(
     consumer_intake_phase = (
         schema.state == "supported_old" and schema.version == 19 and target >= 20
     )
+    embedding_policy_phase = (
+        schema.state == "supported_old" and schema.version == 20 and target >= 21
+    )
     if not any(
         (
             source_phase,
@@ -100,6 +103,7 @@ def coordinate_local_migration(
             capture_lifecycle_phase,
             owner_retraction_phase,
             consumer_intake_phase,
+            embedding_policy_phase,
         )
     ):
         return
@@ -216,6 +220,13 @@ def coordinate_local_migration(
             from .consumer_schema import migrate_consumer_intake
 
             migrate_consumer_intake(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        if schema.state == "supported_old" and schema.version == 20 and target >= 21:
+            from .embedding_policy_schema import migrate_embedding_policy
+
+            migrate_embedding_policy(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)

@@ -20,6 +20,7 @@ import unicodedata
 import zipfile
 import zlib
 from collections.abc import Sequence
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import NoReturn
@@ -58,9 +59,8 @@ HARNESS_RELEASE_NAME = re.compile(
     r"open-brain-harness-([0-9A-Za-z][0-9A-Za-z._-]*)-"
     r"(linux-x86_64|macos-arm64)\.tar\.gz"
 )
-BASE_RELEASE_MEMBERS = frozenset(
+BASE_PLUGIN_ASSETS = frozenset(
     {
-        "open-brain",
         "obsidian-plugin/main.js",
         "obsidian-plugin/manifest.json",
         "obsidian-plugin/styles.css",
@@ -79,6 +79,54 @@ REVIEWED_PRIVATE_IP_MODULES = frozenset(
         ("urllib.request", "567e733eef044092e919566a3afd9c9a14b7f1d80c8d07e232a5bacde8a994cc"),
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class OnedirLayout:
+    """One PyInstaller folder ``root`` plus fixed assets; the base has no inventory."""
+
+    root: str
+    assets: frozenset[str]
+    asset_limit: int
+    inventory: str | None
+    schema: str | None
+    executable_location: str | None
+
+    @property
+    def executable(self) -> str:
+        return f"{self.root}/{self.root}"
+
+    @property
+    def internal(self) -> str:
+        return f"{self.root}/_internal"
+
+    @property
+    def directories(self) -> frozenset[str]:
+        parents = {str(PurePosixPath(name).parent) for name in self.assets}
+        return frozenset({self.root, self.internal, *parents} - {"."})
+
+
+BASE_LAYOUT = OnedirLayout(
+    root="open-brain",
+    assets=BASE_PLUGIN_ASSETS,
+    asset_limit=2 * 1024 * 1024,
+    inventory=None,
+    schema=None,
+    executable_location="native",
+)
+
+
+def harness_layout() -> OnedirLayout:
+    from .harness_distribution import ASSETS, INVENTORY, SCHEMA
+
+    return OnedirLayout(
+        root="open-brain-harness",
+        assets=ASSETS,
+        asset_limit=MAX_HEADER,
+        inventory=INVENTORY,
+        schema=SCHEMA,
+        executable_location=None,
+    )
 
 
 class InvalidArtifact(ValueError):
@@ -658,10 +706,14 @@ class Scanner:
                 extensions = 0
         require(position + 1024 <= len(data) and not any(data[position:]))
 
-    def harness_archive(self, data: bytes, version: str, platform: str) -> None:
-        """Check an inventoried onedir closure without executing bundled code."""
-        from .harness_distribution import ASSETS, EXECUTABLE, INVENTORY, SCHEMA
-
+    def onedir_archive(
+        self, data: bytes, layout: OnedirLayout, version: str, platform: str
+    ) -> None:
+        """Check a one-folder closure without executing bundled code (harness and base)."""
+        assets, executable, internal = layout.assets, layout.executable, layout.internal
+        fixed = assets | layout.directories | {executable}
+        if layout.inventory is not None:
+            fixed |= {layout.inventory}
         require(data.startswith(b"\x1f\x8b"))
         data = self.inflate(data, MAX_MEMBER, gzip=True)
         self.content("archive", data, native=True)
@@ -677,11 +729,7 @@ class Scanner:
                     not PurePosixPath(member.name).is_absolute()
                     and ".." not in PurePosixPath(member.name).parts
                 )
-                require(
-                    member.name in ASSETS | {INVENTORY, EXECUTABLE, "harness", "open-brain-harness"}
-                    or member.name == "open-brain-harness/_internal"
-                    or member.name.startswith("open-brain-harness/_internal/")
-                )
+                require(member.name in fixed or member.name.startswith(internal + "/"))
                 loc = safe_name(member.name, self.terms, f"member-{len(members)}")
                 self.name(member.name, loc)
                 require(not member.pax_headers and not member.sparse)
@@ -693,7 +741,7 @@ class Scanner:
                     require(
                         member.mode == 0o777
                         and member.size == 0
-                        and member.name.startswith("open-brain-harness/_internal/")
+                        and member.name.startswith(internal + "/")
                     )
                     self.content(loc, member.linkname.encode())
                 elif member.isdir():
@@ -709,50 +757,9 @@ class Scanner:
                     require(len(payload) == member.size)
                 members[member.name] = member, payload
         require(last_end + 1024 <= len(data) and not any(data[last_end:]))
-        require(INVENTORY in members and EXECUTABLE in members and members.keys() >= ASSETS)
-        inventory_info, inventory = members[INVENTORY]
-        require(
-            inventory_info.mode == 0o644 and inventory is not None and len(inventory) <= MAX_HEADER
-        )
-        assert inventory is not None
-        self.content(INVENTORY, inventory)
-
-        def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-            result: dict[str, object] = {}
-            for key, value in pairs:
-                require(key not in result)
-                result[key] = value
-            return result
-
-        manifest = json.loads(inventory, object_pairs_hook=unique_object)
-        require(
-            isinstance(manifest, dict)
-            and set(manifest) == {"schema_version", "version", "platform", "members"}
-        )
-        require(
-            manifest["schema_version"] == SCHEMA
-            and manifest["version"] == version
-            and manifest["platform"] == platform
-            and isinstance(manifest["members"], list)
-        )
-        records: dict[str, dict[str, object]] = {}
-        for row in manifest["members"]:
-            require(isinstance(row, dict) and isinstance(row.get("path"), str))
-            name = row["path"]
-            require(name not in records and name != INVENTORY and name in members)
-            records[name] = row
-            member, payload = members[name]
-            expected: dict[str, object] = {"path": name, "mode": member.mode}
-            if member.isdir():
-                expected["kind"] = "directory"
-            elif member.issym():
-                expected.update(kind="symlink", target=member.linkname)
-            else:
-                assert payload is not None
-                expected.update(kind="file", size=len(payload), sha256=sha256(payload).hexdigest())
-            require(row == expected)
-        require(set(records) == set(members) - {INVENTORY})
-        require(manifest["members"] == [records[name] for name in sorted(records)])
+        require(executable in members and members.keys() >= assets)
+        if layout.inventory is not None:
+            self.onedir_inventory(members, layout, version, platform)
         # Every parent is an explicit real directory: files cannot be redirected
         # through a symlink during Homebrew staging/extraction.
         for name in members:
@@ -775,7 +782,7 @@ class Scanner:
                 elif part not in {"", "."}:
                     joined.append(part)
             resolved = "/".join(joined)
-            require(resolved.startswith("open-brain-harness/_internal/"))
+            require(resolved.startswith(internal + "/"))
             seen = {name}
             for _ in range(MAX_ARCHIVE_DEPTH):
                 replacement = next(
@@ -783,7 +790,8 @@ class Scanner:
                     None,
                 )
                 if replacement is None:
-                    require(resolved in members)
+                    # A link to its own ancestor would make a filesystem cycle.
+                    require(resolved in members and not name.startswith(resolved + "/"))
                     break
                 require(replacement not in seen)
                 seen.add(replacement)
@@ -798,14 +806,14 @@ class Scanner:
             else:
                 raise InvalidArtifact
         for name, (member, payload) in members.items():
-            if payload is None or name == INVENTORY:
+            if payload is None or name == layout.inventory:
                 continue
             loc = safe_name(name, self.terms, "runtime-member")
-            if name == EXECUTABLE:
+            if name == executable:
                 require(member.mode == 0o755)
-                self.native(payload, platform, loc, 1)
-            elif name in ASSETS:
-                require(member.mode == 0o644 and 0 < len(payload) <= MAX_HEADER)
+                self.native(payload, platform, layout.executable_location or loc, 1)
+            elif name in assets:
+                require(member.mode == 0o644 and 0 < len(payload) <= layout.asset_limit)
                 self.content(loc, payload)
             elif name.endswith("/base_library.zip"):
                 self.zip(payload, loc, 1, library=True)
@@ -842,17 +850,76 @@ class Scanner:
                         )
                 self.content(loc, payload, native=binary)
 
+    def onedir_inventory(
+        self,
+        members: dict[str, tuple[tarfile.TarInfo, bytes | None]],
+        layout: OnedirLayout,
+        version: str,
+        platform: str,
+    ) -> None:
+        """The harness inventory lists exactly every archive member."""
+        own = layout.inventory
+        assert own is not None
+        require(own in members)
+        inventory_info, inventory = members[own]
+        require(
+            inventory_info.mode == 0o644 and inventory is not None and len(inventory) <= MAX_HEADER
+        )
+        assert inventory is not None
+        self.content(own, inventory)
+
+        def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+            result: dict[str, object] = {}
+            for key, value in pairs:
+                require(key not in result)
+                result[key] = value
+            return result
+
+        manifest = json.loads(inventory, object_pairs_hook=unique_object)
+        require(
+            isinstance(manifest, dict)
+            and set(manifest) == {"schema_version", "version", "platform", "members"}
+        )
+        require(
+            manifest["schema_version"] == layout.schema
+            and manifest["version"] == version
+            and manifest["platform"] == platform
+            and isinstance(manifest["members"], list)
+        )
+        records: dict[str, dict[str, object]] = {}
+        for row in manifest["members"]:
+            require(isinstance(row, dict) and isinstance(row.get("path"), str))
+            name = row["path"]
+            require(name not in records and name != own and name in members)
+            records[name] = row
+            member, payload = members[name]
+            expected: dict[str, object] = {"path": name, "mode": member.mode}
+            if member.isdir():
+                expected["kind"] = "directory"
+            elif member.issym():
+                expected.update(kind="symlink", target=member.linkname)
+            else:
+                assert payload is not None
+                expected.update(kind="file", size=len(payload), sha256=sha256(payload).hexdigest())
+            require(row == expected)
+        require(set(records) == set(members) - {own})
+        require(manifest["members"] == [records[name] for name in sorted(records)])
+
     def archive(self, data: bytes, filename: str) -> None:
         self.charge(len(data))
         self.content("archive", data, native=True)
         harness = HARNESS_RELEASE_NAME.fullmatch(filename)
         if harness is not None:
-            self.harness_archive(data, harness.group(1), harness.group(2))
+            self.onedir_archive(data, harness_layout(), harness.group(1), harness.group(2))
             return
         native = NATIVE_NAME.fullmatch(filename)
         proof_helper = GRAPHIFY_PROOF_NAME.fullmatch(filename) is not None
         release_helper = GRAPHIFY_RELEASE_NAME.fullmatch(filename) is not None
         helper = proof_helper or release_helper
+        if native is not None and not helper:
+            # The base is a one-folder executable; links stay confined to its folder.
+            self.onedir_archive(data, BASE_LAYOUT, "", native.group(1))
+            return
         helper_legal = GRAPHIFY_PROOF_LEGAL if proof_helper else GRAPHIFY_RELEASE_LEGAL
         require(native is None or data.startswith(b"\x1f\x8b"))
         if data.startswith(b"PK"):
@@ -900,11 +967,9 @@ class Scanner:
                 payload = stream.read(member.size + 1)
                 require(len(payload) == member.size)
                 if native:
+                    # Only the Graphify helper envelopes reach here; the base returned above.
                     require(not member.pax_headers)
-                    if helper and member.name in helper_legal:
-                        self.content(loc, payload)
-                    elif not helper and member.name in BASE_RELEASE_MEMBERS - {"open-brain"}:
-                        require(member.mode == 0o644)
+                    if member.name in helper_legal:
                         self.content(loc, payload)
                     else:
                         expected_name = "open-brain-graphify" if proof_helper else "open-brain"
@@ -914,11 +979,8 @@ class Scanner:
                     self.content(loc, payload)
         require(last_end + 1024 <= len(data) and not any(data[last_end:]))
         if native:
-            if helper:
-                executable_name = "open-brain-graphify" if proof_helper else "open-brain"
-                require(names == {name.casefold() for name in helper_legal} | {executable_name})
-            else:
-                require(names == {name.casefold() for name in BASE_RELEASE_MEMBERS})
+            executable_name = "open-brain-graphify" if proof_helper else "open-brain"
+            require(names == {name.casefold() for name in helper_legal} | {executable_name})
 
 
 def worker() -> int:

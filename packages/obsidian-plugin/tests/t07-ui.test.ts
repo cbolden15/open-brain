@@ -154,6 +154,23 @@ describe("actual T07 modals", () => {
     expect(() => validateT03Wire("search.page.request", { dto_version: 1, ...request })).not.toThrow();
   });
 
+  it("displays hybrid mode_used and the model_unavailable warning in the status line", async () => {
+    for (const [modeUsed, warnings, line] of [["hybrid", [], "Mode: hybrid"],
+      ["lexical", ["model_unavailable"], "Mode: lexical. Warnings: model_unavailable"]] as const) {
+      const bridge = { cancelPending: vi.fn(), invoke: vi.fn(async () => ({
+        status: "ok", dto_version: 1, results: [summary(0)], next_cursor: null,
+        complete: true, mode_used: modeUsed, warnings,
+      })) };
+      const modal = new PagedRecordSearchModal({} as never, bridge as never, {
+        cursor: null, filters: { payload_families: [], record_types: [], space_ids: [] },
+        limit: 50, mode: "hybrid_preferred", query: "synthetic",
+      });
+      modal.open();
+      await vi.waitFor(() => expect(walk(modal.contentEl as unknown as TestElement).some((row) => row.text === line)).toBe(true));
+      modal.close();
+    }
+  });
+
   it("close/Escape stops the held read without cancelling the shared bridge", async () => {
     let release!: (value: unknown) => void;
     let reads = 0;
@@ -538,7 +555,7 @@ async function managedBridgeExecutable(vaultPath: string, presentation = false):
   const directory = await mkdtemp(path.join(tmpdir(), "open-brain-managed-bridge-"));
   const executable = path.join(directory, "open-brain");
   const handshake = {
-    desktop_only: true, state_schema_version: 20, runtime_session_version: 15, operations: ["graph.review"], product_version: "0.1.0",
+    desktop_only: true, state_schema_version: 21, runtime_session_version: 16, operations: ["graph.review"], product_version: "0.1.0",
     protocol: "open-brain-client", protocol_version: 1, status: "ok",
   };
   const status = {

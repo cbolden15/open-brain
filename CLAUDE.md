@@ -66,7 +66,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
 | `tools/open_brain_dev/base_native.py` | Paired native build, module audit, component manifest, and formula renderer |
-| `release/open-brain/open-brain.spec` | One-file core and optional onedir foreground harness specification |
+| `release/open-brain/open-brain.spec` | One-folder core and optional onedir foreground harness specification |
 | `release/open-brain-graphify` | Pinned, patched, separately frozen Graphify structural helper |
 
 The engine cannot import the app, connectors, archives, or workspace modules. The app depends
@@ -90,6 +90,12 @@ closure and stable adapter assets. Existing two-resource manifests remain suppor
 manifests including the harness must include it consistently across platforms.
 The helper runs bounded foreground operations without a listener or recurring service.
 See `docs/harness-setup.md` for preview-bound optional integration setup and removal.
+
+The base archive is a one-folder build. A separate embedding archive carries the pinned model and a
+native helper with ONNX Runtime statically linked; a release that includes it uses component
+manifest v2, whose archives hold final installed prefix-relative paths and their own inventories.
+Offline semantic search stays off until `open-brain embedding enable`, runs only the installed
+helper, and is not network egress. See `docs/semantic-search.md`.
 
 Semantic refresh is the core's only active product network-egress path. It requires current owner consent,
 eligible note revisions, exclusions, redaction, and one explicit direct API-key provider. Never use
@@ -140,7 +146,7 @@ Preview IDs bind configuration preimages and grants; only owned fragments may
 be changed. Review CLI/MCP operations share `services/review_publication.py`; the engine owns
 source-bound proposals and stable page revisions. See `docs/review-publication.md` and
 `docs/records-and-history.md` and `docs/portable-brain-v7.md`. Use synthetic client profiles for tests.
-Sharing was introduced at schema/runtime/Portable12/7/7. The current engine consumer-intake candidate requires20/15/15; see `docs/consumer-intake.md` and `docs/portable-brain-v15.md`. Both external parser profiles remain inactive. Owner retraction approval bytes retain their19/14/14 predecessor meaning; see `docs/owner-retraction.md` and `docs/portable-brain-v14.md`.
+Sharing was introduced at schema/runtime/Portable12/7/7. The current local embedding policy candidate requires21/16/16; see `docs/portable-brain-v16.md`. The engine consumer-intake predecessor used20/15/15; see `docs/consumer-intake.md` and `docs/portable-brain-v15.md`. Both external parser profiles remain inactive. Owner retraction approval bytes retain their19/14/14 predecessor meaning; see `docs/owner-retraction.md` and `docs/portable-brain-v14.md`.
 The capture lifecycle predecessor requires18/13/13; see `docs/portable-brain-v13.md`.
 The Slack approved-evidence predecessor used17/12/12; see `docs/portable-brain-v12.md`.
 The Slack capture predecessor used16/11/11; see `docs/portable-brain-v11.md`.

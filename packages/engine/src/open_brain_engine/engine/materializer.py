@@ -667,7 +667,7 @@ def materialize_portable_root(
             )
         if _v5_restore is not None:
             _v5_restore.install(connection, profile=profile)
-        if snapshot.manifest["schema_version"] in {8, 9, 10, 11, 12, 13, 14, 15}:
+        if snapshot.manifest["schema_version"] in {8, 9, 10, 11, 12, 13, 14, 15, 16}:
             from open_brain_engine.portable.v8_capture_metadata import (
                 CAPTURE_COLUMNS,
                 validate_capture_metadata,

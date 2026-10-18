@@ -9,9 +9,14 @@ from pathlib import PurePath
 
 from open_brain_engine import __version__
 
-from open_brain.services.local_entrypoints import run_cli
-
 _SELF_CHECK_COMMAND = "__open-brain-self-check"
+
+
+def run_cli(arguments: tuple[str, ...]) -> int:
+    """Import the full CLI only for a command that needs it."""
+    from open_brain.services.local_entrypoints import run_cli as run_local_cli
+
+    return int(run_local_cli(arguments))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -19,6 +24,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = tuple(sys.argv[1:] if argv is None else argv)
     if arguments == (_SELF_CHECK_COMMAND,):
         return _self_check()
+    if arguments == ("--version",):
+        # The parser's version action prints exactly this; skip loading the engine for it.
+        print(f"open-brain {__version__}")
+        return 0
     return int(run_cli(arguments))
 
 

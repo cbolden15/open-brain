@@ -12,7 +12,7 @@ import statistics
 import time
 from pathlib import Path
 
-from tools.nw0_graphify_probe.run import REPO, digest, run
+from tools.nw0_graphify_probe.run import DEFAULT_BASE, REPO, digest, run
 from tools.open_brain_dev import base_native
 
 
@@ -59,10 +59,18 @@ def summarize(samples: dict[str, dict[str, list[float]]]) -> dict[str, object]:
     return summary
 
 
+def copy_base(base: Path, target: Path) -> None:
+    """Copy the base executable and, for a one-folder build, its `_internal` runtime."""
+    shutil.copy2(base, target / "open-brain")
+    runtime = base.parent / "_internal"
+    if runtime.is_dir():
+        shutil.copytree(runtime, target / "_internal", symlinks=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=REPO / "build/nw0-startup")
-    parser.add_argument("--base", type=Path, default=REPO / "build/native/dist/open-brain")
+    parser.add_argument("--base", type=Path, default=DEFAULT_BASE)
     parser.add_argument("--proof", type=Path, default=REPO / "build/nw0-graphify")
     args = parser.parse_args()
     eviction = cold_command(dict(os.environ), platform.system())
@@ -89,7 +97,7 @@ def main() -> None:
     for directory in ("home", "tmp", "baseline", "candidate"):
         (output / directory).mkdir()
     for name in ("baseline", "candidate"):
-        shutil.copy2(base, output / name / "open-brain")
+        copy_base(base, output / name)
         if digest(output / name / "open-brain") != base_hash:
             raise ValueError("base copy changed")
     shutil.copy2(helper, output / "candidate/open-brain-graphify")

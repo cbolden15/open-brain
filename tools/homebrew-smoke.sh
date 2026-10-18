@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root=$1
 manifest=$2
 archive_directory=$3
+# Optional: the host's embedding archive. With it the smoke formula is rendered from manifest v2.
+embedding_archive=${4:-}
 cd "$repo_root"
 command -v brew >/dev/null || { echo 'Homebrew is required for contributor-check' >&2; exit 2; }
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
@@ -29,6 +31,13 @@ guard cleanup
 guard snapshot "$smoke_root/product.json"
 mkdir -p "$smoke_root/tap/Formula"
 guard mark "$smoke_root/tap"
+if [ -n "$embedding_archive" ]; then
+    mkdir "$smoke_root/archives"
+    manifest=$(python -m tools.open_brain_dev.release_v2 smoke-release \
+        --release "$archive_directory" --embedding-archive "$embedding_archive" \
+        --output "$smoke_root/archives")
+    archive_directory=$smoke_root/archives
+fi
 python -m tools.open_brain_dev.base_native formula --smoke \
     --manifest "$manifest" --output "$smoke_root/tap/Formula/open-brain-smoke.rb" \
     --base-url "file://$archive_directory"
@@ -52,6 +61,12 @@ case "$smoke_prefix" in
     /*) ;;
     *) echo 'Homebrew returned a non-absolute smoke prefix' >&2; exit 2 ;;
 esac
+embedding_options=()
+if [ -n "$embedding_archive" ]; then
+    brew test "$smoke_formula"
+    embedding_options=(--embedding-artifact "$smoke_prefix/libexec/open-brain-embedding/open-brain-embedding")
+fi
 python -m tools.open_brain_dev.base_native smoke \
-    --root "$repo_root" --artifact "$smoke_prefix/bin/open-brain" \
+    --root "$repo_root" ${embedding_options[@]+"${embedding_options[@]}"} \
+    --artifact "$smoke_prefix/bin/open-brain" \
     --graphify-artifact "$smoke_prefix/libexec/open-brain-graphify"

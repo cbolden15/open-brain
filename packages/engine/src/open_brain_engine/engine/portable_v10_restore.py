@@ -231,7 +231,11 @@ class V10RestoreBundle(V5RestoreBundle):
             path: sha256(data).hexdigest() for path, data in payloads.items()
         }:
             raise PortableValidationError("v10 restore snapshot commitment mismatch")
-        if cls.portable_version == 15:
+        if cls.portable_version == 16:
+            from open_brain_engine.portable.v16 import validate_portable_file_set_v16
+
+            validate_portable_file_set_v16(payloads, tenant_id=cast(str, manifest["tenant_id"]))
+        elif cls.portable_version == 15:
             from open_brain_engine.portable.v15 import validate_portable_file_set_v15
 
             validate_portable_file_set_v15(payloads, tenant_id=cast(str, manifest["tenant_id"]))
@@ -298,7 +302,11 @@ def audit_restored_v10(
     from .local_schema import open_local_database_read_only
 
     bundle_type = V10RestoreBundle
-    if snapshot.manifest["schema_version"] == 15:
+    if snapshot.manifest["schema_version"] == 16:
+        from .portable_v16_restore import V16RestoreBundle
+
+        bundle_type = V16RestoreBundle
+    elif snapshot.manifest["schema_version"] == 15:
         from .portable_v15_restore import V15RestoreBundle
 
         bundle_type = V15RestoreBundle
@@ -324,7 +332,7 @@ def audit_restored_v10(
     try:
         if not connection.in_transaction:
             connection.execute("BEGIN")
-        if snapshot.manifest["schema_version"] in {11, 12, 13, 14, 15}:
+        if snapshot.manifest["schema_version"] in {11, 12, 13, 14, 15, 16}:
             from .developments import (
                 DEVELOPMENT_APPEND_PATH,
                 DEVELOPMENT_EVIDENCE_PATH,
@@ -361,7 +369,11 @@ def restore_portable_v10_root(
     from .materializer import materialize_portable_root
 
     bundle_type = V10RestoreBundle
-    if snapshot.manifest["schema_version"] == 15:
+    if snapshot.manifest["schema_version"] == 16:
+        from .portable_v16_restore import V16RestoreBundle
+
+        bundle_type = V16RestoreBundle
+    elif snapshot.manifest["schema_version"] == 15:
         from .portable_v15_restore import V15RestoreBundle
 
         bundle_type = V15RestoreBundle
@@ -397,7 +409,7 @@ def restore_portable_v10_root(
         authority=validate_historical_authority(snapshot.files),
         checkpoint=checkpoint,
     )
-    if snapshot.manifest["schema_version"] in {13, 14, 15}:
+    if snapshot.manifest["schema_version"] in {13, 14, 15, 16}:
         from .historical_recovery import _historical_transaction
         from .portable_v5_restore import _rederive_search
 

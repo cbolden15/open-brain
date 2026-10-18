@@ -330,6 +330,11 @@ class _State:
             raise LifecycleError("invalid_evidence")
 
 
+def snapshot_token(connection: sqlite3.Connection) -> tuple[int, int]:
+    """Changes whenever this connection or any other connection commits to the database."""
+    return connection.total_changes, connection.execute("PRAGMA data_version").fetchone()[0]
+
+
 def _event_value(
     sequence: int, operation_id: str, kind: str, payload: object, previous: str
 ) -> dict[str, object]:
@@ -344,6 +349,9 @@ def _event_value(
 
 class LifecycleJournal:
     """Engine-internal evidence; a true predicate never substitutes for authorization."""
+
+    # Set only by ``capture_lifecycle.lifecycle_read_snapshot``: (token, verified state).
+    _snapshot: tuple[tuple[int, int], _State | None] | None = None
 
     def __init__(self, connection: sqlite3.Connection, *, brain_id: str, issuer_epoch: int) -> None:
         if not connection.in_transaction:
@@ -402,6 +410,18 @@ class LifecycleJournal:
         return shape == _expected_shape()
 
     def _state(self) -> _State:
+        """Verified journal state; a read-snapshot journal verifies once while unchanged."""
+        held = self._snapshot
+        if held is None or not self.connection.in_transaction:
+            return self._verify_state()
+        token = snapshot_token(self.connection)
+        if held[0] == token and held[1] is not None:
+            return held[1]
+        state = self._verify_state()
+        self._snapshot = (token, state)
+        return state
+
+    def _verify_state(self) -> _State:
         if not self.connection.in_transaction:
             raise LifecycleError("local_operation_failed")
         if not self._shape_matches():
@@ -461,6 +481,10 @@ class LifecycleJournal:
         return request
 
     def _append(self, state: _State, operation_id: str, kind: str, payload: object) -> None:
+        held = self._snapshot
+        if held is not None and held[1] is state:
+            # The snapshot-cached state is shared by every read; a write must not touch it.
+            raise LifecycleError("local_operation_failed")
         # Validate against complete retained history before recording a new transition.
         state.apply(operation_id, kind, payload)
         last = self.connection.execute(
@@ -677,7 +701,7 @@ def restore_lifecycle_journal(
     """Validate in a disposable database before touching the empty destination."""
     try:
         value = decode_canonical(evidence)
-    except (ValueError, TypeError, RecursionError):
+    except ValueError, TypeError, RecursionError:
         raise LifecycleError("invalid_evidence") from None
     return restore_lifecycle_journal_value(
         connection, value, brain_id=brain_id, issuer_epoch=issuer_epoch

@@ -19,6 +19,7 @@ from open_brain_engine.engine import (
     inspect_phase1_state,
     open_local_engine,
 )
+from open_brain_engine.engine.embedding_backend import EmbeddingBackend
 from open_brain_engine.engine.runtime_admission import (
     HeldRuntimeAdmission,
     exclusive_runtime_admission,
@@ -169,6 +170,17 @@ class LocalBrainSession:
     tasks: EngineTaskSet
 
 
+def installed_search_backend(brain_root: Path) -> Callable[[], EmbeddingBackend]:
+    """Lazy installed-helper factory; the engine calls it only for a non-lexical search."""
+
+    def construct() -> EmbeddingBackend:
+        from .embedding_helper import HelperEmbeddingBackend, discover_embedding_resource
+
+        return HelperEmbeddingBackend(discover_embedding_resource(), brain_root)
+
+    return construct
+
+
 @contextmanager
 def open_local_brain(
     selection: LocalRootSelection,
@@ -245,12 +257,14 @@ def open_local_brain(
                     validate_before_write=validate_direct_write,
                     recover_abandoned_sessions=False,
                     recover_on_open=False,
+                    embedding_backend=installed_search_backend(profile.root),
                 )
             elif receipt_protection_port is None:
                 tasks = open_local_engine(
                     profile,
                     validate_before_write=validate_direct_write,
                     recover_abandoned_sessions=False,
+                    embedding_backend=installed_search_backend(profile.root),
                 )
             else:
                 tasks = open_local_engine(
@@ -259,6 +273,7 @@ def open_local_brain(
                     recover_abandoned_sessions=False,
                     receipt_protection_port=receipt_protection_port,
                     receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
+                    embedding_backend=installed_search_backend(profile.root),
                 )
             prepared.revalidate()
             _require_current_local_state(prepared, profile)

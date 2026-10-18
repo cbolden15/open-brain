@@ -29,7 +29,7 @@ def resource(role: str, platform: str) -> base_native.ReleaseArtifact:
         sha256="a" * 64,
         executable_sha256="b" * 64,
         destination={
-            "base": "bin/open-brain",
+            "base": "libexec/open-brain/open-brain",
             "graphify": "libexec/open-brain-graphify",
             "harness": "libexec/open-brain-harness/open-brain-harness",
         }.get(role, "bin/other"),

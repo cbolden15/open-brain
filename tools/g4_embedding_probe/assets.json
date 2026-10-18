@@ -1,0 +1,43 @@
+{
+  "schema": "ob.g4-probe-assets.v1",
+  "candidates": [
+    {
+      "id": "minilm",
+      "repository": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "license": "apache-2.0",
+      "files": [
+        {"path": "1_Pooling/config.json", "bytes": 190, "git_blob_sha1": "d1514c3162bbe87b343f565fadc62e6c06f04f03"},
+        {"path": "README.md", "bytes": 10502, "git_blob_sha1": "44af2e3b0fa3a0b6239e48422972bf755f28fde0"},
+        {"path": "config.json", "bytes": 612, "git_blob_sha1": "72b987fd805cfa2b58c4c8c952b274a11bfd5a00"},
+        {"path": "config_sentence_transformers.json", "bytes": 116, "git_blob_sha1": "fd1b291129c607e5d49799f87cb219b27f98acdf"},
+        {"path": "modules.json", "bytes": 349, "git_blob_sha1": "952a9b81c0bfd99800fabf352f69c7ccd46c5e43"},
+        {"path": "onnx/model.onnx", "bytes": 90405214, "lfs_sha256": "6fd5d72fe4589f189f8ebc006442dbb529bb7ce38f8082112682524616046452"},
+        {"path": "sentence_bert_config.json", "bytes": 53, "git_blob_sha1": "59d594003bf59880a884c574bf88ef7555bb0202"},
+        {"path": "special_tokens_map.json", "bytes": 112, "git_blob_sha1": "e7b0375001f109a6b8873d756ad4f7bbb15fbaa5"},
+        {"path": "tokenizer.json", "bytes": 466247, "git_blob_sha1": "cb202bfe2e3c98645018a6d12f182a434c9d3e02"},
+        {"path": "tokenizer_config.json", "bytes": 350, "git_blob_sha1": "c79f2b6a0cea6f4b564fed1938984bace9d30ff0"},
+        {"path": "vocab.txt", "bytes": 231508, "git_blob_sha1": "fb140275c155a9c7c5a3b3e0e77a9e839594a938"}
+      ]
+    },
+    {
+      "id": "bge",
+      "repository": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "license": "mit",
+      "files": [
+        {"path": "1_Pooling/config.json", "bytes": 190, "git_blob_sha1": "1da070f0993788c8851a652170ff013aa54dd519"},
+        {"path": "README.md", "bytes": 94783, "git_blob_sha1": "8b8567d75ffa619486d9590cb0eb76d66ad46c49"},
+        {"path": "config.json", "bytes": 743, "git_blob_sha1": "3992bf890728a92476c700e6e657fd696eb94160"},
+        {"path": "config_sentence_transformers.json", "bytes": 124, "git_blob_sha1": "dcb0c0d97d09b930d13600b1a773ddb27e441aab"},
+        {"path": "modules.json", "bytes": 349, "git_blob_sha1": "952a9b81c0bfd99800fabf352f69c7ccd46c5e43"},
+        {"path": "onnx/model.onnx", "bytes": 133093490, "lfs_sha256": "828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35"},
+        {"path": "sentence_bert_config.json", "bytes": 52, "git_blob_sha1": "ea85692bff64b0d1917833c31ddbca8ab10f5455"},
+        {"path": "special_tokens_map.json", "bytes": 125, "git_blob_sha1": "a8b3208c2884c4efb86e49300fdd3dc877220cdf"},
+        {"path": "tokenizer.json", "bytes": 711396, "git_blob_sha1": "688882a79f44442ddc1f60d70334a7ff5df0fb47"},
+        {"path": "tokenizer_config.json", "bytes": 366, "git_blob_sha1": "37fca74771bc76a8e01178ce3a6055a0995f8093"},
+        {"path": "vocab.txt", "bytes": 231508, "git_blob_sha1": "fb140275c155a9c7c5a3b3e0e77a9e839594a938"}
+      ]
+    }
+  ]
+}

@@ -47,7 +47,7 @@ const limits = { request_bytes: 65536, response_bytes: 1048576, content_calls: 5
   content_bytes: 16777216, history_calls: 500, history_bytes: 16777216 };
 
 const handshake = (operations: string[]): Handshake => ({
-  desktop_only: true, state_schema_version: 20, runtime_session_version: 15, operations, product_version: "0.1.0", protocol: "open-brain-client",
+  desktop_only: true, state_schema_version: 21, runtime_session_version: 16, operations, product_version: "0.1.0", protocol: "open-brain-client",
   protocol_version: 1, status: "ok",
 });
 
@@ -183,6 +183,16 @@ describe("T07 negotiated clients", () => {
     } while (cursor !== null);
     expect(ids).toHaveLength(201);
     expect(new Set(ids)).toHaveLength(201);
+  });
+
+  it("accepts hybrid mode_used and a model_unavailable lexical fallback", async () => {
+    const base = { status: "ok", dto_version: 1, results: [summary(0)], next_cursor: null, complete: true };
+    const request = { cursor: null, filters: { payload_families: [], record_types: [], space_ids: [] },
+      limit: 10, mode: "hybrid_preferred" as const, query: "paraphrase" };
+    await expect(searchPage(fake({ "search.page": { ...base, mode_used: "hybrid", warnings: [] } }).bridge, request))
+      .resolves.toMatchObject({ mode_used: "hybrid", warnings: [] });
+    await expect(searchPage(fake({ "search.page": { ...base, mode_used: "lexical", warnings: ["model_unavailable"] } }).bridge, request))
+      .resolves.toMatchObject({ mode_used: "lexical", warnings: ["model_unavailable"] });
   });
 
   it("accepts valid empty display strings and rejects unknown or null provenance fields", async () => {

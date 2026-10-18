@@ -14,12 +14,18 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | Command family | Purpose / reference |
 |---|---|
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
-| `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 8](portable-brain-v8.md) |
+| `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 16](portable-brain-v16.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
 | `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
 | `consent grant/inspect/replace/revoke` | Owner-only durable external-provider consent for scoped sessions |
 | `catalog` | Versioned metadata; no grants or public certification |
-| `search`, `search-page`, `read` | Lexical retrieval and complete projected text; [records](records-and-history.md) |
+| `search`, `search-page`, `read` | Paged retrieval and complete projected text; `search-page --mode lexical\|hybrid_preferred\|hybrid_required`; [records](records-and-history.md), [semantic search](semantic-search.md) |
+| `embedding status/enable/disable/rebuild` | Owner-local control of optional offline semantic search; [semantic search](semantic-search.md) |
+| `retract preview/commit/status` | Owner-only retraction of a capture or trusted capture session; [owner retraction](owner-retraction.md), [impact](retraction-impact.md) |
+| `consumer-import preview/body/commit/status/recover/halt` | Owner-local conversation intake; [consumer intake](consumer-intake.md), [from coding agents](consumer-intake-agents.md) |
+| `facet dimension/value/assignment/query/history/vault` | Owner-defined facets over records; [stage one design](design/owner-defined-facets-stage-one.md) |
+| `privacy repair` | Append one owner-authorized privacy repair; [privacy model](privacy-model.md) |
+| `harness` | Foreground automatic-memory bridge for Codex, Claude Code, Pi and Hermes; [harness setup](harness-setup.md), [harness memory](harness-memory.md) |
 | `history list/show`, `relationship list/decide`, `decision history` | Retained evidence; owner relationship mutations |
 | `space create/list/rename`, `inbox list/route`, `source route/inspect/withdraw` | Explicit organization and owner source lifecycle; [spaces](spaces-inbox.md), [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
 | `sharing preview/inspect/approve/reject/revoke` | Owner-approved exact saved-Markdown copy; [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
@@ -40,29 +46,29 @@ Sharing is owner-local. `preview`, `approve`, `reject`, and `revoke` require a
 closed version-1 JSON `--request-file`; `inspect` takes a preview or approval ID.
 The CLI prints a pending approval as pending and never treats a canonical review
 approval as external sharing. Sharing was introduced at schema/runtime/Portable
-12/7/7. The current historical-authority candidate reports 13/8/8. See
-[Portable 8](portable-brain-v8.md) for current export and import behavior;
-[Portable 7](portable-brain-v7.md) documents the frozen previous format.
+12/7/7. The current candidate reports 21/16/16. See
+[Portable 16](portable-brain-v16.md) for current export and import behavior;
+the [docs index](README.md) lists the earlier formats, including
+[Portable 8](portable-brain-v8.md) and [Portable 7](portable-brain-v7.md).
 
 Commands that support machine output accept `--json`. The shared `--data-dir` option must be an
 absolute path. Without it, the CLI uses the platform data directory. `OPEN_BRAIN_ROOT` is ignored.
 
-The historical-authority implementation is an unreleased schema-13/runtime-8
-extension. `historical recover --data-dir /absolute/brain --json` opens an existing
+The historical-authority implementation arrived with schema 13, runtime 8 and Portable 8.
+`historical recover --data-dir /absolute/brain --json` opens an existing
 private Brain without starting ordinary engine tasks. It requires exclusive local
 owner admission and finishes only the exact retained pending intent. It accepts
 no replacement request, actor or provider arguments and does not migrate older
 state, capture content or approve publication. Its historical receipt does not
 prove current sharing eligibility or independently protected custody. A settled
 retry returns `status: settled` with no new receipt. Ordinary startup refuses
-pending or inconsistent historical state. Portable v8 acceptance is still required
-before this extension can be released.
+pending or inconsistent historical state.
 
 `restore /absolute/archive /absolute/absent-root --import-id import_UUID --json`
 restores an existing Brain before platform-root selection or ordinary bootstrap.
 Replace `import_UUID` with `import_` followed by a version-4 UUID and retain that
 same ID for retries. The source directory must be owned by the current OS user,
-mode 0700, and contain a valid Portable 5, 6, 7 or 8 archive. Formats 1–3 lack the
+mode 0700, and contain a valid Portable 5 through 16 archive. Formats 1–3 lack the
 explicit issuer evidence required by this recovery entry point; format 4 remains
 unsupported. Ordinary engine import compatibility is unchanged.
 
@@ -160,6 +166,8 @@ file fails closed.
 ## Status and doctor
 
 Status reports profile `local`, storage `sqlite`, daemon false, and application encryption false.
+Both `status --json` and `doctor` also include an `embedding_health` object; it reads metadata only
+and never starts the embedding helper (see [semantic search](semantic-search.md#health-states)).
 Doctor checks the private data directory, foreground runtime boundary, base dependency closure, and
 search index. The four valid names are `private-data-directory`, `foreground-runtime`,
 `base-dependency-closure`, and `search-index`; bare `doctor` is invalid. JSON returns `check` and

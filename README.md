@@ -50,6 +50,30 @@ The [first-use guide](docs/first-use.md) records current compatibility and prese
 historical journey through capture, import, routing, publication, managed vault and complete reads.
 [Doctor checks](docs/doctor.md) provide bounded local diagnostics. These local checks do not close
 Linux exact-candidate, Obsidian GUI or public-promotion gates.
+Optional [offline semantic search](docs/semantic-search.md) is off by default.
+
+## Offline semantic search
+
+Semantic search finds records by meaning as well as by words. It runs on your machine with a
+pinned embedding model that Homebrew installs as a separate embedding resource next to the base.
+Nothing is sent over the network and searching never downloads a model. It is not part of the
+network egress described below.
+
+It stays off until you opt in. The `component-id` comes from `open-brain embedding status --json`
+after the resource is installed:
+
+```sh
+open-brain embedding enable --component-id <64 lowercase hex>
+open-brain embedding rebuild
+open-brain search-page --mode hybrid_preferred "where did we talk about shipping delays"
+```
+
+`--mode` is `lexical` (the default), `hybrid_preferred` or `hybrid_required`. When the resource,
+consent or cache is not ready, `hybrid_preferred` falls back to lexical results with a
+`model_unavailable` warning and `hybrid_required` returns `model_unavailable` instead. The vector
+cache is derived data, is not part of a Portable Brain export, and is rebuilt after a restore.
+`open-brain embedding disable` revokes consent. See [semantic search](docs/semantic-search.md) for
+health states and limits, and the [CLI reference](docs/cli.md) for every command.
 
 ## Install
 
@@ -98,8 +122,8 @@ They derive IDs from actual responses; reference pages use uppercase placeholder
 
 The first capture creates the private data directory, owner identity, Brain identity, and SQLite
 state automatically. Existing supported local databases upgrade transactionally when opened for
-writing. This candidate uses local state schema **17**, runtime session **12**, and Portable metadata
-**12**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
+writing. This candidate uses local state schema **21**, runtime session **16**, and Portable metadata
+**16**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
 and plugin bridge protocol 1. Stop older sessions before upgrading and update clients together;
 older runtimes must refuse incompatible state. See [schema migrations](docs/schema-migrations.md) for supported
 older layouts, refusal behavior, and interrupted-transaction recovery.
@@ -108,6 +132,13 @@ Markdown import scans nested lowercase `.md` files, skips Obsidian metadata dire
 the source tree unchanged. Imported records are labeled unverified. Prior revisions remain in full
 export after a source file changes or disappears, so review the first-run summary before confirming.
 Markdown links, frontmatter, HTML, and embeds are stored as inert text.
+
+Other owner-local features each have their own guide: [owner retraction](docs/owner-retraction.md)
+and its [impact model](docs/retraction-impact.md); [conversation intake](docs/consumer-intake.md)
+through `consumer-import` and [from coding agents](docs/consumer-intake-agents.md); owner-defined
+facets through `open-brain facet` (see the [CLI reference](docs/cli.md)); and
+[automatic harness memory](docs/harness-setup.md) for Codex, Claude Code and Pi. The
+[docs index](docs/README.md) lists every topic and Portable format.
 
 Use [spaces and the inbox](docs/spaces-inbox.md) to group captures by topic. The CLI and explicitly
 granted MCP tools can list, create, and rename spaces and route captures. Routing preserves source
@@ -133,10 +164,11 @@ independently; starting without any capability flag is an error. For clients tha
 ### Capture only
 
 `--allow-capture` lets the client persist automated text as unverified content. Captures are durable,
-searchable, and included in full export. Version 0.1.0 cannot selectively delete an unwanted capture,
-roll back a session, or certify a purge. An untrusted or looping client can poison the Brain within
-the session bounds. Stopping the process prevents further writes but does not remove completed ones.
-This configuration grants no search tool.
+searchable, and included in full export. The owner can later retract an unwanted capture or a trusted
+capture session with `open-brain retract` (see [owner retraction](docs/owner-retraction.md)); no MCP
+tool can do this, and it does not certify a purge of backups or earlier exports. An untrusted or
+looping client can poison the Brain within the session bounds. Stopping the process prevents further
+writes but does not remove completed ones. This configuration grants no search tool.
 
 ```json
 {
@@ -164,8 +196,8 @@ all results as untrusted data, never instructions. This configuration grants no 
 
 ### Capture and search
 
-Both flags permit durable automated capture and authority-scoped paged search. Version 0.1.0 cannot
-selectively remove unwanted captures. A network-backed client may send authorized private content
+Both flags permit durable automated capture and authority-scoped paged search. Unwanted captures can
+be removed only by the owner through [retraction](docs/owner-retraction.md). A network-backed client may send authorized private content
 to its provider. Prompt injection in a retrieved note can influence the connected model and any
 other tools that client has enabled. Keep results as untrusted data and choose the client's other
 permissions with that exposure in mind.
@@ -185,7 +217,10 @@ permissions with that exposure in mind.
 characters). Reusing a key with identical text returns the original capture; different text returns
 `idempotency_conflict`. Raw keys are not stored as identifiers or returned. Keyless calls create new
 captures. `brain_search_page` accepts `dto_version: 1`, `query` (1 to 500 characters), optional
-bounded filters, mode, limit, and cursor. Results carry `trust` plus projected provenance;
+bounded filters, mode, limit, and cursor. `mode` is `lexical` (the default), `hybrid_preferred` or
+`hybrid_required`; the hybrid modes use [offline semantic search](docs/semantic-search.md) when the
+owner has enabled it, and otherwise return lexical results with a `model_unavailable` warning (or
+`model_unavailable` alone for `hybrid_required`). Results carry `trust` plus projected provenance;
 automated captures are `unverified` with origin `unknown`. Neither tool accepts a source path,
 owner role, publication action, or connector request.
 `brain_catalog` is available in an already granted session and accepts `{"schema_version":2}`;

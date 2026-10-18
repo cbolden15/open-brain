@@ -3718,6 +3718,32 @@ decide the result. A branch is suspect when the relevant test also fails alone.
 
 Discovered: 2026-09-21, twice during the OSS-G5 release gate while GLM workers ran pytest.
 
+### DESKTOP-002: Tauri resources cannot carry the one-folder base, so desktop runtime targets fail
+
+Category: Desktop / Packaging.
+
+Symptom: since the base became a one-folder build (T5.1), `make desktop-runtime`, `make
+desktop-native` and therefore `make contributor-check` fail. `prepare-runtime.mjs` reports "the
+one-folder base cannot be packaged as a Tauri resource".
+
+Cause: Tauri walks resources without following links and copies each entry with `fs::copy`. File
+symlinks would become duplicate files, and directory links (`Python.framework/Versions/Current`)
+cannot be copied at all. The spec no longer builds a one-file base, so the desktop has no core to
+package.
+
+Resolved (T5.3, D18): `prepare-runtime.mjs` ships a copy of the one-folder base at
+`runtime/libexec/open-brain/` in which every symlink is a regular copy of its resolved target
+(directory links become directory copies). Link rules match the base inventory: relative, contained,
+at most 4 hops, no cycles. It hashes every source member, verifies each output file against the member
+it came from, and fails closed on any extra, missing, mismatched or symlinked output. The members
+and hashes come from the released base archive (hashed against the manifest's `archiveSha256`), not
+from the build folder, so a stale or edited `dist/` is refused. Links must stay below `_internal/`,
+as in the release audit. File modes are normalized to owner-only (0700 executable, 0600 other), not
+copied from the archive; only the executable bit is verified. The Rust host reads the core at `runtime/libexec/open-brain/open-brain`.
+Keep new base members free of links the resolver refuses.
+
+Discovered: 2026-10-17, T5.1. Resolved: 2026-10-18, T5.3.
+
 ### OBSIDIAN-003: Untrusted previews need display projection, not inbox rejection
 
 Symptom: One capture with terminal control characters prevents the entire publication capture
@@ -4288,3 +4314,144 @@ old schema remain unchanged on refusal. Independent PR79 review reproduced both
 pre-migration bypasses and verified the corrected behavior.
 
 Discovered: 2026-10-13.
+
+### TESTING-010: Full parallel pytest runs retain several gigabytes of temp data
+
+Category: Testing / Environment.
+
+Symptom: A full `make verify` writes about 6.6 GiB below pytest's base temp directory, and pytest
+keeps the last three base temp directories. On a nearly full Mac this filled the disk mid-run
+(`ENOSPC`), after which even tool output files could not be created. Overriding
+`tmp_path_retention_policy=none` is not a fix: with xdist it deletes directories other fixtures still
+use and produced thousands of `FileNotFoundError` setup errors.
+
+Action: Before a full run, check free space. Use an explicit, run-owned base temp
+(`PYTEST_ADDOPTS="--basetemp=<tmp>/<run> -p no:cacheprovider"`), which pytest clears at start, and delete
+it afterwards. Do not write files into the worktree during the run: the harness acceptance fixture
+fails with `source_changed_during_run`.
+
+Discovered: 2026-10-17, goal #111 offline semantic search.
+
+### NATIVE-EMBED-001: Fresh copies of executables cost a macOS validation pass per first launch
+
+Category: Native / Performance.
+
+Symptom: Executing a freshly written helper binary and dylib on macOS arm64 cost about 600 ms of
+system code validation, and freshly written model data about 320 ms more, every time. Per-invocation
+staging copies made each semantic query cost about 700 ms (warm p95 1213 ms against a 500 ms budget).
+
+Action: Reuse a persistent private stage per component and re-hash it before each launch
+(EMBEDDING-RESOURCE.md section 4 amendment, decision D7). Measure first-launch and repeated-launch cost
+separately when a design copies executables.
+
+Discovered: 2026-10-17, G4 embedding spike.
+
+### NATIVE-EMBED-002: ONNX Runtime host macOS builds ignore `--apple_deploy_target`
+
+Category: Native / Build.
+
+Symptom: `tools/ci_build/build.py --apple_deploy_target 11.0` left `CMAKE_OSX_DEPLOYMENT_TARGET` empty for
+a host macOS build, producing `minos 26.0`. On Linux, a build Python without development headers failed
+with `Python::NumPy` not found.
+
+Action: Pass `--cmake_extra_defines CMAKE_OSX_DEPLOYMENT_TARGET=11.0` and confirm with
+`otool -l | rg minos`. Build with a uv-managed Python on Linux. Recipe:
+`tools/g4_embedding_probe/ort-build-recipe.json`.
+
+Discovered: 2026-10-17, G4 embedding spike.
+
+### TESTING-011: Linux hosts with umask 0002 fail hundreds of permission-checking tests
+
+Category: Testing / Linux.
+
+Symptom: on an Ubuntu host whose login umask is `0002`, `make verify` failed about 200 tests with
+`writable ancestor`, `unsafe_config_path` or `resource_missing`. Pytest `tmp_path` directories and a
+checkout made under that umask are group-writable, and the product correctly refuses them.
+
+Action: clone the repository and run the suite under `umask 022`, matching macOS and CI. A copy made
+with `git archive` also lacks `.git`, which breaks the harness acceptance tests.
+
+Discovered: 2026-10-17, G4 Linux verification on a contributor host.
+
+### NATIVE-EMBED-003: Homebrew's `Cellar` is group-writable, so only the real smoke catches ancestor checks
+
+Category: Native / Homebrew.
+
+Symptom: the embedding resource passed every unit test and the brew-free unpacked-prefix check, then
+reported `resource_missing` under real `make native-integration-smoke`: `/opt/homebrew/Cellar` is
+`0775 <user>:admin` by design.
+
+Action: ancestors above the installed prefix may be group-writable when owned by root or the current
+user (decision D15 in the G4 workstream); the Brain root keeps the strict rule because the helper is
+launched by a path beneath it. Run the real Homebrew smoke for any change to installed-path checks.
+
+Discovered: 2026-10-17, G4 gate 5.
+
+### NATIVE-EMBED-004: Homebrew rewrites the `@rpath` dylibs inside the one-folder base
+
+Category: Native / Homebrew.
+
+Symptom: after a real `brew install`, 7 base `_internal` members no longer match
+`inventories/base.json`: `Python.framework/Versions/3.14/Python`, `libcrypto.3`, `libssl.3`,
+`liblzma.5`, `libmpdec.4`, `libsqlite3` and `libzstd.1` (`.dylib`). The base still runs and every
+smoke passes.
+
+Cause: `fix_dynamic_linkage` runs after `install`. It rewrites the install ID of every Mach-O dylib
+whose ID is `@rpath/...` and re-signs it. The EXE, the `.so` extension modules and the links are
+unchanged. `install_component` verifies before this rewrite, and no runtime check compares base bytes
+to the inventory.
+
+Action: do not hash installed base dylibs against the archive inventory. Verify before relocation, or
+ship no dylib that Homebrew relocates, as the statically linked embedding helper does (D18). Run the
+real Homebrew smoke whenever the base layout changes.
+
+Discovered: 2026-10-17, T5.1 one-folder base smoke.
+
+### NATIVE-EMBED-005: The first run of a freshly installed one-folder base takes about 10 s on macOS
+
+Category: Native / Performance.
+
+Symptom: on the development Mac, `open-brain --version` takes about 285 ms warm but 9.6–10.2 s on the
+first run from freshly written bytes (a new install or copy). Hybrid search takes up to 14 s. A later
+measurement (T5.4, 2026-10-18) put the first command after `brew install` at 6.2 s. The
+old one-file base paid this cost on every call, because it extracted fresh files each time.
+
+Cause: macOS validates each freshly written Mach-O file once, as in NATIVE-EMBED-001, and the folder
+holds about 50 of them. Linux does not show the cost.
+
+Action: measure warm runs and the first run after install separately. A cold budget that counts the
+first run after install cannot be met by layout alone on this host.
+
+Discovered: 2026-10-17, T5.1 timings.
+
+### NATIVE-EMBED-006: The NW0 Graphify probes run only in CI and still assumed a one-file base
+
+Category: Native / CI.
+
+Symptom: after the base became a one-folder build, `make verify`, `make native-audit` and the
+Homebrew smoke all passed locally, but both CI platform jobs failed at "Verify experimental Graphify
+native helper" with `IsADirectoryError` on `build/native/dist/open-brain`.
+
+Cause: `tools/nw0_graphify_probe/run.py` and `startup.py` defaulted `--base` to the one-file path.
+No local target runs them, so nothing caught it before the PR.
+
+Action: when the base layout changes, run `uv run --frozen --python 3.14 --no-dev --group
+native-build python -m tools.nw0_graphify_probe.run` locally (delete `build/nw0-graphify` first), and
+search for `dist/open-brain` across `tools/` and `.github/`.
+
+Discovered: 2026-10-18, PR #89 CI.
+
+### TESTING-012: Low free disk turns capture tests into `storage_high`/`storage_critical` refusals
+
+Category: Testing / Host.
+
+Symptom: with under ~10 GiB free on the Mac, collector and connector integration tests failed with
+`capture admission refused: storage_high` or `storage_critical` midway through a full parallel run.
+The engine watermark (2 GiB high) is working as designed.
+
+Action: pass `-o tmp_path_retention_policy=failed` with an explicit `--basetemp` so passing tests'
+temp trees are deleted at teardown, and re-run the affected suite alone to confirm before treating it
+as a code failure. Never write into the worktree during a full verify: the harness acceptance tests
+fail with `source_changed_during_run`.
+
+Discovered: 2026-10-17, G4 gate 5.

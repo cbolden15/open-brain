@@ -33,8 +33,9 @@ def test_native_entrypoint_routes_normal_commands_to_local_cli(
 
     monkeypatch.setattr(local_native_entrypoint, "run_cli", fake_run_cli)
 
-    assert local_native_entrypoint.main(("--version",)) == 7
-    assert observed == [("--version",)]
+    assert local_native_entrypoint.main(("status", "--json")) == 7
+    assert local_native_entrypoint.main(("--version", "--json")) == 7
+    assert observed == [("status", "--json"), ("--version", "--json")]
 
 
 @pytest.mark.parametrize("valid", [True, False])

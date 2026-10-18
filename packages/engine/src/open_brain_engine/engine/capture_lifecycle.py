@@ -9,6 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 from typing import TYPE_CHECKING, cast
@@ -24,7 +25,7 @@ from .capture_lifecycle_contracts import (
     canonical_bytes,
     decode_canonical,
 )
-from .capture_lifecycle_journal import LifecycleJournal
+from .capture_lifecycle_journal import LifecycleJournal, snapshot_token
 from .capture_recovery import CaptureRecoveryPlan, CaptureReservationIdentity
 from .consent_contracts import EgressMode
 from .consumer_journal import LifecycleJournalV2, consumer_items
@@ -107,8 +108,47 @@ class LifecycleSegment:
         )
 
 
+@dataclass(slots=True)
+class _ReadSnapshot:
+    connection: sqlite3.Connection
+    journal: LifecycleJournal | None = None
+    token: tuple[int, int] | None = None
+
+
+_READ_SNAPSHOT: ContextVar[_ReadSnapshot | None] = ContextVar(
+    "lifecycle_read_snapshot", default=None
+)
+
+
+@contextmanager
+def lifecycle_read_snapshot(connection: sqlite3.Connection) -> Iterator[None]:
+    """Verify the journal once for every candidate checked in one read snapshot.
+
+    Each record is still decided on its own against that verified state. The journal is
+    reused only while ``snapshot_token`` is unchanged: a commit by this or any other
+    connection discards it, and the next check verifies the journal again.
+    """
+    token = _READ_SNAPSHOT.set(_ReadSnapshot(connection))
+    try:
+        yield
+    finally:
+        _READ_SNAPSHOT.reset(token)
+
+
 def open_lifecycle_journal(connection: sqlite3.Connection) -> LifecycleJournal:
     """Dispatch only from admitted engine coordinates and the checked journal identity."""
+    snapshot = _READ_SNAPSHOT.get()
+    if snapshot is None or snapshot.connection is not connection or not connection.in_transaction:
+        return _open_lifecycle_journal(connection)
+    token = snapshot_token(connection)
+    if snapshot.journal is None or snapshot.token != token:
+        journal = _open_lifecycle_journal(connection)
+        journal._snapshot = (token, None)
+        snapshot.journal, snapshot.token = journal, token
+    return snapshot.journal
+
+
+def _open_lifecycle_journal(connection: sqlite3.Connection) -> LifecycleJournal:
     identity = connection.execute(
         "SELECT brain_id,issuer_epoch FROM brain_identity WHERE singleton=1"
     ).fetchone()
@@ -116,7 +156,7 @@ def open_lifecycle_journal(connection: sqlite3.Connection) -> LifecycleJournal:
         raise LifecycleError("invalid_evidence")
     journal_type = (
         LifecycleJournalV2
-        if connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        if connection.execute("PRAGMA user_version").fetchone()[0] >= 20
         else LifecycleJournal
     )
     return journal_type.for_engine(connection, brain_id=identity[0], issuer_epoch=identity[1])

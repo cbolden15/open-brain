@@ -1,0 +1,32 @@
+[package]
+name = "open-brain-embedding"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Open Brain embedding helper, stdio protocol v1"
+
+[lib]
+name = "open_brain_embedding"
+path = "src/lib.rs"
+
+[[bin]]
+name = "open-brain-embedding"
+path = "src/main.rs"
+
+[features]
+# Test-only: selects the deterministic fake inference backend in the binary.
+fake-inference = []
+
+[dependencies]
+sha2 = "0.10"
+unicode-normalization = "0.1"
+tokenizers = { version = "=0.22.1", default-features = false, features = ["fancy-regex"] }
+# Statically linked from the pinned ONNX Runtime build named by ORT_LIB_LOCATION; no download,
+# copy, TLS or tracing (`download-binaries` stays off, so ort-sys has no fetch code).
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["api-31", "std"] }
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+strip = true

@@ -48,6 +48,11 @@ source IDs, and deciding permits approve/reject/edit-and-approve. None follows f
 or organize. Use [review and publication](review-publication.md) for the complete CLI/MCP workflow,
 including stable page updates. Direct owner CLI review commands need no MCP grants.
 
+Other owner-local commands are not agent grants and have no MCP tool: `retract`, `embedding`,
+`facet` and `consumer-import` (an agent with shell access can run the last, see
+[intake from coding agents](consumer-intake-agents.md)). Automatic harness memory uses the separate
+`harness` command; see [harness setup](harness-setup.md).
+
 For a source checkout, prefix these commands with `uv run`. Keep the checkout and its environment
 at the same location because agent configuration records an absolute executable path.
 
@@ -56,8 +61,8 @@ at the same location because agent configuration records an absolute executable 
 The W2 candidate requires an explicit session policy before any MCP session can read
 Slack-derived Work records, approved copies or publications containing that evidence.
 This includes sessions with owner grants. Direct owner CLI access remains available;
-ordinary non-Slack MCP reads retain their existing behavior. The gate applies to the
-upgraded runtime at schema/runtime/Portable `17/12/12`. Older binaries do not gain it.
+ordinary non-Slack MCP reads retain their existing behavior. The gate arrived with
+schema/runtime/Portable `17/12/12` and remains in the current `21/16/16` runtime. Older binaries do not gain it.
 Policy-omitted graph projection withholds the whole-workspace structural cache before
 reading it: its global extraction and freshness cannot be safely scoped. Authorized
 inferred suggestions remain available. Direct owner and explicit-policy behavior

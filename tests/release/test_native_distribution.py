@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 import tools.open_brain_dev.base_native as base_native
+from tools.open_brain_dev import artifact_audit
 from tools.open_brain_dev.base_native import (
     BaseNativeAudit,
     BaseNativeError,
@@ -40,7 +41,9 @@ def _executable(path: Path) -> Path:
 
 def _resource(role: str, platform: str, marker: str = "a") -> ReleaseArtifact:
     component = "-graphify" if role == "graphify" else ""
-    destination = "libexec/open-brain-graphify" if role == "graphify" else "bin/open-brain"
+    destination = (
+        "libexec/open-brain-graphify" if role == "graphify" else "libexec/open-brain/open-brain"
+    )
     return ReleaseArtifact(
         version="0.1.0",
         platform_tag=platform,
@@ -75,8 +78,10 @@ def test_native_specs_keep_base_and_graphify_in_separate_executables() -> None:
         assert f'"engine/{schema}"' in spec
         assert (ROOT / "packages/engine/src/open_brain_engine/engine" / schema).is_file()
     core_spec = spec.split("# Optional integration commands")[0]
-    assert "COLLECT(" not in core_spec
-    assert "exclude_binaries=True" not in core_spec
+    # The base is a one-folder build: one-file extraction cost ~10 s per call on macOS (D17).
+    assert "exclude_binaries=True" in core_spec
+    assert "base_runtime = COLLECT(" in core_spec
+    assert core_spec.count('name="open-brain"') == 2
     assert 'name="open-brain-harness"' in spec
     assert "harness_runtime = COLLECT(" in spec
     assert "harness_native_entrypoint.py" in spec
@@ -171,7 +176,13 @@ def test_core_decimal_requirement_does_not_change_separate_graphify_closure(
 def test_release_archives_are_reproducible_and_manifest_the_exact_pair(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    artifact = _executable(tmp_path / "artifact/open-brain")
+    artifact = _executable(tmp_path / "artifact/open-brain/open-brain")
+    internal = artifact.parent / "_internal"
+    internal.mkdir()
+    (internal / "data.txt").write_text("synthetic data", encoding="utf-8")
+    (internal / "tool").write_bytes(b"synthetic tool")
+    (internal / "tool").chmod(0o755)
+    (internal / "alias").symlink_to("data.txt")
     helper = _executable(tmp_path / "artifact/open-brain-graphify")
     plugin = _obsidian_plugin(tmp_path / "artifact/obsidian-plugin")
     licenses = tmp_path / "licenses"
@@ -183,6 +194,15 @@ def test_release_archives_are_reproducible_and_manifest_the_exact_pair(
         "audit_base_artifact",
         lambda _path: BaseNativeAudit("macos-arm64", 1, "a" * 64, "b" * 64, "adhoc"),
     )
+    # The synthetic base executable is not a PyInstaller bundle; only its scan is stubbed.
+    audited: list[str] = []
+    real_inspect = artifact_audit.inspect_artifact
+
+    def inspect(path: Path, terms: tuple[str, ...]) -> list[tuple[str, str]]:
+        audited.append(path.name)
+        return [] if path.name.startswith("open-brain-0.1.0-") else real_inspect(path, terms)
+
+    monkeypatch.setattr(artifact_audit, "inspect_artifact", inspect)
 
     first = write_base_archive(
         artifact,
@@ -222,21 +242,33 @@ def test_release_archives_are_reproducible_and_manifest_the_exact_pair(
     )
 
     assert first.read_bytes() == second.read_bytes()
+    assert audited.count(first.name) >= 2
     assert first_helper.read_bytes() == second_helper.read_bytes()
     assert first_manifest.read_bytes() == second_manifest.read_bytes()
     with tarfile.open(first, "r:gz") as archive:
-        members = archive.getmembers()
-        assert [member.name for member in members] == [
-            "open-brain",
+        members = {member.name: member for member in archive.getmembers()}
+        assert list(members) == [
+            "obsidian-plugin",
             "obsidian-plugin/main.js",
             "obsidian-plugin/manifest.json",
             "obsidian-plugin/styles.css",
+            "open-brain",
+            "open-brain/_internal",
+            "open-brain/_internal/alias",
+            "open-brain/_internal/data.txt",
+            "open-brain/_internal/tool",
+            "open-brain/open-brain",
         ]
-        assert members[0].mode & 0o100
-        assert all(member.mode == 0o644 for member in members[1:])
+        modes = {name: member.mode for name, member in members.items()}
+        assert modes["open-brain/open-brain"] == modes["open-brain/_internal/tool"] == 0o755
+        assert modes["open-brain/_internal/data.txt"] == modes["obsidian-plugin/main.js"] == 0o644
+        assert members["open-brain/_internal/alias"].issym()
+        assert members["open-brain/_internal/alias"].linkname == "data.txt"
+        assert modes["open-brain/_internal/alias"] == 0o777
+        for name in ("obsidian-plugin", "open-brain", "open-brain/_internal"):
+            assert members[name].isdir() and modes[name] == 0o755
     with tarfile.open(first_helper, "r:gz") as archive:
-        members = archive.getmembers()
-        assert [member.name for member in members] == [
+        assert [member.name for member in archive.getmembers()] == [
             "licenses/graphify/LICENSE",
             "licenses/graphify/LICENSE-MIT",
             "licenses/graphify/NOTICE",
@@ -287,7 +319,9 @@ def test_two_platform_manifest_is_canonical_and_drives_the_homebrew_formula(
     assert "https://github.com/cbolden15/open-brain/releases/download/v0.1.0" in formula
     assert "class OpenBrain < Formula" in formula
     assert "keg_only" not in formula
-    assert 'bin.install "open-brain"' in formula
+    assert 'bin.install "open-brain"' not in formula
+    assert '    libexec.install "open-brain"\n' in formula
+    assert '    bin.install_symlink libexec/"open-brain/open-brain"\n' in formula
     assert '(share/"open-brain/obsidian-plugin").install' in formula
     assert 'assert_path_exists share/"open-brain/obsidian-plugin/main.js"' in formula
     assert 'libexec.install "open-brain" => "open-brain-graphify"' in formula
@@ -300,7 +334,7 @@ def test_manifest_combination_rejects_cross_version_archives(tmp_path: Path) -> 
     for path in (first, second):
         with tarfile.open(path, "w:gz") as bundle:
             payload = b"synthetic executable"
-            member = tarfile.TarInfo("open-brain")
+            member = tarfile.TarInfo("open-brain" if path == second else "open-brain/open-brain")
             member.size = len(payload)
             member.mode = 0o755
             bundle.addfile(member, io.BytesIO(payload))
@@ -336,7 +370,8 @@ def test_native_build_group_installs_the_base_application() -> None:
     )
     assert "open-brain==0.1.0" in workspace["dependency-groups"]["native-build"]
     assert workspace["tool"]["uv"]["sources"]["open-brain"] == {"workspace": True}
-    assert makefile.count("--no-dev --group native-build") == 4
+    # Includes the embedding resource build target.
+    assert makefile.count("--no-dev --group native-build") == 5
 
 
 def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:

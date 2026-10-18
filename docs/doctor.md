@@ -9,6 +9,12 @@ Every JSON doctor response also includes `ingestion_journal` with `pending_count
 fields are metadata-only. A nonzero pending or quarantined count is an operator condition, not a
 search or record-read result; inspect it with the owner-only `open-brain journal status` command.
 
+Doctor output also carries an `embedding_health` object (`ob.embedding-health.v1`) for optional
+[offline semantic search](semantic-search.md). It reports resource, cache and consent state from
+metadata only and never starts the embedding helper. It is not a fifth check: a `stale`,
+`incomplete` or `absent` cache does not fail a doctor check. To recover a cache, run
+`open-brain embedding rebuild`.
+
 <!-- open-brain-example:doctor-private-data-directory -->
 ```sh
 DOCTOR_PRIVATE="$("$OPEN_BRAIN" doctor --check private-data-directory --data-dir "$DATA_DIR" --json)"

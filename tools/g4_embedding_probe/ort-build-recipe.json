@@ -1,0 +1,42 @@
+{
+  "schema": "ob.g4-ort-build-recipe.v1",
+  "upstream": "https://github.com/microsoft/onnxruntime",
+  "tag": "v1.31.0",
+  "commit": "402979ac1bef89dcd55add41eaa7277c407599eb",
+  "python_build_env": {
+    "python": "3.12",
+    "packages": ["numpy==2.3.4", "packaging==25.0", "wheel==0.45.1", "setuptools==80.9.0"]
+  },
+  "common_args": [
+    "tools/ci_build/build.py",
+    "--config", "Release",
+    "--skip_tests",
+    "--skip_submodule_sync",
+    "--no_telemetry",
+    "--cmake_generator", "Ninja",
+    "--compile_no_warning_as_error"
+  ],
+  "post_build": ["ninja", "-C", "<build_dir>/Release", "re2"],
+  "platforms": {
+    "macos-arm64": {
+      "extra_args": [
+        "--parallel", "6",
+        "--cmake_extra_defines", "CMAKE_OSX_ARCHITECTURES=arm64", "CMAKE_OSX_DEPLOYMENT_TARGET=11.0",
+        "onnxruntime_BUILD_UNIT_TESTS=OFF"
+      ],
+      "output": "Release",
+      "notes": "--apple_deploy_target alone does not reach CMake for a host macOS build; pass CMAKE_OSX_DEPLOYMENT_TARGET."
+    },
+    "linux-x86_64": {
+      "extra_args": ["--parallel", "12", "--cmake_extra_defines", "onnxruntime_BUILD_UNIT_TESTS=OFF"],
+      "output": "Release",
+      "notes": "Build Python must ship development headers (uv --managed-python); the system Python without headers fails with Python::NumPy not found."
+    }
+  },
+  "linking": "Static libraries only. The default target does not build re2, which the runtime needs, so post_build builds it. The helper links them with ORT_LIB_LOCATION=<build_dir>/Release.",
+  "required_cmake_cache": {
+    "onnxruntime_USE_TELEMETRY": "OFF",
+    "onnxruntime_BUILD_SHARED_LIB": "OFF",
+    "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0 (macos-arm64 only)"
+  }
+}

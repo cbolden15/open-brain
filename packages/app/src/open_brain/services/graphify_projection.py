@@ -19,6 +19,8 @@ from typing import Protocol, cast
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.engine import ManagedGraphSnapshot
 
+from open_brain.services.installed_layout import base_prefix
+
 GRAPHIFY_PROTOCOL = "open-brain-graphify-helper-v1"
 GRAPHIFY_VERSION = "0.9.57"
 GRAPHIFY_UPSTREAM_COMMIT = "3f82bf7f837a07fb0f7668fbdbd5662801906942"
@@ -303,13 +305,10 @@ def discover_graphify_executable(base_executable: Path | None = None) -> Path:
     try:
         resolved_base = base_executable.resolve(strict=True)
         base_metadata = resolved_base.stat(follow_symlinks=False)
-        if (
-            resolved_base.name != "open-brain"
-            or resolved_base.parent.name != "bin"
-            or not stat.S_ISREG(base_metadata.st_mode)
-        ):
+        prefix = base_prefix(resolved_base)
+        if prefix is None or not stat.S_ISREG(base_metadata.st_mode):
             raise GraphifyFailure("adapter_unavailable")
-        helper = resolved_base.parent.parent / "libexec/open-brain-graphify"
+        helper = prefix / "libexec/open-brain-graphify"
         helper_metadata = helper.stat(follow_symlinks=False)
         if (
             helper.is_symlink()

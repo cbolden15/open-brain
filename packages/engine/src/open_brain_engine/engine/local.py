@@ -56,6 +56,7 @@ from .contracts import (
     TextPayload,
 )
 from .developments import DevelopmentTasks
+from .embedding_backend import EmbeddingBackend
 from .facet_publication import FacetPublicationTasks
 from .facet_vault import FacetVaultTasks
 from .facets import FacetTasks
@@ -149,6 +150,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         receipt_protection_port: ReceiptProtectionPort | None = None,
         receipt_protection_timeout_seconds: float = 5.0,
         recovery_protection_guard: RecoveryProtectionGuard | None = None,
+        embedding_backend: Callable[[], EmbeddingBackend] | None = None,
         initialize_store: bool = True,
     ) -> None:
         if admission_limits is not None and not isinstance(admission_limits, AdmissionLimits):
@@ -181,10 +183,12 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             raise ValueError("invalid enrichment provider")
         if validate_mutation_authority is not None and not callable(validate_mutation_authority):
             raise ValueError("invalid mutation authority validator")
+        if embedding_backend is not None and not callable(embedding_backend):
+            raise ValueError("invalid embedding backend factory")
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18, 19, 20}
+            schema.state != "current" or schema.version not in {13, 14, 15, 16, 17, 18, 19, 20, 21}
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -280,7 +284,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19, 20}
+            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -323,6 +327,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         self._receipt_protection_port = receipt_protection_port
         self._receipt_protection_timeout_seconds = float(receipt_protection_timeout_seconds)
         self._recovery_protection_guard = recovery_protection_guard
+        # Lazy app-provided backend factory. Only a non-lexical search calls it, so lexical
+        # search never constructs the helper or reads the resource; ``None`` means no backend.
+        self._embedding_backend = embedding_backend
         # Engine-owned admission gate state. The core is one foreground
         # process, so the per-principal rate windows and the concurrent
         # admission counter are per-process and recover in-process without
@@ -380,6 +387,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                     18,
                     19,
                     20,
+                    21,
                 }:
                     raise
                 self._store = _LocalStore(profile, clock=self._clock, initialize=False)
@@ -389,6 +397,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         from .consumer_intake import ConsumerIntakeTasks
 
         self.consumer_imports = ConsumerIntakeTasks(self)
+        from .embedding_policy import EmbeddingPolicyTasks
+
+        self.embedding_policy = EmbeddingPolicyTasks(self)
         self.capture = CaptureTasks(self)
         self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
@@ -438,6 +449,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             developments=self.developments,
             lifecycle=self.lifecycle,
             consumer_imports=self.consumer_imports,
+            embedding_policy=self.embedding_policy,
         )
 
     @classmethod
@@ -457,6 +469,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         receipt_protection_port: ReceiptProtectionPort | None = None,
         receipt_protection_timeout_seconds: float = 5.0,
         recovery_protection_guard: RecoveryProtectionGuard | None = None,
+        embedding_backend: Callable[[], EmbeddingBackend] | None = None,
     ) -> BrainEngine:
         if not isinstance(profile, LocalEngineContext):
             raise ValueError("invalid local profile")
@@ -474,6 +487,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             receipt_protection_port=receipt_protection_port,
             receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
             recovery_protection_guard=recovery_protection_guard,
+            embedding_backend=embedding_backend,
             initialize_store=recover_on_open,
         )
         if not recover_on_open:
@@ -615,6 +629,7 @@ def open_local_engine(
     receipt_protection_port: ReceiptProtectionPort | None = None,
     receipt_protection_timeout_seconds: float = 5.0,
     recovery_protection_guard: RecoveryProtectionGuard | None = None,
+    embedding_backend: Callable[[], EmbeddingBackend] | None = None,
 ) -> EngineTaskSet:
     """Open one local root and expose only its named task capabilities."""
     return BrainEngine.open(
@@ -628,6 +643,7 @@ def open_local_engine(
         receipt_protection_port=receipt_protection_port,
         receipt_protection_timeout_seconds=receipt_protection_timeout_seconds,
         recovery_protection_guard=recovery_protection_guard,
+        embedding_backend=embedding_backend,
     ).tasks
 
 

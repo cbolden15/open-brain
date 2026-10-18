@@ -23,7 +23,7 @@ def lifecycle_permits_capture(
         journal = open_lifecycle_journal(connection)
         if not journal.permits_capture(capture_id, history=history):
             return False
-        if version == 20:
+        if version >= 20:
             from .consumer_sources import consumer_group_sources_visible
 
             return consumer_group_sources_visible(

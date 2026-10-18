@@ -1,8 +1,9 @@
 # Retrieval design
 
 Default Open Brain uses SQLite FTS5 for local search. Search runs inside the same
-`phase1.sqlite3` database as the live document projection. It needs no model, network access,
-downloaded index, daemon, or dependency beyond the SQLite bundled with the native application.
+`phase1.sqlite3` database as the live document projection. Lexical search needs no model, network
+access, downloaded index, daemon, or dependency beyond the SQLite bundled with the native application.
+Optional [offline semantic search](semantic-search.md) adds a local model and is off by default.
 
 ## Ownership and data flow
 
@@ -241,8 +242,7 @@ no search telemetry. An owner may opt in by submitting a minimized, non-private 
 or contributors may run a consented evaluation against a separately held corpus. A retrieval-change
 proposal may proceed when that evidence names the query class, expected top-k result, observed
 no-result or ranking failure, and before/after metric. Before merge, the failure must become either a
-synthetic regression or a documented evaluation that cannot safely be committed. Embeddings still
-require the plan's separate proof that a local dependency-free hybrid improves the named class.
+synthetic regression or a documented evaluation that cannot safely be committed.
 
 ## Source and canonical result policy
 
@@ -253,12 +253,18 @@ and the visible record type make the relationship explicit, and `LIMIT` counts r
 not unique captures. The relevance fixture includes this deliberate duplicate case so a later
 grouping change cannot happen accidentally.
 
-## Deferred retrieval work
+## Semantic retrieval
 
-Embeddings are deferred. The first release adds no embedding model, model download, vector store,
-network call, or runtime dependency. That decision can reopen only when the completed relevance
-fixture identifies a named search failure and measured evidence shows a local, dependency-free
-hybrid improves it.
+The lexical tiers above are the default and remain the whole of search until the owner enables
+[offline semantic search](semantic-search.md). It is opt-in, runs a pinned local model from a
+separate embedding resource, and makes no network call. `search-page` and `brain_search_page` take
+a `mode` of `lexical` (the default), `hybrid_preferred` or `hybrid_required`. When semantic search
+runs, results are fused from the semantic and lexical lists with reciprocal rank fusion
+(`ob.hybrid-rrf.v2`) and `mode_used` is `hybrid`. If the resource, consent or cache is not ready,
+`hybrid_preferred` returns lexical results with a `model_unavailable` warning and `hybrid_required`
+returns `model_unavailable`. The vector cache is derived and rebuildable.
+
+## Deferred retrieval work
 
 The architecturally complete multilingual options are a locally shipped word segmenter or a
 measured character n-gram index. Both are pending cross-platform artifact, index-size, and ranking

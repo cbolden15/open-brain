@@ -29,6 +29,7 @@ from .agent_setup import (
     _toml_text,
     resolve_agent_runtime,
 )
+from .installed_layout import base_prefix
 
 _LIMIT = 2 * 1024 * 1024
 _SERVER = "open-brain-memory"
@@ -55,8 +56,9 @@ def _action(value: object) -> str:
 
 def discover_harness_assets(runtime_path: Path) -> Path:
     """Find persistent installed assets, never a frozen extraction directory."""
-    installed = runtime_path.parent.parent / "share/open-brain/harness"
-    if installed.is_dir():
+    prefix = base_prefix(runtime_path)
+    installed = None if prefix is None else prefix / "share/open-brain/harness"
+    if installed is not None and installed.is_dir():
         return installed
     if not bool(getattr(sys, "frozen", False)):
         return Path(__file__).parent.parent / "assets"
@@ -161,7 +163,10 @@ def apply_harness_setup(
 
 def _harness_runtime(runtime_path: Path) -> Path:
     base_runtime = resolve_agent_runtime(runtime_path)
-    helper = base_runtime.parent.parent / "libexec/open-brain-harness/open-brain-harness"
+    prefix = base_prefix(base_runtime)
+    if prefix is None:
+        return base_runtime
+    helper = prefix / "libexec/open-brain-harness/open-brain-harness"
     return resolve_agent_runtime(helper) if helper.exists() else base_runtime
 
 

@@ -2,7 +2,7 @@
 
 Status: Phase 0 characterization evidence.
 
-[`tests/fixtures/phase0/current_records.json`](../tests/fixtures/phase0/current_records.json)
+[`archive/legacy/tests/fixtures/phase0/current_records.json`](../archive/legacy/tests/fixtures/phase0/current_records.json)
 records the current typed Python records that carry capture, privacy, provenance, redaction,
 event, review, and ledger data. The focused contract test compares every recorded dataclass field
 with the live class, so a current-format change cannot pass unnoticed.

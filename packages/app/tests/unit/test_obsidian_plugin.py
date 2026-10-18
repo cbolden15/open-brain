@@ -57,6 +57,26 @@ def test_asset_discovery_binds_to_the_resolved_product_prefix(tmp_path: Path) ->
         discover_obsidian_plugin_assets(link)
 
 
+def test_asset_discovery_follows_the_one_folder_base_layout(tmp_path: Path) -> None:
+    prefix = tmp_path / "Cellar/open-brain/0.1.0"
+    executable = prefix / "libexec/open-brain/open-brain"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o755)
+    assets = _assets(prefix / "share/open-brain/obsidian-plugin")
+    (prefix / "bin").mkdir()
+    (prefix / "bin/open-brain").symlink_to("../libexec/open-brain/open-brain")
+
+    assert discover_obsidian_plugin_assets(prefix / "bin/open-brain") == assets
+    assert discover_obsidian_plugin_assets(executable) == assets
+
+    stray = prefix / "bin/open-brain-smoke"
+    stray.write_text("#!/bin/sh\n", encoding="utf-8")
+    stray.chmod(0o755)
+    with pytest.raises(ObsidianPluginFailure, match="assets_unavailable"):
+        discover_obsidian_plugin_assets(stray)
+
+
 def test_install_upgrade_and_remove_preserve_obsidian_user_state(tmp_path: Path) -> None:
     workspace = tmp_path / "Open Brain Vault"
     workspace.mkdir(mode=0o700)

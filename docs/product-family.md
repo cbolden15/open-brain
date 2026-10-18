@@ -51,7 +51,12 @@ The supported command families are:
 - `init`, `capture`, `import`, `search`, `space`, `inbox`, `export`, `doctor`, and `status`;
 - `workspace` for the dedicated managed Markdown vault;
 - `graph` for structural projection, suggestion review, consent, and exclusions;
-- `obsidian-plugin` for owned plugin installation, status, and removal; and
+- `obsidian-plugin` for owned plugin installation, status, and removal;
+- `embedding` for optional [offline semantic search](semantic-search.md), which is local, off by
+  default, and not network egress;
+- `retract` for owner-only [retraction](owner-retraction.md) of captures and capture sessions;
+- `facet` for owner-defined facets, `consumer-import` for conversation intake, and `harness` for
+  optional [automatic harness memory](harness-setup.md); and
 - `mcp` over explicitly launched stdio with capabilities selected independently.
 
 `agent setup` previews and applies owned Claude Code/Codex configuration at project or user scope.

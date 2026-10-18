@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import gzip
 import hashlib
 import importlib
 import importlib.metadata
@@ -26,6 +25,7 @@ from typing import Final, cast
 _SPEC = Path("release/open-brain/open-brain.spec")
 _EXECUTABLE = "open-brain"
 _MANIFEST = "open-brain-component-manifest-v1.txt"
+MANIFEST_V2_FILENAME: Final = "open-brain-component-manifest-v2.json"
 _OBSIDIAN_PLUGIN_ASSETS: Final = ("main.js", "manifest.json", "styles.css")
 _PLATFORMS: Final = ("linux-x86_64", "macos-arm64")
 _ARCHIVE_PATTERN: Final = re.compile(
@@ -33,8 +33,9 @@ _ARCHIVE_PATTERN: Final = re.compile(
     r"(?P<version>[0-9A-Za-z][0-9A-Za-z._-]*)-"
     r"(?P<platform>linux-x86_64|macos-arm64)\.tar\.gz$"
 )
+_BASE_EXECUTABLE_MEMBER: Final = "open-brain/open-brain"
 _RESOURCE_DESTINATIONS: Final = {
-    "base": "bin/open-brain",
+    "base": "libexec/open-brain/open-brain",
     "graphify": "libexec/open-brain-graphify",
     "harness": "libexec/open-brain-harness/open-brain-harness",
 }
@@ -72,6 +73,10 @@ _PORTABLE_V15_SIDECARS: Final = (
     "history/consumer-intake/evidence-v1.json",
     "history/retraction/approvals-v1.json",
 )
+_PORTABLE_V16_SIDECARS: Final = (
+    *_PORTABLE_V15_SIDECARS,
+    "history/embedding-policy/embedding-policy.jsonl",
+)
 _REQUIRED_MODULES: Final = frozenset(
     {
         "decimal",
@@ -79,6 +84,10 @@ _REQUIRED_MODULES: Final = frozenset(
         "open_brain.profile",
         "open_brain.services.agent_setup",
         "open_brain.services.catalog",
+        "open_brain.services.component_manifest_v2",
+        "open_brain.services.embedding_health",
+        "open_brain.services.embedding_helper",
+        "open_brain.services.embedding_pin",
         "open_brain.services.local_bootstrap",
         "open_brain.services.local_entrypoints",
         "open_brain.services.graph_projection_store",
@@ -208,6 +217,19 @@ _FORBIDDEN_MODULE_PREFIXES: Final = (
     "systemd",
     "uvicorn",
 )
+
+# The embedding resource runs inference in its own audited native helper; the base never
+# carries a Python machine-learning stack.
+_ML_MODULE_PREFIXES: Final = (
+    "numpy",
+    "onnxruntime",
+    "sentence_transformers",
+    "tokenizers",
+    "torch",
+    "transformers",
+)
+_EMBEDDING_PIN_MODULE: Final = "open_brain.services.embedding_pin"
+_EMBEDDING_PIN_ENVIRONMENT: Final = "OPEN_BRAIN_EMBEDDING_PIN"
 
 
 class BaseNativeError(RuntimeError):
@@ -347,6 +369,7 @@ def smoke_base_artifact(
     version: str,
     repository_root: Path,
     graphify_artifact: Path | None = None,
+    embedding_artifact: Path | None = None,
 ) -> dict[str, object]:
     executable = artifact.resolve(strict=True)
     with TemporaryDirectory(prefix="open-brain-smoke-") as raw:
@@ -387,7 +410,176 @@ def smoke_base_artifact(
             journey["graph_projection"] = "passed"
             _smoke_obsidian_plugin(executable, home, environment)
             journey["obsidian_plugin"] = "passed"
+        if embedding_artifact is not None:
+            _smoke_embedding(executable, embedding_artifact, home, environment)
+            journey["embedding"] = "passed"
         return {"journey": journey, "self_check": "passed"}
+
+
+def _pinned_inventory_sha256(executable: Path, platform_tag: str) -> str:
+    constants = _embedded_pin_constants(executable)
+    pinned = sorted(item for item in constants if re.fullmatch(r"[0-9a-f]{64}", item))
+    if platform_tag not in constants or len(pinned) != 1:
+        raise BaseNativeError("native embedding pin is unavailable")
+    return pinned[0]
+
+
+def _verify_installed_embedding(executable: Path, helper: Path) -> tuple[str, str]:
+    """Installed embedding metadata and bytes match the base pin; return the component ID."""
+    from open_brain_engine.engine.embedding_backend import EmbeddingFailure
+
+    from open_brain.services import embedding_helper
+    from open_brain.services.component_manifest_v2 import EXECUTABLES
+    from open_brain.services.installed_layout import base_prefix
+
+    prefix = base_prefix(executable.resolve(strict=True))
+    if prefix is None or helper.resolve(strict=True) != prefix / EXECUTABLES["embedding"]:
+        raise BaseNativeError("native embedding helper is not in the base prefix")
+    platform_tag = native_platform_tag()
+    pinned = _pinned_inventory_sha256(executable, platform_tag)
+    try:
+        verified = embedding_helper.verify_embedding_metadata(
+            embedding_helper.InstalledEmbedding(prefix), expected_inventory_sha256=pinned
+        )
+    except EmbeddingFailure as error:
+        raise BaseNativeError(f"native embedding metadata failed: {error.category}") from error
+    for member in verified.inventory.members:
+        path = prefix / member.path
+        metadata = path.lstat()
+        if member.kind == "directory":
+            exact = stat.S_ISDIR(metadata.st_mode)
+        else:
+            exact = (
+                stat.S_ISREG(metadata.st_mode)
+                and metadata.st_size == member.bytes
+                and _sha256(path) == member.sha256
+            )
+        if not exact or stat.S_IMODE(metadata.st_mode) != member.mode:
+            raise BaseNativeError("native embedding install differs from its inventory")
+    return verified.component_id, pinned
+
+
+def _smoke_embedding(
+    executable: Path, helper: Path, home: Path, environment: Mapping[str, str]
+) -> None:
+    """One synthetic hybrid query through the installed base and embedding resource."""
+    component_id, _ = _verify_installed_embedding(executable, helper)
+    data_dir = home / "embedding-brain"
+    command = (os.fspath(executable),)
+    location = ("--data-dir", os.fspath(data_dir), "--json")
+    notes = (
+        "Courier delays\nThe parcel courier arrived three days late again.",
+        "Garden plan\nTomatoes and basil go in the south bed this spring.",
+        "Reading list\nFinish the history of navigation before the trip.",
+    )
+    captured = [
+        json.loads(_run((*command, "capture", note, *location), environment).stdout)
+        for note in notes
+    ]
+    enabled = json.loads(
+        _run(
+            (*command, "embedding", "enable", "--component-id", component_id, *location),
+            environment,
+        ).stdout
+    )
+    rebuilt = json.loads(
+        _run((*command, "embedding", "rebuild", *location), environment, timeout=300).stdout
+    )
+    search = json.loads(
+        _run(
+            (
+                *command,
+                "search-page",
+                "when did the shipment come in late",
+                "--mode",
+                "hybrid_required",
+                *location,
+            ),
+            environment,
+        ).stdout
+    )
+    results = search.get("results")
+    if (
+        any(item.get("status") != "captured" for item in captured)
+        or enabled.get("enabled") is not True
+        or enabled.get("component_id") != component_id
+        or rebuilt.get("records") != len(notes)
+        or rebuilt.get("excluded_oversize") != 0
+        or search.get("status") != "ok"
+        or search.get("mode_used") != "hybrid"
+        or not isinstance(results, list)
+        or not results
+        or "Courier delays" not in json.dumps(results[0])
+    ):
+        raise BaseNativeError("native hybrid search failed")
+
+
+def render_embedding_pin(pins: Mapping[str, str]) -> str:
+    """Source of the build-generated ``open_brain.services.embedding_pin`` (D8)."""
+    if any(
+        platform_tag not in _PLATFORMS or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        for platform_tag, digest in pins.items()
+    ):
+        raise BaseNativeError("embedding pin is invalid")
+    entries = "".join(
+        f'    "{platform_tag}": "{pins[platform_tag]}",\n' for platform_tag in sorted(pins)
+    )
+    mapping = "{\n" + entries + "}" if entries else "{}"
+    return (
+        '"""Generated by the native base build from the audited embedding archive."""\n'
+        "\n"
+        "from __future__ import annotations\n"
+        "\n"
+        "from collections.abc import Mapping\n"
+        "\n"
+        f"EXPECTED_EMBEDDING_INVENTORY_SHA256: Mapping[str, str] = {mapping}\n"
+    )
+
+
+def embedding_pin_environment(output: Path, pins: Mapping[str, str]) -> dict[str, str]:
+    """Write the generated pin below the build output, never into the source tree."""
+    generated = output.resolve() / "generated" / "embedding_pin.py"
+    generated.parent.mkdir(parents=True, exist_ok=True)
+    generated.write_text(render_embedding_pin(pins), encoding="utf-8")
+    return {_EMBEDDING_PIN_ENVIRONMENT: os.fspath(generated)}
+
+
+def _string_constants(code: object) -> frozenset[str]:
+    found: set[str] = set()
+    pending = [code]
+    while pending:
+        current = pending.pop()
+        for constant in getattr(current, "co_consts", ()):
+            if isinstance(constant, str):
+                found.add(constant)
+            elif hasattr(constant, "co_consts"):
+                pending.append(constant)
+    return frozenset(found)
+
+
+def _embedded_pin_constants(executable: Path) -> frozenset[str]:
+    try:
+        readers = importlib.import_module("PyInstaller.archive.readers")
+        outer = readers.CArchiveReader(os.fspath(executable.resolve(strict=True)))
+        embedded = outer.open_embedded_archive("PYZ.pyz")
+        return _string_constants(embedded.extract(_EMBEDDING_PIN_MODULE))
+    except Exception as error:
+        raise BaseNativeError("native embedding pin is unavailable") from error
+
+
+def audit_base_embedding(artifact: Path, *, platform: str, inventory_sha256: str) -> None:
+    """The frozen base pins exactly this inventory and carries no Python ML stack."""
+    modules = archive_modules(artifact)
+    if any(
+        module == prefix or module.startswith(prefix + ".")
+        for module in modules
+        for prefix in _ML_MODULE_PREFIXES
+    ):
+        raise BaseNativeError("native artifact contains a machine-learning package")
+    constants = _embedded_pin_constants(artifact)
+    pinned = {item for item in constants if re.fullmatch(r"[0-9a-f]{64}", item)}
+    if platform not in constants or pinned != {inventory_sha256}:
+        raise BaseNativeError("native embedding pin disagrees with the embedding archive")
 
 
 def write_base_archive(
@@ -397,16 +589,20 @@ def write_base_archive(
     version: str,
     obsidian_plugin_directory: Path,
 ) -> Path:
+    from tools.open_brain_dev.artifact_audit import inspect_artifact
+
     audit = audit_base_artifact(artifact)
     selected_destination = destination.resolve()
     selected_destination.mkdir(parents=True, exist_ok=True)
     archive = selected_destination / f"open-brain-{version}-{audit.platform_tag}.tar.gz"
     _write_reproducible_archive(
-        artifact.resolve(strict=True),
+        artifact,
         archive,
         obsidian_plugin_directory=obsidian_plugin_directory,
         version=version,
     )
+    if inspect_artifact(archive, ()):
+        raise BaseNativeError("base archive failed the strict content audit")
     return archive
 
 
@@ -515,18 +711,12 @@ def render_homebrew_formula(
     base_url: str | None = None,
     smoke: bool = False,
 ) -> Path:
+    if manifest_path.name == MANIFEST_V2_FILENAME:
+        return _render_homebrew_formula_v2(
+            manifest_path, destination, repository=repository, base_url=base_url, smoke=smoke
+        )
     manifest = read_release_manifest(manifest_path)
-    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
-        raise BaseNativeError("Homebrew repository is invalid")
-    origin = (
-        f"https://github.com/{repository}/releases/download/v{manifest.version}"
-        if base_url is None
-        else base_url.rstrip("/")
-    )
-    if not origin.startswith(("https://", "file://")) or any(
-        character in origin for character in ('"', "\n", "\r")
-    ):
-        raise BaseNativeError("Homebrew artifact origin is invalid")
+    origin = _formula_origin(repository, base_url, manifest.version)
     platform_blocks = {
         "linux-x86_64": ("on_linux", "x86_64"),
         "macos-arm64": ("on_macos", "arm64"),
@@ -574,7 +764,9 @@ def render_homebrew_formula(
     lines.extend(
         (
             "  def install",
-            f'    bin.install "{_EXECUTABLE}"',
+            # One-folder base: the folder moves intact; bin holds a relative link to it.
+            f'    libexec.install "{_EXECUTABLE}"',
+            f'    bin.install_symlink libexec/"{_BASE_EXECUTABLE_MEMBER}"',
             '    (share/"open-brain/obsidian-plugin").install Dir["obsidian-plugin/*"]',
             '    resource("graphify").stage do',
             '      libexec.install "open-brain" => "open-brain-graphify"',
@@ -622,7 +814,56 @@ def render_homebrew_formula(
     return selected
 
 
-def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path, Path, Path]:
+def _formula_origin(repository: str, base_url: str | None, version: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
+        raise BaseNativeError("Homebrew repository is invalid")
+    origin = (
+        f"https://github.com/{repository}/releases/download/v{version}"
+        if base_url is None
+        else base_url.rstrip("/")
+    )
+    if not origin.startswith(("https://", "file://")) or any(
+        character in origin for character in ('"', "\n", "\r")
+    ):
+        raise BaseNativeError("Homebrew artifact origin is invalid")
+    return origin
+
+
+def _render_homebrew_formula_v2(
+    manifest_path: Path,
+    destination: Path,
+    *,
+    repository: str,
+    base_url: str | None,
+    smoke: bool,
+) -> Path:
+    from tools.open_brain_dev.component_manifest_v2 import (
+        ComponentManifestError,
+        parse_manifest_v2,
+    )
+    from tools.open_brain_dev.release_v2 import render_homebrew_formula_v2
+
+    try:
+        manifest = parse_manifest_v2(manifest_path.resolve(strict=True).read_bytes())
+    except OSError as error:
+        raise BaseNativeError("release manifest is unavailable") from error
+    except ComponentManifestError as error:
+        raise BaseNativeError("release manifest v2 is invalid") from error
+    text = render_homebrew_formula_v2(
+        manifest,
+        origin=_formula_origin(repository, base_url, manifest.version),
+        repository=repository,
+        smoke=smoke,
+    )
+    selected = destination.resolve()
+    selected.parent.mkdir(parents=True, exist_ok=True)
+    selected.write_text(text, encoding="utf-8")
+    return selected
+
+
+def build_base_artifact(
+    root: Path, output: Path, *, embedding_archive: Path | None = None
+) -> tuple[Path, Path, Path, Path, Path]:
     if sys.version_info[:2] != (3, 14):
         raise BaseNativeError("native build requires Python 3.14")
     if (
@@ -631,14 +872,34 @@ def build_base_artifact(root: Path, output: Path) -> tuple[Path, Path, Path, Pat
     ):
         raise BaseNativeError("native build toolchain is not pinned")
     version = product_version(root)
+    # Build order: embedding archive, then its inventory pin, then the base freeze.
+    # Without an audited archive a stale shell pin must never reach the freeze.
+    environment = {
+        key: value for key, value in os.environ.items() if key != _EMBEDDING_PIN_ENVIRONMENT
+    }
+    embedding_pin: tuple[str, str] | None = None
+    if embedding_archive is not None:
+        from tools.open_brain_dev.embedding_native import verify_embedding_archive
+
+        embedding_version, resource, _ = verify_embedding_archive(embedding_archive)
+        if embedding_version != version or resource.platform != native_platform_tag():
+            raise BaseNativeError("embedding archive does not match this base build")
+        embedding_pin = (resource.platform, resource.inventory_sha256)
+        environment = {
+            **environment,
+            **embedding_pin_environment(output, {resource.platform: resource.inventory_sha256}),
+        }
     subprocess.run(
         pyinstaller_command(root, output),
         cwd=root.resolve(strict=True),
+        env=environment,
         check=True,
         timeout=1800,
     )
-    artifact = output.resolve() / "dist/open-brain"
+    artifact = output.resolve() / "dist/open-brain/open-brain"
     audit_base_artifact(artifact)
+    if embedding_pin is not None:
+        audit_base_embedding(artifact, platform=embedding_pin[0], inventory_sha256=embedding_pin[1])
     smoke_base_artifact(artifact, version=version, repository_root=root)
     archive = write_base_archive(
         artifact,
@@ -713,7 +974,11 @@ def _validate_release_artifact(artifact: ReleaseArtifact) -> None:
 def _archive_executable_sha256(archive: Path) -> str:
     try:
         name = (
-            "open-brain-harness/open-brain-harness" if "-harness-" in archive.name else _EXECUTABLE
+            "open-brain-harness/open-brain-harness"
+            if "-harness-" in archive.name
+            else _EXECUTABLE
+            if "-graphify-" in archive.name
+            else _BASE_EXECUTABLE_MEMBER
         )
         with tarfile.open(archive, "r:gz") as bundle:
             matches = [
@@ -908,10 +1173,10 @@ def _smoke_local_journey(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 15
+        or exported.get("schema_version") != 16
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V15_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V16_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -925,6 +1190,20 @@ def _smoke_local_journey(
         dict[str, object],
         json.loads(_run((os.fspath(executable), "status", "--json"), environment).stdout),
     )
+    # A base without an installed embedding resource reports it missing; an installed one
+    # reports it ready. Either way nothing is consented or cached in this Brain yet.
+    embedding_health = status_result.pop("embedding_health", None)
+    component = embedding_health.get("component_id") if isinstance(embedding_health, dict) else None
+    ready = isinstance(component, str) and re.fullmatch(r"[0-9a-f]{64}", component) is not None
+    if embedding_health != {
+        "cache_state": "absent",
+        "component_id": component if ready else None,
+        "consent_state": "required",
+        "last_error": None if ready else "resource_missing",
+        "resource_state": "ready" if ready else "missing",
+        "schema": "ob.embedding-health.v1",
+    }:
+        raise BaseNativeError("native embedding health failed")
     if status_result != {
         "application_encryption": False,
         "brain_count": 1,
@@ -1088,9 +1367,9 @@ def _smoke_markdown_import(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 15
+        or exported.get("schema_version") != 16
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V15_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V16_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -1426,9 +1705,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 15,
-            "runtime_session": 15,
-            "state_schema": 20,
+            "portable_metadata": 16,
+            "runtime_session": 16,
+            "state_schema": 21,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)
@@ -1458,7 +1737,12 @@ def _smoke_graphify_projection(
     home: Path,
     environment: Mapping[str, str],
 ) -> None:
-    expected = executable.parent.parent / "libexec/open-brain-graphify"
+    from open_brain.services.installed_layout import base_prefix
+
+    prefix = base_prefix(executable.resolve(strict=True))
+    if prefix is None:
+        raise BaseNativeError("installed Graphify helper is not in the base keg")
+    expected = prefix / "libexec/open-brain-graphify"
     try:
         if graphify_artifact.resolve(strict=True) != expected.resolve(strict=True):
             raise BaseNativeError("installed Graphify helper is not in the base keg")
@@ -1588,30 +1872,43 @@ def _write_reproducible_archive(
     obsidian_plugin_directory: Path,
     version: str,
 ) -> None:
+    """Archive the one-folder base, keeping its relative links, plus the plugin assets."""
+    from tools.open_brain_dev.harness_distribution import _record, write_records_archive
+
     plugin_assets = _validated_obsidian_plugin_assets(obsidian_plugin_directory, version=version)
-    with (
-        archive.open("wb") as raw,
-        gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed,
-        tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as bundle,
-        executable.open("rb") as stream,
+    folder = executable.parent
+    if (
+        executable.name != _EXECUTABLE
+        or folder.name != _EXECUTABLE
+        or folder.is_symlink()
+        or not folder.is_dir()
     ):
-        info = bundle.gettarinfo(os.fspath(executable), arcname=_EXECUTABLE)
-        info.uid = 0
-        info.gid = 0
-        info.uname = ""
-        info.gname = ""
-        info.mtime = 0
-        bundle.addfile(info, stream)
+        raise BaseNativeError("native base folder is invalid")
+    root = folder.resolve(strict=True)
+    paths = [(root, _EXECUTABLE)]
+    paths.extend(
+        (path, f"{_EXECUTABLE}/{path.relative_to(root).as_posix()}")
+        for path in sorted(root.rglob("*"))
+    )
+    records: list[dict[str, object]] = [
+        {"path": "obsidian-plugin", "kind": "directory", "mode": 0o755}
+    ]
+    payloads: dict[str, bytes] = {}
+    try:
+        for path, name in paths:
+            record, payload = _record(path, name, label="base")
+            records.append(record)
+            if payload is not None:
+                payloads[name] = payload
         for name, path in plugin_assets:
-            with path.open("rb") as asset_stream:
-                asset_info = bundle.gettarinfo(os.fspath(path), arcname=f"obsidian-plugin/{name}")
-                asset_info.uid = 0
-                asset_info.gid = 0
-                asset_info.uname = ""
-                asset_info.gname = ""
-                asset_info.mode = 0o644
-                asset_info.mtime = 0
-                bundle.addfile(asset_info, asset_stream)
+            member = f"obsidian-plugin/{name}"
+            records.append(
+                {"path": member, "kind": "file", "mode": 0o644, "size": path.stat().st_size}
+            )
+            payloads[member] = path.read_bytes()
+    except OSError:
+        raise BaseNativeError("native base folder is unavailable") from None
+    write_records_archive(archive, records, payloads)
 
 
 def _validated_obsidian_plugin_assets(
@@ -1672,7 +1969,7 @@ def _run_build_tool(command: Sequence[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _run(
-    command: Sequence[str], environment: Mapping[str, str]
+    command: Sequence[str], environment: Mapping[str, str], *, timeout: int = 60
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -1682,7 +1979,7 @@ def _run(
             check=True,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise BaseNativeError("native runtime check failed") from error
@@ -1705,13 +2002,16 @@ def _main(argv: Sequence[str] | None = None) -> int:
     build = subparsers.add_parser("build")
     build.add_argument("--root", type=Path, required=True)
     build.add_argument("--output", type=Path, required=True)
+    build.add_argument("--embedding-archive", type=Path)
     audit = subparsers.add_parser("audit")
     audit.add_argument("--artifact", type=Path, required=True)
     audit.add_argument("--graphify-artifact", type=Path, required=True)
+    audit.add_argument("--embedding-archive", type=Path)
     smoke = subparsers.add_parser("smoke")
     smoke.add_argument("--root", type=Path, required=True)
     smoke.add_argument("--artifact", type=Path, required=True)
     smoke.add_argument("--graphify-artifact", type=Path, required=True)
+    smoke.add_argument("--embedding-artifact", type=Path)
     manifest = subparsers.add_parser("manifest")
     manifest.add_argument("--artifact", type=Path, action="append", required=True)
     manifest.add_argument("--output", type=Path, required=True)
@@ -1724,7 +2024,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     namespace = parser.parse_args(argv)
     if namespace.command == "build":
         artifact, graphify_artifact, archive, graphify_archive, manifest_path = build_base_artifact(
-            namespace.root, namespace.output
+            namespace.root, namespace.output, embedding_archive=namespace.embedding_archive
         )
         payload: object = {
             "archive": os.fspath(archive),
@@ -1748,16 +2048,28 @@ def _main(argv: Sequence[str] | None = None) -> int:
     elif namespace.command == "audit":
         from tools.open_brain_dev.graphify_native import audit_graphify_artifact
 
-        payload = {
+        audits: dict[str, object] = {
             "base": audit_base_artifact(namespace.artifact).to_dict(),
             "graphify": audit_graphify_artifact(namespace.graphify_artifact).to_dict(),
         }
+        if namespace.embedding_archive is not None:
+            from tools.open_brain_dev.embedding_native import audit_embedding_archive
+
+            embedding = audit_embedding_archive(namespace.embedding_archive)
+            audit_base_embedding(
+                namespace.artifact,
+                platform=str(embedding["platform"]),
+                inventory_sha256=str(embedding["inventory_sha256"]),
+            )
+            audits["embedding"] = embedding
+        payload = audits
     elif namespace.command == "smoke":
         payload = smoke_base_artifact(
             namespace.artifact,
             version=product_version(namespace.root),
             repository_root=namespace.root,
             graphify_artifact=namespace.graphify_artifact,
+            embedding_artifact=namespace.embedding_artifact,
         )
     elif namespace.command == "manifest":
         output = combine_release_manifest(namespace.artifact, namespace.output)

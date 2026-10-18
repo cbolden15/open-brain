@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import json
 import os
 import re
@@ -84,6 +83,13 @@ from open_brain.services.consumer_import import (
     validate_consumer_arguments,
     write_consumer_failure,
     write_consumer_interrupted,
+)
+from open_brain.services.embedding_policy_cli import (
+    EmbeddingPolicyError,
+    add_embedding_parsers,
+    run_embedding_command,
+    validate_embedding_arguments,
+    write_embedding_failure,
 )
 from open_brain.services.facets import (
     FacetAppAdapter,
@@ -245,6 +251,11 @@ def run_cli(
             validate_retraction_arguments(parsed)
         except RetractionError as error:
             return write_retraction_failure(error.code, json_output=json_output)
+    if parsed.command == "embedding":
+        try:
+            validate_embedding_arguments(parsed)
+        except EmbeddingPolicyError as error:
+            return write_embedding_failure(error.code, json_output=json_output)
     if parsed.command == "restore":
         return _run_portable_restore(parsed, json_output=json_output)
     if parsed.command == "harness":
@@ -454,6 +465,8 @@ def _run_parsed_command(
             return write_consumer_failure("local_operation_failed", json_output=json_output)
         if parsed.command == "retract":
             return write_retraction_failure("local_operation_failed", json_output=json_output)
+        if parsed.command == "embedding":
+            return write_embedding_failure("local_operation_failed", json_output=json_output)
         if _is_workspace_recovery(parsed):
             return _write_managed_recovery_failure(
                 "private_data_unavailable",
@@ -531,6 +544,27 @@ def _run_parsed_command(
                 return 130
             except Exception as error:
                 return write_retraction_failure(
+                    "local_operation_busy"
+                    if database_is_busy(error) or isinstance(error, LockBusyError)
+                    else "local_operation_failed",
+                    json_output=json_output,
+                )
+        if parsed.command == "embedding":
+            try:
+                if not selection.brain_root.exists():
+                    return write_embedding_failure(
+                        "local_operation_failed", json_output=json_output
+                    )
+                with open_local_brain(
+                    selection,
+                    filesystem_type_probe=filesystem_type_probe,
+                    existing_only=True,
+                ) as session:
+                    return run_embedding_command(parsed, session.tasks, json_output=json_output)
+            except EmbeddingPolicyError as error:
+                return write_embedding_failure(error.code, json_output=json_output)
+            except Exception as error:
+                return write_embedding_failure(
                     "local_operation_busy"
                     if database_is_busy(error) or isinstance(error, LockBusyError)
                     else "local_operation_failed",
@@ -840,6 +874,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
     add_retraction_parsers(subparsers, _add_local_options)
+    add_embedding_parsers(subparsers, _add_local_options)
     add_consumer_parsers(subparsers, _add_local_options)
     facet_parser = add_facet_parsers(subparsers)
     _add_facet_local_options(facet_parser)
@@ -3067,6 +3102,8 @@ def _write_export(
 
 
 def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
+    from open_brain.services.embedding_health import embedding_health
+
     maintenance = read_maintenance_snapshot(session.profile)
     journal_summary = _journal_summary(tasks=session.tasks)
     payload = {
@@ -3079,6 +3116,7 @@ def _write_status(session: LocalBrainSession, *, json_output: bool) -> None:
         "profile": "local",
         "storage": "sqlite",
         "ingestion_journal": journal_summary,
+        "embedding_health": embedding_health(session.tasks),
     }
     if json_output:
         _write_json(payload)
@@ -3103,6 +3141,8 @@ def _write_doctor(
     *,
     json_output: bool,
 ) -> int:
+    from open_brain.services.embedding_health import embedding_health
+
     checks = {
         "private-data-directory": _private_data_directory_is_safe,
         "foreground-runtime": _foreground_runtime_is_safe,
@@ -3115,6 +3155,7 @@ def _write_doctor(
         passed = False
     payload = {
         "check": check,
+        "embedding_health": embedding_health(session.tasks),
         "ingestion_journal": _journal_summary(tasks=session.tasks),
         "status": "ok" if passed else "failed",
     }
@@ -3142,6 +3183,8 @@ def _foreground_runtime_is_safe(session: LocalBrainSession) -> bool:
 
 
 def _base_dependency_closure_is_safe(_session: LocalBrainSession) -> bool:
+    import importlib.metadata
+
     for distribution, expected in _BASE_DEPENDENCY_REQUIREMENTS.items():
         try:
             requirements = importlib.metadata.requires(distribution)
@@ -3245,6 +3288,7 @@ def _record_verified_export(
         13,
         14,
         15,
+        16,
     }:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
@@ -3285,7 +3329,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+            or value["schema_version"] not in set(range(1, 17))
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

@@ -83,7 +83,10 @@ pub async fn run_native_proof(app: AppHandle) -> Result<NativeProofResult, Strin
 fn run(app: &AppHandle) -> Result<NativeProofResult, ProofError> {
     let core = app
         .path()
-        .resolve("binaries/runtime/bin/open-brain", BaseDirectory::Resource)
+        .resolve(
+            "binaries/runtime/libexec/open-brain/open-brain",
+            BaseDirectory::Resource,
+        )
         .map_err(|_| ProofError::RuntimeUnavailable)?;
     let graphify = app
         .path()
@@ -212,7 +215,7 @@ fn verify_component(
     role: &str,
 ) -> Result<String, ProofError> {
     let expected_file = if role == "core" {
-        "runtime/bin/open-brain"
+        "runtime/libexec/open-brain/open-brain"
     } else {
         "runtime/libexec/open-brain-graphify"
     };
@@ -260,7 +263,7 @@ mod tests {
         ComponentManifest {
             components: vec![
                 Component {
-                    file: "runtime/bin/open-brain".to_owned(),
+                    file: "runtime/libexec/open-brain/open-brain".to_owned(),
                     role: "core".to_owned(),
                     sha256: String::new(),
                 },
