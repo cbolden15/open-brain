@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { chmod, copyFile, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { flattenInto, planFlatten, readInventory, sha256, verifyFlattened } from "./flatten-base.mjs";
 
 const [coreSource, graphifySource, releaseManifest, outputDirectory, target] = process.argv.slice(2);
 if ([coreSource, graphifySource, releaseManifest, outputDirectory, target].some((value) => !value)) {
@@ -72,34 +73,46 @@ if (!components?.has("base") || !components.has("graphify")) {
   throw new Error("the desktop runtime requires one matched base and Graphify pair");
 }
 
-// Tauri resources dereference file symlinks and cannot copy directory symlinks, so the
-// one-folder base (bin link, Python.framework links) cannot ship as a resource. The
-// contributor desktop keeps its one-file runtime/bin/open-brain core layout.
-if (await lstat(path.join(path.dirname(coreSource), "_internal")).then(() => true, () => false)) {
-  throw new Error("the one-folder base cannot be packaged as a Tauri resource");
+// The one-folder base ships as a copy with every link replaced by its resolved target, since
+// Tauri resources cannot carry symlinks. Every output file is verified against the inventory.
+const baseFolder = path.dirname(coreSource);
+const baseName = path.basename(coreSource);
+if (!(await lstat(path.join(baseFolder, "_internal")).then((info) => info.isDirectory(), () => false))) {
+  throw new Error("the desktop runtime requires the one-folder base");
+}
+const inventory = await readInventory(baseFolder);
+const plan = planFlatten(inventory);
+if (plan.files.get(baseName)?.sha256 !== components.get("base").executableSha256) {
+  throw new Error("core executable digest does not match the release manifest");
+}
+const graphifyDigest = await sha256(graphifySource);
+if (graphifyDigest !== components.get("graphify").executableSha256) {
+  throw new Error("graphify executable digest does not match the release manifest");
 }
 
 await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
-const prepared = [
-  { role: "core", source: coreSource, file: "runtime/bin/open-brain", expected: components.get("base") },
-  {
-    role: "graphify",
-    source: graphifySource,
-    file: "runtime/libexec/open-brain-graphify",
-    expected: components.get("graphify"),
-  },
-];
-for (const item of prepared) {
-  const digest = await sha256(item.source);
-  if (digest !== item.expected.executableSha256) {
-    throw new Error(`${item.role} executable digest does not match the release manifest`);
+// The output directory also holds .gitkeep; only the runtime tree and manifest are ours.
+await rm(path.join(outputDirectory, "runtime"), { force: true, recursive: true });
+await rm(path.join(outputDirectory, "desktop-component-manifest-v1.json"), { force: true });
+const coreFile = "runtime/libexec/open-brain/open-brain";
+const graphifyFile = "runtime/libexec/open-brain-graphify";
+try {
+  await flattenInto(baseFolder, plan, path.join(outputDirectory, "runtime/libexec/open-brain"));
+  await verifyFlattened(plan, path.join(outputDirectory, "runtime/libexec/open-brain"));
+  const graphifyDestination = path.join(outputDirectory, graphifyFile);
+  await copyFile(graphifySource, graphifyDestination);
+  await chmod(graphifyDestination, 0o700);
+  if (await sha256(graphifyDestination) !== graphifyDigest) {
+    throw new Error("graphify executable copy does not match the release manifest");
   }
-  const destination = path.join(outputDirectory, item.file);
-  await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
-  await copyFile(item.source, destination);
-  await chmod(destination, 0o700);
-  item.sha256 = digest;
+} catch (error) {
+  await rm(path.join(outputDirectory, "runtime"), { force: true, recursive: true });
+  throw error;
 }
+const prepared = [
+  { role: "core", file: coreFile, sha256: plan.files.get(baseName).sha256 },
+  { role: "graphify", file: graphifyFile, sha256: graphifyDigest },
+];
 
 const desktopManifest = {
   components: prepared.map(({ file, role, sha256 }) => ({ file, role, sha256 })),
@@ -115,7 +128,3 @@ await writeFile(
   `${JSON.stringify(desktopManifest)}\n`,
   { encoding: "ascii", mode: 0o600 },
 );
-
-async function sha256(file) {
-  return createHash("sha256").update(await readFile(file)).digest("hex");
-}

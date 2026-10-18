@@ -13,7 +13,7 @@ fn main() {
                     .map(|contents| contents.join("Resources/binaries"))
                     .ok_or_else(|| "runtime_unavailable".to_owned())?;
                 open_brain_desktop_lib::run_with_paths(
-                    &resources.join("runtime/bin/open-brain"),
+                    &resources.join("runtime/libexec/open-brain/open-brain"),
                     &resources.join("runtime/libexec/open-brain-graphify"),
                     &resources.join("desktop-component-manifest-v1.json"),
                 )

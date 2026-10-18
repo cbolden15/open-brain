@@ -83,7 +83,7 @@ stdio children. Those process lifetimes do not create a persistent core service.
 native commands and cannot open SQLite or select an arbitrary executable. D0 uses only a synthetic
 Brain; normal existing-Brain use belongs to D1. The runtime pair is selected by component digest
 and protocol compatibility, independently of any CLI installed on PATH. Inside the app resources,
-the pair keeps the installed prefix shape at `runtime/bin/open-brain` and
+the pair keeps the installed prefix shape at `runtime/libexec/open-brain/open-brain` (a copy of the one-folder base with its links flattened) and
 `runtime/libexec/open-brain-graphify`, so core helper discovery exercises the packaged layout.
 
 `local_runtime_session.py` coordinates participating client lifetimes through private lock-held

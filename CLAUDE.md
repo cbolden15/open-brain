@@ -119,9 +119,6 @@ make contributor-check
 ```
 
 `make contributor-check` runs `make verify`, `make native-integration-smoke`, and `make desktop-native`.
-Known failure: since the one-folder base, `make desktop-runtime`, `make desktop-native` and
-therefore `make contributor-check` fail until the owner picks a desktop runtime path, because Tauri
-resources cannot carry its symlinks (gotcha DESKTOP-002).
 It covers the plugin and desktop test suites, native desktop compilation, and Homebrew integration. GUI timing
 and real-provider evidence remain separate exact-candidate checks. Private release audits remain
 separate owner checks.

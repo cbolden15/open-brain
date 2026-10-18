@@ -261,7 +261,7 @@ fn connect(app: &AppHandle, data_dir: Option<&Path>) -> Result<Bridge, String> {
             .resolve(relative, BaseDirectory::Resource)
             .map_err(|_| "runtime_unavailable".to_owned())
     };
-    let core = resolve("binaries/runtime/bin/open-brain")?;
+    let core = resolve("binaries/runtime/libexec/open-brain/open-brain")?;
     validate_runtime_pair(
         &core,
         &resolve("binaries/runtime/libexec/open-brain-graphify")?,
