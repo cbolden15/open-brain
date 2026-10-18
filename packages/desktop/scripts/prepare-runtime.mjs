@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, copyFile, lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { flattenInto, planFlatten, readInventory, sha256, verifyFlattened } from "./flatten-base.mjs";
+import { flattenInto, planFlatten, readArchiveInventory, sha256, verifyFlattened } from "./flatten-base.mjs";
 
 const [coreSource, graphifySource, releaseManifest, outputDirectory, target] = process.argv.slice(2);
 if ([coreSource, graphifySource, releaseManifest, outputDirectory, target].some((value) => !value)) {
@@ -61,7 +61,7 @@ for (const line of lines.slice(2)) {
   }
   previousKey = key;
   if (!resources.has(resourcePlatform)) resources.set(resourcePlatform, new Map());
-  resources.get(resourcePlatform).set(role, { executableSha256 });
+  resources.get(resourcePlatform).set(role, { archiveSha256, executableSha256, filename });
 }
 const resourceSets = new Set([...resources.values()].map((items) => [...items.keys()].join(",")));
 if (resourceSets.size !== 1
@@ -74,14 +74,20 @@ if (!components?.has("base") || !components.has("graphify")) {
 }
 
 // The one-folder base ships as a copy with every link replaced by its resolved target, since
-// Tauri resources cannot carry symlinks. Every output file is verified against the inventory.
+// Tauri resources cannot carry symlinks. The released base archive, bound by the manifest, is the
+// inventory authority; the folder being copied and every output file are verified against it.
 const baseFolder = path.dirname(coreSource);
 const baseName = path.basename(coreSource);
 if (!(await lstat(path.join(baseFolder, "_internal")).then((info) => info.isDirectory(), () => false))) {
   throw new Error("the desktop runtime requires the one-folder base");
 }
-const inventory = await readInventory(baseFolder);
-const plan = planFlatten(inventory);
+const baseArchive = await readFile(path.join(path.dirname(releaseManifest), components.get("base").filename)).catch(
+  () => { throw new Error("the base release archive is unavailable"); },
+);
+if (createHash("sha256").update(baseArchive).digest("hex") !== components.get("base").archiveSha256) {
+  throw new Error("base archive digest does not match the release manifest");
+}
+const plan = planFlatten(readArchiveInventory(baseArchive));
 if (plan.files.get(baseName)?.sha256 !== components.get("base").executableSha256) {
   throw new Error("core executable digest does not match the release manifest");
 }

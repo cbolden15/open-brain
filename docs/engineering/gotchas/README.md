@@ -3735,8 +3735,11 @@ Resolved (T5.3, D18): `prepare-runtime.mjs` ships a copy of the one-folder base 
 `runtime/libexec/open-brain/` in which every symlink is a regular copy of its resolved target
 (directory links become directory copies). Link rules match the base inventory: relative, contained,
 at most 4 hops, no cycles. It hashes every source member, verifies each output file against the member
-it came from (and the EXE against the release manifest), and fails closed on any extra, missing,
-mismatched or symlinked output. The Rust host reads the core at `runtime/libexec/open-brain/open-brain`.
+it came from, and fails closed on any extra, missing, mismatched or symlinked output. The members
+and hashes come from the released base archive (hashed against the manifest's `archiveSha256`), not
+from the build folder, so a stale or edited `dist/` is refused. Links must stay below `_internal/`,
+as in the release audit. File modes are normalized to owner-only (0700 executable, 0600 other), not
+copied from the archive; only the executable bit is verified. The Rust host reads the core at `runtime/libexec/open-brain/open-brain`.
 Keep new base members free of links the resolver refuses.
 
 Discovered: 2026-10-17, T5.1. Resolved: 2026-10-18, T5.3.

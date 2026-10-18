@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { chmod, copyFile, lstat, mkdir, readdir, readFile, readlink } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 
 // Tauri resources dereference file symlinks and cannot copy directory symlinks, so the desktop
 // ships a copy of the one-folder base in which every link is replaced by a regular copy of its
@@ -9,34 +10,56 @@ import path from "node:path";
 
 const MAX_HOPS = 4;
 
-export async function readInventory(root) {
+// The members come from the released base archive (reproducible USTAR, bound by the manifest's
+// archive digest), not from the folder being copied, so the shipped tree is checked against the
+// release. Only members below `open-brain/` are the base; plugin assets are skipped.
+export function readArchiveInventory(archive) {
+  const tar = gunzipSync(archive);
   const members = new Map();
-  await walk("");
-  return members;
-
-  async function walk(directory) {
-    const names = (await readdir(path.join(root, directory))).sort();
-    for (const name of names) {
-      const member = directory === "" ? name : `${directory}/${name}`;
-      const absolute = path.join(root, member);
-      const info = await lstat(absolute);
-      if (info.isSymbolicLink()) {
-        members.set(member, { kind: "symlink", path: member, target: await readlink(absolute) });
-      } else if (info.isDirectory()) {
-        members.set(member, { kind: "dir", path: member });
-        await walk(member);
-      } else if (info.isFile()) {
-        members.set(member, {
-          kind: "file",
-          mode: info.mode & 0o777,
-          path: member,
-          sha256: await sha256(absolute),
-        });
-      } else {
-        throw new Error(`unsupported base member: ${member}`);
-      }
+  const text = (start, length) => {
+    const field = tar.subarray(start, start + length);
+    const end = field.indexOf(0);
+    return field.subarray(0, end === -1 ? length : end).toString("latin1");
+  };
+  const octal = (start, length) => {
+    const value = Number.parseInt(text(start, length).trim(), 8);
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error("base archive header is invalid");
+    return value;
+  };
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    if (tar.subarray(offset, offset + 512).every((byte) => byte === 0)) break;
+    const prefix = text(offset + 345, 155);
+    const name = (prefix === "" ? "" : `${prefix}/`) + text(offset, 100);
+    const type = String.fromCharCode(tar[offset + 156] || 48);
+    const size = octal(offset + 124, 12);
+    const mode = octal(offset + 100, 8) & 0o777;
+    const linkname = text(offset + 157, 100);
+    const payload = tar.subarray(offset + 512, offset + 512 + size);
+    offset += 512 + Math.ceil(size / 512) * 512;
+    if (offset > tar.length) throw new Error("base archive is truncated");
+    const trimmed = name.replace(/\/$/, "");
+    if (trimmed === "open-brain" || trimmed === "obsidian-plugin"
+        || trimmed.startsWith("obsidian-plugin/")) continue;
+    if (!trimmed.startsWith("open-brain/")) throw new Error(`unexpected base archive member: ${name}`);
+    const member = trimmed.slice("open-brain/".length);
+    if (members.has(member)) throw new Error(`duplicate base archive member: ${member}`);
+    if (type === "5") {
+      members.set(member, { kind: "dir", path: member });
+    } else if (type === "2") {
+      members.set(member, { kind: "symlink", path: member, target: linkname });
+    } else if (type === "0") {
+      members.set(member, {
+        kind: "file",
+        mode,
+        path: member,
+        sha256: createHash("sha256").update(payload).digest("hex"),
+      });
+    } else {
+      throw new Error(`unsupported base archive member: ${name}`);
     }
   }
+  return members;
 }
 
 export function planFlatten(members) {
@@ -76,12 +99,16 @@ export function planFlatten(members) {
   function resolveLink(link) {
     const seen = new Set();
     let hops = 0;
+    // The release audit only allows links below _internal/ that resolve below _internal/.
+    if (!link.path.startsWith("_internal/")) {
+      throw new Error(`base link ${link.path} is outside _internal`);
+    }
     const resolved = path.posix.dirname(link.path).split("/").filter((part) => part !== ".");
     let parts = expand(link);
     while (parts.length > 0) {
       const part = parts.shift();
       if (part === "..") {
-        if (resolved.length === 0) throw new Error(`base link ${link.path} escapes the base`);
+        if (resolved.length <= 1) throw new Error(`base link ${link.path} escapes _internal`);
         resolved.pop();
         continue;
       }
@@ -95,7 +122,7 @@ export function planFlatten(members) {
       resolved.push(part);
     }
     const final = members.get(resolved.join("/"));
-    if (final === undefined || resolved.length === 0) {
+    if (final === undefined || resolved.length === 0 || resolved[0] !== "_internal") {
       throw new Error(`base link ${link.path} has no target`);
     }
     return final;

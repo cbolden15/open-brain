@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -43,19 +44,32 @@ def write_base(folder: Path) -> Path:
 
 
 def fixture(
-    directory: Path, platforms: tuple[str, ...], *, harness: bool = True
+    directory: Path,
+    platforms: tuple[str, ...],
+    *,
+    harness: bool = True,
+    links: dict[str, str] | None = None,
 ) -> tuple[Path, Path, Path, Path]:
     folder = directory / "dist/open-brain"
     folder.mkdir(parents=True)
     core, graphify = write_base(folder), directory / "graphify"
+    for name, target in (links or {}).items():
+        (folder / "_internal" / name).parent.mkdir(parents=True, exist_ok=True)
+        (folder / "_internal" / name).symlink_to(target)
     graphify.write_bytes(b"synthetic-graphify")
+    archive_digests = {}
+    for platform in platforms:
+        archive = directory / f"open-brain-0.1.0-{platform}.tar.gz"
+        with tarfile.open(archive, "w:gz", format=tarfile.USTAR_FORMAT) as handle:
+            handle.add(folder, arcname="open-brain")
+        archive_digests[platform] = hashlib.sha256(archive.read_bytes()).hexdigest()
     roles = ("base", "graphify", "harness") if harness else ("base", "graphify")
     artifacts = [
         base_native.ReleaseArtifact(
             version="0.1.0",
             platform_tag=platform,
             role=role,
-            sha256="a" * 64,
+            sha256=archive_digests[platform] if role == "base" else "a" * 64,
             executable_sha256=hashlib.sha256(
                 (core if role == "base" else graphify).read_bytes()
             ).hexdigest(),
@@ -179,13 +193,47 @@ def test_desktop_rejects_invalid_authority_rows_even_on_other_platform(
     assert not paths[3].exists()
 
 
-@pytest.mark.parametrize("member", [0, 1])
-def test_desktop_rejects_wrong_executable_bytes(tmp_path: Path, member: int) -> None:
+@pytest.mark.parametrize(("member", "message"), [(0, "does not match the inventory"), (1, "digest does not match")])
+def test_desktop_rejects_wrong_executable_bytes(tmp_path: Path, member: int, message: str) -> None:
     paths = fixture(tmp_path, ("macos-arm64",))
     paths[member].write_bytes(b"wrong-synthetic-executable")
     completed = prepare(paths, "aarch64-apple-darwin")
     assert completed.returncode != 0
-    assert "digest does not match" in completed.stderr
+    assert message in completed.stderr
+    assert not (paths[3] / "runtime").exists()
+
+
+@pytest.mark.parametrize(
+    "member",
+    ["base_library.zip", "Python.framework/Versions/3.14/Python"],
+)
+def test_desktop_refuses_a_base_folder_that_differs_from_the_release(
+    tmp_path: Path, member: str
+) -> None:
+    paths = fixture(tmp_path, ("macos-arm64",))
+    (internal(paths) / member).write_bytes(b"altered after the release archive was built")
+    completed = prepare(paths, "aarch64-apple-darwin")
+    assert completed.returncode != 0
+    assert "does not match the inventory" in completed.stderr
+    assert not (paths[3] / "runtime").exists()
+
+
+def test_desktop_refuses_a_base_archive_that_differs_from_the_manifest(tmp_path: Path) -> None:
+    paths = fixture(tmp_path, ("macos-arm64",))
+    archive = tmp_path / "open-brain-0.1.0-macos-arm64.tar.gz"
+    archive.write_bytes(archive.read_bytes() + b"\0")
+    completed = prepare(paths, "aarch64-apple-darwin")
+    assert completed.returncode != 0
+    assert "base archive digest does not match" in completed.stderr
+    assert not paths[3].exists()
+
+
+def test_desktop_ignores_extra_files_in_the_base_folder(tmp_path: Path) -> None:
+    paths = fixture(tmp_path, ("macos-arm64",))
+    (internal(paths) / "stray.dylib").write_bytes(b"not in the release")
+    completed = prepare(paths, "aarch64-apple-darwin")
+    assert completed.returncode == 0, completed.stderr
+    assert not (paths[3] / "runtime/libexec/open-brain/_internal/stray.dylib").exists()
 
 
 def test_desktop_requires_requested_platform_pair(tmp_path: Path) -> None:
@@ -209,17 +257,20 @@ def internal(paths: tuple[Path, Path, Path, Path]) -> Path:
         {"missing": "no-such-member"},
         {"cycle-a": "cycle-b", "cycle-b": "cycle-a"},
         {"self": "self"},
+        {"a/loop": ".."},
+        {"outside-internal": "../open-brain"},
         {
             "hop1": "hop2", "hop2": "hop3", "hop3": "hop4", "hop4": "hop5",
             "hop5": "base_library.zip",
         },
     ],
-    ids=["escape", "absolute", "backslash", "dot", "missing", "cycle", "self", "depth-5"],
+    ids=[
+        "escape", "absolute", "backslash", "dot", "missing", "cycle", "self", "ancestor",
+        "outside-internal", "depth-5",
+    ],
 )
 def test_desktop_refuses_unsafe_links(tmp_path: Path, links: dict[str, str]) -> None:
-    paths = fixture(tmp_path, ("macos-arm64",))
-    for name, target in links.items():
-        (internal(paths) / name).symlink_to(target)
+    paths = fixture(tmp_path, ("macos-arm64",), links=links)
     completed = prepare(paths, "aarch64-apple-darwin")
     assert completed.returncode != 0
     assert "base link" in completed.stderr
@@ -227,11 +278,11 @@ def test_desktop_refuses_unsafe_links(tmp_path: Path, links: dict[str, str]) -> 
 
 
 def test_desktop_accepts_a_four_hop_link_chain(tmp_path: Path) -> None:
-    paths = fixture(tmp_path, ("macos-arm64",))
-    for name, target in {
-        "hop1": "hop2", "hop2": "hop3", "hop3": "hop4", "hop4": "base_library.zip",
-    }.items():
-        (internal(paths) / name).symlink_to(target)
+    paths = fixture(
+        tmp_path,
+        ("macos-arm64",),
+        links={"hop1": "hop2", "hop2": "hop3", "hop3": "hop4", "hop4": "base_library.zip"},
+    )
     completed = prepare(paths, "aarch64-apple-darwin")
     assert completed.returncode == 0, completed.stderr
     copied = paths[3] / "runtime/libexec/open-brain/_internal/hop1"
@@ -249,8 +300,9 @@ def test_desktop_replaces_a_stale_runtime_tree(tmp_path: Path) -> None:
 
 
 VERIFY = """
-import {{ readInventory, planFlatten, flattenInto, verifyFlattened }} from "{script}";
-const members = await readInventory(process.argv[1]);
+import {{ readFileSync }} from "node:fs";
+import {{ readArchiveInventory, planFlatten, flattenInto, verifyFlattened }} from "{script}";
+const members = readArchiveInventory(readFileSync(process.argv[3]));
 const plan = planFlatten(members);
 await flattenInto(process.argv[1], plan, process.argv[2]);
 {tamper}
@@ -277,9 +329,10 @@ def test_flattened_output_is_verified_against_the_inventory(
     tmp_path: Path, tamper: str, message: str | None
 ) -> None:
     paths = fixture(tmp_path, ("macos-arm64",))
+    archive = tmp_path / "open-brain-0.1.0-macos-arm64.tar.gz"
     script = VERIFY.format(script=(DESKTOP / "scripts/flatten-base.mjs").as_uri(), tamper=tamper)
     completed = subprocess.run(
-        ["node", "--input-type=module", "-e", script, str(paths[0].parent), str(tmp_path / "out")],
+        ["node", "--input-type=module", "-e", script, str(paths[0].parent), str(tmp_path / "out"), str(archive)],
         capture_output=True,
         text=True,
         timeout=10,

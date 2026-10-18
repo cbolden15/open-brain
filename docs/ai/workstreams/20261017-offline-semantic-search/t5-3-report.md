@@ -38,3 +38,17 @@ Versions/Current and the file links). Whole `runtime/` in the app is 50.3 MB (in
   pre-published one. The EXE is additionally pinned to the manifest. If the owner wants a pre-published base
   inventory as the authority, that belongs with the v2 release path (T5.2 area).
 - Not run: `make verify`, `make contributor-check` (per brief).
+
+## T5.3b: review fixes (APPROVE_WITH_FIXES, 5 findings)
+1. Authority: `prepare-runtime.mjs` keeps the base `archiveSha256`/`filename`, hashes
+   `<manifest dir>/<filename>` against it, builds the member map from the archive's USTAR headers
+   (`readArchiveInventory`), and verifies the copy against it. A `dist/` that differs from the release
+   is refused (tests: altered `base_library.zip`, altered framework `Python`, tampered archive, wrong EXE).
+   Extra files in `dist/` are not shipped.
+2. Links outside `_internal/` (link member or resolved target) are refused; test `outside-internal`.
+3. Directory link to its own ancestor (`_internal/a/loop -> ..`) is tested and refused as a cycle.
+4. DESKTOP-002 records the archive authority, the `_internal/` rule and owner-only modes.
+5. `installed_layout.py` docstring updated (bin branch kept; other callers still use it).
+Evidence: `test_prepare_runtime.py` 50 passed; `test_installed_layout` 10 passed; `make desktop-native`
+(runs desktop-test and desktop-runtime) rc=0, codesign valid (`build/t53b-desktop-native.log`);
+bundled EXE `--version` prints `open-brain 0.1.0`, 0 symlinks in the bundle; `git diff --check` clean.

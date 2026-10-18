@@ -3,7 +3,8 @@
 Releases install the one-folder base at ``<prefix>/libexec/open-brain/open-brain`` with
 ``<prefix>/bin/open-brain`` as a relative symlink to it. PyInstaller's bootloader reports
 the resolved executable as ``sys.executable`` when launched through that link. The
-contributor desktop runtime still carries a one-file ``<prefix>/bin/open-brain``.
+desktop bundles a copy of that folder with its links flattened into regular files at the same
+``<prefix>/libexec/open-brain/open-brain``. A regular ``<prefix>/bin/open-brain`` is still accepted.
 """
 
 from __future__ import annotations
