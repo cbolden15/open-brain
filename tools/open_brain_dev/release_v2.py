@@ -5,10 +5,9 @@ section 3); v1 manifests and their formula stay in ``base_native``. Every v2
 archive holds final installed prefix-relative paths plus its own inventory, so the formula
 copies each staged tree into the keg exactly per that inventory.
 
-Homebrew rewrites Mach-O and ELF linkage in the keg after ``install`` (``fix_dynamic_linkage``),
-which would change the audited embedding runtime bytes. The formula therefore verifies the
-embedding tree during ``install`` but keeps only its downloaded archive, and copies the tree
-into place in ``post_install``, which runs after that rewrite.
+Homebrew rewrites the ID of every Mach-O dylib in the keg after ``install``
+(``fix_dynamic_linkage``). The embedding helper links ONNX Runtime statically, so the embedding
+tree holds no dylib and is verified and placed during ``install`` like every other role.
 """
 
 from __future__ import annotations
@@ -43,7 +42,6 @@ _PLATFORM_BLOCKS: Final = {
     "linux-x86_64": ("on_linux", "x86_64"),
     "macos-arm64": ("on_macos", "arm64"),
 }
-PENDING_EMBEDDING: Final = "open-brain-embedding.pending.tar.gz"
 # v1 archive member prefix -> installed prefix-relative path (the v1 formula's install rules).
 V1_LAYOUTS: Final = {
     "base": (
@@ -395,25 +393,13 @@ def render_homebrew_formula_v2(
     lines.extend(
         (
             '    resource("embedding").stage do',
-            '      install_component(Pathname.pwd, records.fetch("embedding"))',
+            (
+                '      verify_archive(resource("embedding").cached_download, '
+                'records.fetch("embedding"))'
+            ),
+            '      install_component(Pathname.pwd, records.fetch("embedding"), prefix)',
             "    end",
-            f'    pending = libexec/"{PENDING_EMBEDDING}"',
-            '    FileUtils.cp resource("embedding").cached_download, pending',
             f'    (share/"open-brain/{MANIFEST_FILENAME}").write COMPONENT_MANIFEST_V2',
-            "  end",
-            "",
-            "  def post_install",
-            f'    pending = libexec/"{PENDING_EMBEDDING}"',
-            "    return unless pending.exist?",
-            "",
-            '    verify_archive(pending, component_records.fetch("embedding"))',
-            '    stage = prefix/".open-brain-embedding-stage"',
-            "    rm_r stage if stage.exist?",
-            "    stage.mkpath",
-            '    system "tar", "-xzf", pending, "-C", stage',
-            '    install_component(stage, component_records.fetch("embedding"), prefix)',
-            "    rm_r stage",
-            "    rm pending",
             "  end",
             "",
             _HELPERS.rstrip("\n"),

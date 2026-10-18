@@ -223,15 +223,16 @@ def test_v2_formula_installs_every_resource_from_the_manifest(tmp_path: Path) ->
     install = formula.split("  def install\n", 1)[1].split("\n  end\n", 1)[0]
     assert 'install_component(buildpath, records.fetch("base"), prefix)' in install
     assert 'install_component(Pathname.pwd, records.fetch("graphify"), prefix)' in install
-    # The embedding tree is verified in install but copied only after Homebrew's relocation.
-    assert 'install_component(Pathname.pwd, records.fetch("embedding"))\n' in install
-    assert 'resource("embedding").cached_download' in install
+    # The embedding tree holds no dylib for Homebrew to rewrite, so it is placed in install.
+    placed = 'install_component(Pathname.pwd, records.fetch("embedding"), prefix)'
+    # Every archive entry is checked against the inventory before the tree is copied.
+    verified = 'verify_archive(resource("embedding").cached_download, records.fetch("embedding"))'
+    assert install.index('resource("embedding").stage do') < install.index(verified)
+    assert install.index(verified) < install.index(placed)
     assert f'(share/"open-brain/{v2.MANIFEST_FILENAME}").write COMPONENT_MANIFEST_V2' in install
-    post_install = formula.split("  def post_install\n", 1)[1].split("\n  end\n", 1)[0]
-    assert 'install_component(stage, component_records.fetch("embedding"), prefix)' in post_install
-    # Every archive entry is checked before anything is extracted.
-    verified = 'verify_archive(pending, component_records.fetch("embedding"))'
-    assert post_install.index(verified) < post_install.index('system "tar", "-xzf"')
+    assert "def post_install" not in formula
+    assert "pending" not in formula
+    assert 'system "tar"' not in formula
     helpers = formula.split("  def install_component", 1)[1].split("\n  test do\n", 1)[0]
     assert 'target.chmod member["mode"]' in helpers
     assert "info.nlink != 1" in helpers
@@ -243,9 +244,9 @@ def test_v2_formula_installs_every_resource_from_the_manifest(tmp_path: Path) ->
         "curl",
         'system "open-brain',
     ):
-        assert forbidden not in install + post_install + helpers
+        assert forbidden not in install + helpers
     # Links are created only for inventory symlink members, never ad hoc (D14 option a).
-    assert "File.symlink" not in install + post_install
+    assert "File.symlink" not in install
     assert helpers.count("File.symlink(") == 1
     assert 'File.symlink(member["target"], target)' in helpers
     test = formula.split("  test do\n", 1)[1]
