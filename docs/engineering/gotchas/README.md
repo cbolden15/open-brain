@@ -4289,7 +4289,7 @@ pre-migration bypasses and verified the corrected behavior.
 
 Discovered: 2026-10-13.
 
-### TESTING-007: Full parallel pytest runs retain several gigabytes of temp data
+### TESTING-010: Full parallel pytest runs retain several gigabytes of temp data
 
 Category: Testing / Environment.
 
@@ -4333,3 +4333,45 @@ Action: Pass `--cmake_extra_defines CMAKE_OSX_DEPLOYMENT_TARGET=11.0` and confir
 `tools/g4_embedding_probe/ort-build-recipe.json`.
 
 Discovered: 2026-10-17, G4 embedding spike.
+
+### TESTING-011: Linux hosts with umask 0002 fail hundreds of permission-checking tests
+
+Category: Testing / Linux.
+
+Symptom: on an Ubuntu host whose login umask is `0002`, `make verify` failed about 200 tests with
+`writable ancestor`, `unsafe_config_path` or `resource_missing`. Pytest `tmp_path` directories and a
+checkout made under that umask are group-writable, and the product correctly refuses them.
+
+Action: clone the repository and run the suite under `umask 022`, matching macOS and CI. A copy made
+with `git archive` also lacks `.git`, which breaks the harness acceptance tests.
+
+Discovered: 2026-10-17, G4 Linux verification on a contributor host.
+
+### NATIVE-EMBED-003: Homebrew's `Cellar` is group-writable, so only the real smoke catches ancestor checks
+
+Category: Native / Homebrew.
+
+Symptom: the embedding resource passed every unit test and the brew-free unpacked-prefix check, then
+reported `resource_missing` under real `make native-integration-smoke`: `/opt/homebrew/Cellar` is
+`0775 <user>:admin` by design.
+
+Action: ancestors above the installed prefix may be group-writable when owned by root or the current
+user (decision D15 in the G4 workstream); the Brain root keeps the strict rule because the helper is
+launched by a path beneath it. Run the real Homebrew smoke for any change to installed-path checks.
+
+Discovered: 2026-10-17, G4 gate 5.
+
+### TESTING-012: Low free disk turns capture tests into `storage_high`/`storage_critical` refusals
+
+Category: Testing / Host.
+
+Symptom: with under ~10 GiB free on the Mac, collector and connector integration tests failed with
+`capture admission refused: storage_high` or `storage_critical` midway through a full parallel run.
+The engine watermark (2 GiB high) is working as designed.
+
+Action: pass `-o tmp_path_retention_policy=failed` with an explicit `--basetemp` so passing tests'
+temp trees are deleted at teardown, and re-run the affected suite alone to confirm before treating it
+as a code failure. Never write into the worktree during a full verify: the harness acceptance tests
+fail with `source_changed_during_run`.
+
+Discovered: 2026-10-17, G4 gate 5.
