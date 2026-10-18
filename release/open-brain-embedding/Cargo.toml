@@ -21,8 +21,9 @@ fake-inference = []
 sha2 = "0.10"
 unicode-normalization = "0.1"
 tokenizers = { version = "=0.22.1", default-features = false, features = ["fancy-regex"] }
-# Only dynamic loading from an explicit staged path; no download, copy, TLS or tracing.
-ort = { version = "=2.0.0-rc.14", default-features = false, features = ["load-dynamic", "api-31", "std"] }
+# Statically linked from the pinned ONNX Runtime build named by ORT_LIB_LOCATION; no download,
+# copy, TLS or tracing (`download-binaries` stays off, so ort-sys has no fetch code).
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["api-31", "std"] }
 
 [profile.release]
 panic = "abort"

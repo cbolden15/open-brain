@@ -2,9 +2,11 @@
 
 The archive uses the final installed prefix-relative paths of the embedding role in
 component manifest v2. ONNX Runtime itself is built elsewhere from the pinned recipe
-(``tools/g4_embedding_probe/ort-build-recipe.json``); this tool consumes the resulting
-library, builds the Rust helper, audits linkage, imports and telemetry, gathers every
-notice and writes a byte-reproducible archive plus its manifest resource record.
+(``tools/g4_embedding_probe/ort-build-recipe.json``) as static libraries; this tool links
+them into the Rust helper offline, audits the helper's linkage, imports and telemetry,
+gathers every notice and writes a byte-reproducible archive plus its manifest resource
+record. The archive holds no native library, so Homebrew's dylib-ID rewrite has nothing to
+change.
 """
 
 from __future__ import annotations
@@ -53,13 +55,20 @@ _HELPER_NAME: Final = "open-brain-embedding"
 _RECIPE: Final = Path("tools/g4_embedding_probe/ort-build-recipe.json")
 _PINS: Final = Path("tools/g4_embedding_probe/assets.json")
 _MODEL_ID: Final = "minilm"
-_RUNTIME_ROOT: Final = "libexec/open-brain-embedding/runtime"
 _LICENSES: Final = "share/open-brain/licenses/embedding"
 _LICENSE_NAME: Final = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE|UNLICENSE)", re.IGNORECASE)
 
 _TARGETS: Final = {
-    "macos-arm64": ("aarch64-apple-darwin", "libonnxruntime.dylib", "11.0", ("neon",)),
-    "linux-x86_64": ("x86_64-unknown-linux-gnu", "libonnxruntime.so", "glibc 2.38", ("sse2",)),
+    "macos-arm64": ("aarch64-apple-darwin", "11.0", ("neon",)),
+    "linux-x86_64": ("x86_64-unknown-linux-gnu", "glibc 2.38", ("sse2",)),
+}
+# ort-sys always names CoreML on Apple targets; the CPU-only runtime uses none of it.
+_BUILD_ENV: Final = {
+    "macos-arm64": {
+        "MACOSX_DEPLOYMENT_TARGET": "11.0",
+        "RUSTFLAGS": "-C link-arg=-Wl,-dead_strip_dylibs",
+    },
+    "linux-x86_64": {},
 }
 # Selected profile ob.minilm-wordpiece-mean.v1 (EMBEDDING-SPIKE-RESULTS.md).
 PROFILE: Final[dict[str, object]] = {
@@ -196,13 +205,11 @@ def linked_libraries(path: Path, platform: str, runner: Runner) -> list[str]:
     return re.findall(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]", output)
 
 
-def audit_linkage(path: Path, platform: str, runner: Runner, *, runtime: bool) -> None:
-    """Allow only system libraries; a runtime may name itself, a helper never links it."""
+def audit_linkage(path: Path, platform: str, runner: Runner) -> None:
+    """Allow only system libraries; ONNX Runtime is linked in, never loaded as a library."""
     for library in linked_libraries(path, platform, runner):
         if os.path.basename(library).startswith("libonnxruntime"):
-            if not runtime:
-                raise EmbeddingNativeError(f"{path.name} links the ONNX Runtime library")
-            continue
+            raise EmbeddingNativeError(f"{path.name} links the ONNX Runtime library")
         allowed = (
             _MACOS_LIBRARIES.fullmatch(library) is not None
             if platform == "macos-arm64"
@@ -269,21 +276,23 @@ def audit_minimum_macos(path: Path, runner: Runner) -> None:
         raise EmbeddingNativeError(f"{path.name} requires macOS {text}, above 11.0")
 
 
-def audit_telemetry_cache(runtime_library: Path) -> None:
-    cache = runtime_library.parent / "CMakeCache.txt"
-    text = _read_regular(cache, limit=_NOTICE_LIMIT).decode("utf-8", errors="replace")
-    if "onnxruntime_USE_TELEMETRY:BOOL=OFF" not in text.splitlines():
+def audit_runtime_cache(runtime_build: Path) -> None:
+    """The ONNX Runtime build is static and compiled telemetry out."""
+    cache = runtime_build / "CMakeCache.txt"
+    lines = _read_regular(cache, limit=_NOTICE_LIMIT).decode("utf-8", errors="replace")
+    if "onnxruntime_USE_TELEMETRY:BOOL=OFF" not in lines.splitlines():
         raise EmbeddingNativeError("ONNX Runtime build did not compile telemetry out")
+    if "onnxruntime_BUILD_SHARED_LIB:BOOL=OFF" not in lines.splitlines():
+        raise EmbeddingNativeError("ONNX Runtime build is not static")
 
 
-def audit_binary(path: Path, platform: str, runner: Runner, *, runtime: bool) -> None:
-    audit_linkage(path, platform, runner, runtime=runtime)
+def audit_binary(path: Path, platform: str, runner: Runner) -> None:
+    """Audit the helper, which carries the statically linked runtime's code and strings."""
+    audit_linkage(path, platform, runner)
     audit_network_symbols(path, platform, runner)
     if platform == "macos-arm64":
         audit_minimum_macos(path, runner)
-    if runtime:
-        audit_telemetry_strings(path)
-        audit_telemetry_cache(path)
+    audit_telemetry_strings(path)
 
 
 # ---------------------------------------------------------------- inputs
@@ -507,7 +516,7 @@ def build_embedding_resource(
     root: Path,
     version: str,
     platform: str,
-    runtime_library: Path,
+    runtime_build: Path,
     runtime_source: Path,
     assets: Path,
     output: Path,
@@ -520,7 +529,7 @@ def build_embedding_resource(
         raise EmbeddingNativeError(f"unsupported platform: {platform}")
     if (host or _host()) != platform:
         raise EmbeddingNativeError("the helper is built natively; run on the target platform")
-    triple, runtime_name, minimum_os, features = _TARGETS[platform]
+    triple, minimum_os, features = _TARGETS[platform]
     root = root.resolve()
     helper_dir = root / _HELPER_SOURCE
     recipe_bytes = _read_regular(root / _RECIPE, limit=_NOTICE_LIMIT)
@@ -531,7 +540,7 @@ def build_embedding_resource(
         != runtime_commit
     ):
         raise EmbeddingNativeError("ONNX Runtime source is not at the recipe commit")
-    audit_binary(runtime_library, platform, runner, runtime=True)
+    audit_runtime_cache(runtime_build)
 
     if runner(
         ["git", "-C", os.fspath(root), "status", "--porcelain", "--", _HELPER_SOURCE.as_posix()]
@@ -542,23 +551,25 @@ def build_embedding_resource(
     output.mkdir(parents=True, exist_ok=True)
     manifest_path = helper_dir / "Cargo.toml"
     target_dir = output / "cargo-target"
-    build_env = {"MACOSX_DEPLOYMENT_TARGET": "11.0"} if platform == "macos-arm64" else {}
+    build_env = _BUILD_ENV[platform]
     runner(
         [
             "cargo",
             "build",
             "--release",
             "--locked",
+            "--offline",
             "--manifest-path",
             os.fspath(manifest_path),
             "--target-dir",
             os.fspath(target_dir),
         ],
         cwd=helper_dir,
-        env=build_env,
+        # The library location is host-specific; the static build is bound by the recipe.
+        env={**build_env, "ORT_LIB_LOCATION": os.fspath(runtime_build)},
     )
     helper_bytes = _read_regular(target_dir / "release" / _HELPER_NAME, limit=EMBEDDING_FILE_LIMIT)
-    audit_binary(target_dir / "release" / _HELPER_NAME, platform, runner, runtime=False)
+    audit_binary(target_dir / "release" / _HELPER_NAME, platform, runner)
 
     metadata = json.loads(
         runner(
@@ -586,12 +597,8 @@ def build_embedding_resource(
         runtime_source=runtime_source,
         crates=crate_closure(metadata),
     )
-    runtime_bytes = _read_regular(runtime_library, limit=EMBEDDING_FILE_LIMIT)
-
-    runtime_path = f"{_RUNTIME_ROOT}/{runtime_name}"
     files = [
         _File(EXECUTABLES["embedding"], 0o755, helper_bytes),
-        _File(runtime_path, 0o755, runtime_bytes),
         *(_File(path, 0o644, data) for path, data in asset_bytes.items()),
         *(_File(path, 0o644, data) for path, data in notices.items()),
     ]
@@ -615,7 +622,7 @@ def build_embedding_resource(
             "recipe_sha256": _sha256(
                 _canonical(
                     {
-                        "command": ["cargo", "build", "--release", "--locked"],
+                        "command": ["cargo", "build", "--release", "--locked", "--offline"],
                         "env": build_env,
                         "manifest_sha256": _sha256((helper_dir / "Cargo.toml").read_bytes()),
                         "rustc": runner(["rustc", "--version"]).strip(),
@@ -631,9 +638,6 @@ def build_embedding_resource(
         "runtime_build": {
             "upstream_commit": runtime_commit,
             "recipe_sha256": _sha256(recipe_bytes),
-            "library_path": runtime_path,
-            "library_bytes": len(runtime_bytes),
-            "library_sha256": _sha256(runtime_bytes),
             "cpu_only": True,
             "telemetry_compiled": False,
             "dependency_inventory_sha256": notices_digest(notices, runtime_notices),
@@ -790,7 +794,7 @@ def audit_embedding_archive(
     """Verify an archive, extract it exactly and re-run the binary audits on its bytes.
 
     The build-time ``CMakeCache.txt`` check stays with the build; the shipped runtime's
-    telemetry-off build is bound by the inventory component instead.
+    static, telemetry-off build is bound by the inventory component instead.
     """
     version, resource, inventory = verify_embedding_archive(archive)
     if (host or _host()) != resource.platform:
@@ -802,15 +806,7 @@ def audit_embedding_archive(
             verify_extracted_resource(root, inventory)
         except ComponentManifestError as error:
             raise EmbeddingNativeError(f"embedding archive does not extract: {error}") from error
-        audit_binary(root / EXECUTABLES["embedding"], resource.platform, runner, runtime=False)
-        for member in inventory.members:
-            if member.kind == "file" and member.path.startswith(_RUNTIME_ROOT + "/"):
-                library = root / member.path
-                audit_linkage(library, resource.platform, runner, runtime=True)
-                audit_network_symbols(library, resource.platform, runner)
-                if resource.platform == "macos-arm64":
-                    audit_minimum_macos(library, runner)
-                audit_telemetry_strings(library)
+        audit_binary(root / EXECUTABLES["embedding"], resource.platform, runner)
     return {
         "archive_sha256": resource.archive_sha256,
         "component_id": component_id(inventory.component or {}),
@@ -825,7 +821,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
     parser.add_argument("--platform", required=True, choices=PLATFORMS)
-    parser.add_argument("--runtime-library", type=Path, required=True)
+    parser.add_argument(
+        "--runtime-build",
+        type=Path,
+        required=True,
+        help="the static ONNX Runtime build's Release directory (ORT_LIB_LOCATION)",
+    )
     parser.add_argument("--runtime-source", type=Path, required=True)
     parser.add_argument("--assets", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -836,7 +837,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             root=args.root,
             version=args.version,
             platform=args.platform,
-            runtime_library=args.runtime_library.resolve(),
+            runtime_build=args.runtime_build.resolve(),
             runtime_source=args.runtime_source.resolve(),
             assets=args.assets.resolve(),
             output=args.output.resolve(),

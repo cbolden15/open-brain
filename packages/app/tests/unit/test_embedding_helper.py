@@ -239,9 +239,8 @@ def test_golden_query_and_stage_layout(make: Callable[..., Env]) -> None:
 
     stage = env.stage
     assert stat.S_IMODE(stage.stat().st_mode) == 0o700
-    assert stat.S_IMODE((stage / "runtime").stat().st_mode) == 0o700
+    assert stat.S_IMODE((stage / "tokenizer").stat().st_mode) == 0o700
     assert stat.S_IMODE((stage / "open-brain-embedding").stat().st_mode) == 0o500
-    assert stat.S_IMODE((stage / "runtime" / fake.RUNTIME_NAME).stat().st_mode) == 0o500
     assert stat.S_IMODE((stage / "model" / "model.onnx").stat().st_mode) == 0o400
     assert stat.S_IMODE((stage / "component.json").stat().st_mode) == 0o400
     component = (stage / "component.json").read_bytes()
@@ -250,7 +249,6 @@ def test_golden_query_and_stage_layout(make: Callable[..., Env]) -> None:
         "component.json",
         "model",
         "open-brain-embedding",
-        "runtime",
         "tokenizer",
     ]
     staged = sum(p.stat().st_size for p in stage.rglob("*") if p.is_file())
@@ -882,11 +880,11 @@ def tamper_extra_link(stage: Path) -> None:
 
 
 def tamper_extra_file(stage: Path) -> None:
-    (stage / "runtime" / "libextra.dylib").write_bytes(b"x")
+    (stage / "tokenizer" / "libextra.dylib").write_bytes(b"x")
 
 
 def tamper_directory_mode(stage: Path) -> None:
-    os.chmod(stage / "runtime", 0o755)
+    os.chmod(stage / "tokenizer", 0o755)
 
 
 TAMPERS = {
@@ -913,7 +911,7 @@ def test_tampered_stage_is_recreated_before_launch(make: Callable[..., Env], nam
     assert model.stat().st_nlink == 1
     assert (stage / "component.json").stat().st_nlink == 1
     assert stat.S_IMODE((stage / "tokenizer" / "vocab.txt").stat().st_mode) == 0o400
-    assert not (stage / "runtime" / "libextra.dylib").exists()
+    assert not (stage / "tokenizer" / "libextra.dylib").exists()
     if name == "symlink":
         assert (stage.parent.parent / "outside.onnx").read_bytes() == b"synthetic graph"
     if name == "extra_link":
@@ -1107,15 +1105,9 @@ PINNED_QUERY_PREFIX = (
 
 
 def _real_inputs() -> dict[str, Path] | None:
-    runtime = (
-        REPO / "build/g4-ort-macos/Release/libonnxruntime.1.31.0.dylib"
-        if sys.platform == "darwin"
-        else REPO / "build/g4-ort-linux/Release/libonnxruntime.so.1.31.0"
-    )
     assets = REPO / "build/g4-assets-1/minilm"
     inputs = {
         fake.EXECUTABLE: REPO / "release/open-brain-embedding/target/release/open-brain-embedding",
-        fake.RUNTIME: runtime,
         v2.MODEL_PATH: assets / "onnx/model.onnx",
         f"{fake.ROOT}/tokenizer/tokenizer.json": assets / "tokenizer.json",
         f"{fake.ROOT}/tokenizer/config.json": assets / "config.json",
@@ -1128,7 +1120,7 @@ def _real_inputs() -> dict[str, Path] | None:
 def test_real_helper_query_vector(tmp_path: Path) -> None:
     inputs = _real_inputs()
     if inputs is None:
-        pytest.skip("contributor helper, runtime or MiniLM assets are not built")
+        pytest.skip("contributor helper or MiniLM assets are not built")
     files = {path: source.read_bytes() for path, source in inputs.items()}
     files[f"{fake.LICENSES}/NOTICE.txt"] = b"synthetic notice"
     base = fake.install(

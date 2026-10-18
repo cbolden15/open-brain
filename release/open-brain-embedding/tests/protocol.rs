@@ -301,19 +301,19 @@ fn binary_capabilities_and_errors_end_to_end() {
 #[test]
 fn binary_ort_backend_fails_closed_without_text() {
     let Some(dir) = stage("binort", Some(&default_component())) else { return };
-    let runtime = dir.join("runtime").join(open_brain_embedding::ort_inference::RUNTIME_NAME);
+    let model = dir.join("model").join("model.onnx");
     let req = fs::read(fixtures().join("query_ok.request")).unwrap();
     let cap = fs::read(fixtures().join("capabilities_ok.request")).unwrap();
-    // First no runtime at all, then a runtime file that is not a loadable library.
+    // ONNX Runtime is linked in: first no model at all, then a model file that is not a graph.
     for garbage in [false, true] {
         if garbage {
-            fs::create_dir_all(dir.join("runtime")).unwrap();
-            fs::write(&runtime, b"not a native library").unwrap();
+            fs::create_dir_all(dir.join("model")).unwrap();
+            fs::write(&model, b"not an onnx graph").unwrap();
         }
         let (code, out, err) = run_bin(&["--stdio-v1"], &dir, &req);
         assert_eq!((code, code_of(&out)), (2, "inference_failed".to_string()), "garbage={garbage}");
         assert_eq!(err, b"inference_failed\n", "garbage={garbage}");
-        // Capabilities never loads the runtime or the model.
+        // Capabilities never loads the model.
         let (code, _, err) = run_bin(&["--stdio-v1"], &dir, &cap);
         assert_eq!((code, err.len()), (0, 0), "garbage={garbage}");
     }

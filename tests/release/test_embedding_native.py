@@ -24,12 +24,6 @@ GOOD_LIBS = (
     "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n"
     "\t/usr/lib/libiconv.2.dylib (compatibility version 7.0.0)\n"
 )
-RUNTIME_LIBS = (
-    "\t@rpath/libonnxruntime.1.dylib (compatibility version 1.0.0)\n"
-    "\t/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation (c 1)\n"
-    "\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (c 1)\n"
-    "\t/usr/lib/libc++.1.dylib (c 1)\n" + GOOD_LIBS
-)
 MINOS = "Load command 9\n      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform 1\n    minos {}\n"
 
 
@@ -47,7 +41,9 @@ class FakeRunner:
     minos: dict[str, str] = field(default_factory=dict)
     runtime_commit: str = RUNTIME_COMMIT
     dirty: str = ""
+    helper: bytes = b"synthetic helper"
     calls: list[list[str]] = field(default_factory=list)
+    envs: list[dict[str, str]] = field(default_factory=list)
 
     def __call__(
         self,
@@ -60,9 +56,7 @@ class FakeRunner:
         tool = args[0]
         name = Path(args[-1]).name
         if tool == "otool" and args[1] == "-L":
-            return f"{args[-1]}:\n" + self.libs.get(
-                name, RUNTIME_LIBS if "onnx" in name else GOOD_LIBS
-            )
+            return f"{args[-1]}:\n" + self.libs.get(name, GOOD_LIBS)
         if tool == "otool":
             return MINOS.format(self.minos.get(name, "11.0"))
         if tool == "nm":
@@ -74,9 +68,10 @@ class FakeRunner:
         if tool == "rustc":
             return "rustc 1.96.0\n"
         if tool == "cargo" and args[1] == "build":
+            self.envs.append(dict(env or {}))
             target = Path(args[args.index("--target-dir") + 1]) / "release"
             target.mkdir(parents=True, exist_ok=True)
-            (target / "open-brain-embedding").write_bytes(b"synthetic helper")
+            (target / "open-brain-embedding").write_bytes(self.helper)
             return ""
         if tool == "cargo" and args[1] == "metadata":
             return self.metadata
@@ -86,7 +81,7 @@ class FakeRunner:
 @dataclass
 class World:
     root: Path
-    runtime_library: Path
+    runtime_build: Path
     runtime_source: Path
     assets: Path
     pins: dict[str, object]
@@ -139,9 +134,10 @@ def make_world(
     (source / "ThirdPartyNotices.txt").write_bytes(b"third party\n")
     build = tmp_path / "ort-build/Release"
     build.mkdir(parents=True)
-    library = build / "libonnxruntime.1.31.0.dylib"
-    library.write_bytes(b"synthetic runtime")
-    (build / "CMakeCache.txt").write_text("a:BOOL=ON\nonnxruntime_USE_TELEMETRY:BOOL=OFF\n")
+    (build / "libonnxruntime_session.a").write_bytes(b"synthetic static runtime")
+    (build / "CMakeCache.txt").write_text(
+        "a:BOOL=ON\nonnxruntime_BUILD_SHARED_LIB:BOOL=OFF\nonnxruntime_USE_TELEMETRY:BOOL=OFF\n"
+    )
     assets = tmp_path / "assets"
     (assets / "onnx").mkdir(parents=True)
     contents = {
@@ -173,7 +169,7 @@ def make_world(
     crates["devonly"] = make_crate(registry, "devonly", {})
     crates["buildonly"] = make_crate(registry, "buildonly", {})
     metadata = metadata_for(crates, {"devonly": "dev", "buildonly": "build"})
-    return World(root, library, source, assets, pins, FakeRunner(metadata))
+    return World(root, build, source, assets, pins, FakeRunner(metadata))
 
 
 def build(world: World, tmp_path: Path, name: str = "out", **overrides: object) -> en.BuildResult:
@@ -181,7 +177,7 @@ def build(world: World, tmp_path: Path, name: str = "out", **overrides: object) 
         "root": world.root,
         "version": "0.1.0",
         "platform": "macos-arm64",
-        "runtime_library": world.runtime_library,
+        "runtime_build": world.runtime_build,
         "runtime_source": world.runtime_source,
         "assets": world.assets,
         "output": tmp_path / name,
@@ -203,7 +199,6 @@ def test_archive_members_modes_and_metadata(tmp_path: Path) -> None:
     files = {name for name, info in infos.items() if info.isreg()}
     assert files == {
         f"{ROOT_REL}/open-brain-embedding",
-        f"{ROOT_REL}/runtime/libonnxruntime.dylib",
         f"{ROOT_REL}/model/model.onnx",
         f"{ROOT_REL}/tokenizer/tokenizer.json",
         f"{ROOT_REL}/tokenizer/config.json",
@@ -218,10 +213,7 @@ def test_archive_members_modes_and_metadata(tmp_path: Path) -> None:
     }
     assert names == sorted(names)
     for name, info in infos.items():
-        executable = name in (
-            f"{ROOT_REL}/open-brain-embedding",
-            f"{ROOT_REL}/runtime/libonnxruntime.dylib",
-        )
+        executable = name == f"{ROOT_REL}/open-brain-embedding"
         want = 0o755 if info.isdir() or executable else 0o644
         assert info.mode == want, name
         assert (info.uid, info.gid, info.mtime, info.uname, info.gname) == (0, 0, 0, "", "")
@@ -277,6 +269,18 @@ def test_inventory_component_and_record_validate(tmp_path: Path) -> None:
     assert helper["dependency_lock_sha256"] == sha(b"lock\n")
     runtime = cast(dict[str, object], component["runtime_build"])
     assert runtime["upstream_commit"] == RUNTIME_COMMIT
+    assert "library_path" not in runtime
+
+
+def test_helper_links_the_static_runtime_offline(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    result = build(world, tmp_path)
+    [cargo] = [call for call in world.runner.calls if call[:2] == ["cargo", "build"]]
+    assert "--offline" in cargo and "--locked" in cargo
+    [env] = world.runner.envs
+    assert env["ORT_LIB_LOCATION"] == str(world.runtime_build)
+    assert env["RUSTFLAGS"] == "-C link-arg=-Wl,-dead_strip_dylibs"
+    assert not any("/runtime/" in member.path for member in result.inventory.members)
 
 
 def test_notices_digest_covers_sorted_paths_and_hashes(tmp_path: Path) -> None:
@@ -320,7 +324,10 @@ def test_crate_without_license_files_is_refused(tmp_path: Path) -> None:
         ),
         (
             lambda w: w.runner.libs.update(
-                {w.runtime_library.name: "\t/usr/lib/libz.1.dylib (c 1)\n"}
+                {
+                    "open-brain-embedding": "\t/System/Library/Frameworks/CoreML.framework/"
+                    "Versions/A/CoreML (c 1)\n"
+                }
             ),
             "disallowed library",
         ),
@@ -330,32 +337,36 @@ def test_crate_without_license_files_is_refused(tmp_path: Path) -> None:
         ),
         (
             lambda w: w.runner.symbols.update(
-                {w.runtime_library.name: "_OBJC_CLASS_$_NSURLSession\n"}
+                {"open-brain-embedding": "_OBJC_CLASS_$_NSURLSession\n"}
             ),
             "network symbol",
         ),
         (
-            lambda w: w.runner.symbols.update({w.runtime_library.name: "_socket\n"}),
+            lambda w: w.runner.symbols.update({"open-brain-embedding": "_socket\n"}),
             "network symbol",
         ),
+        # Planted markers: the linked-in runtime is scanned inside the helper executable.
         (
-            lambda w: w.runtime_library.write_bytes(b"x vortex.data.microsoft.com y"),
+            lambda w: setattr(w.runner, "helper", b"x vortex.data.microsoft.com y"),
             "telemetry string",
         ),
         (
-            lambda w: w.runtime_library.write_bytes(
-                b"Microsoft::Applications::Events::ILogManager"
-            ),
+            lambda w: setattr(w.runner, "helper", b"Microsoft::Applications::Events::ILogManager"),
             "telemetry string",
         ),
         (
-            lambda w: (w.runtime_library.parent / "CMakeCache.txt").write_text(
-                "onnxruntime_USE_TELEMETRY:BOOL=ON\n"
+            lambda w: (w.runtime_build / "CMakeCache.txt").write_text(
+                "onnxruntime_BUILD_SHARED_LIB:BOOL=OFF\nonnxruntime_USE_TELEMETRY:BOOL=ON\n"
             ),
             "telemetry out",
         ),
-        (lambda w: (w.runtime_library.parent / "CMakeCache.txt").unlink(), "cannot read"),
-        (lambda w: w.runner.minos.update({w.runtime_library.name: "12.0"}), "above 11.0"),
+        (
+            lambda w: (w.runtime_build / "CMakeCache.txt").write_text(
+                "onnxruntime_BUILD_SHARED_LIB:BOOL=ON\nonnxruntime_USE_TELEMETRY:BOOL=OFF\n"
+            ),
+            "static",
+        ),
+        (lambda w: (w.runtime_build / "CMakeCache.txt").unlink(), "cannot read"),
         (lambda w: w.runner.minos.update({"open-brain-embedding": "14.0"}), "above 11.0"),
         (lambda w: setattr(w.runner, "runtime_commit", "d" * 40), "recipe commit"),
         (lambda w: setattr(w.runner, "dirty", " M src/main.rs\n"), "uncommitted"),
@@ -406,7 +417,7 @@ def test_linux_linkage_uses_needed_entries() -> None:
             " 0x000000000000000e (SONAME)             Library soname: [libonnxruntime.so.1]\n"
         )
 
-    en.audit_linkage(Path("/x/lib"), "linux-x86_64", runner, runtime=True)
+    en.audit_linkage(Path("/x/lib"), "linux-x86_64", runner)
 
     def bad(
         args: Sequence[str], *, cwd: Path | None = None, env: Mapping[str, str] | None = None
@@ -414,7 +425,15 @@ def test_linux_linkage_uses_needed_entries() -> None:
         return " 0x1 (NEEDED)             Shared library: [libssl.so.3]\n"
 
     with pytest.raises(en.EmbeddingNativeError, match="libssl"):
-        en.audit_linkage(Path("/x/lib"), "linux-x86_64", bad, runtime=False)
+        en.audit_linkage(Path("/x/lib"), "linux-x86_64", bad)
+
+    def dynamic_runtime(
+        args: Sequence[str], *, cwd: Path | None = None, env: Mapping[str, str] | None = None
+    ) -> str:
+        return " 0x1 (NEEDED)             Shared library: [libonnxruntime.so.1]\n"
+
+    with pytest.raises(en.EmbeddingNativeError, match="ONNX Runtime"):
+        en.audit_linkage(Path("/x/helper"), "linux-x86_64", dynamic_runtime)
 
 
 def test_wrong_host_and_platform_are_refused(tmp_path: Path) -> None:
@@ -432,8 +451,7 @@ def test_stage_writes_the_canonical_component_for_an_inventory(tmp_path: Path) -
     inventory_file.write_bytes(v2.render_inventory(result.inventory))
     staged = stage.stage(
         tmp_path / "staged",
-        helper=world.runtime_library,
-        runtime_library=world.runtime_library,
+        helper=world.runtime_build / "CMakeCache.txt",
         assets=world.assets,
         inventory=inventory_file,
     )
@@ -443,10 +461,7 @@ def test_stage_writes_the_canonical_component_for_an_inventory(tmp_path: Path) -
     assert sha(document) == v2.component_id(result.inventory.component)
     # The probe-benchmark mode is unchanged.
     plain = stage.stage(
-        tmp_path / "plain",
-        helper=world.runtime_library,
-        runtime_library=world.runtime_library,
-        assets=world.assets,
+        tmp_path / "plain", helper=world.runtime_build / "CMakeCache.txt", assets=world.assets
     )
     assert json.loads((plain / "component.json").read_bytes())["preprocess"] == stage.PREPROCESS
 
@@ -492,10 +507,10 @@ def test_archive_audit_verifies_record_inventory_and_extracted_binaries(tmp_path
         "version": "0.1.0",
     }
     audited = {(call[0], *call[1:-1], Path(call[-1]).name) for call in world.runner.calls}
-    for name in ("open-brain-embedding", "libonnxruntime.dylib"):
-        assert ("otool", "-L", name) in audited
-        assert ("nm", "-u", name) in audited
-        assert ("otool", "-l", name) in audited
+    assert ("otool", "-L", "open-brain-embedding") in audited
+    assert ("nm", "-u", "open-brain-embedding") in audited
+    assert ("otool", "-l", "open-brain-embedding") in audited
+    assert {name for *_, name in audited} == {"open-brain-embedding"}
 
 
 def _rewrite_record(record: Path, **changes: object) -> None:
@@ -531,9 +546,8 @@ def test_archive_audit_refuses_a_disagreeing_record(
     ("edit", "message"),
     [
         (lambda w: w.runner.symbols.update({"open-brain-embedding": "_connect\n"}), "network"),
-        (lambda w: w.runner.symbols.update({"libonnxruntime.dylib": "_getaddrinfo\n"}), "network"),
         (
-            lambda w: w.runner.libs.update({"libonnxruntime.dylib": "\t/opt/x/libssl.dylib (c)\n"}),
+            lambda w: w.runner.libs.update({"open-brain-embedding": "\t/opt/x/libssl.dylib (c)\n"}),
             "disallowed library",
         ),
         (lambda w: w.runner.minos.update({"open-brain-embedding": "14.0"}), "above 11.0"),
@@ -549,12 +563,13 @@ def test_archive_audit_reruns_binary_audits_on_extracted_bytes(
         en.audit_embedding_archive(result.archive, runner=world.runner, host="macos-arm64")
 
 
-def test_archive_audit_scans_the_shipped_runtime_for_telemetry(
+def test_archive_audit_scans_the_shipped_helper_for_telemetry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world = make_world(tmp_path)
     result = build(world, tmp_path)
-    monkeypatch.setattr(en, "_TELEMETRY", (b"synthetic runtime",))
+    # A marker planted after the build: only the archive's helper bytes carry it.
+    monkeypatch.setattr(en, "_TELEMETRY", (b"synthetic helper",))
     with pytest.raises(en.EmbeddingNativeError, match="telemetry string"):
         en.audit_embedding_archive(result.archive, runner=world.runner, host="macos-arm64")
 

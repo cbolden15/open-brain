@@ -2,7 +2,7 @@
 //!
 //! Inference sits behind [`Inference`] so the protocol, tokenization and
 //! windowing are testable without ONNX Runtime; [`OrtInference`] is the real,
-//! dynamically loaded backend.
+//! statically linked backend.
 
 pub mod component;
 pub mod inference;

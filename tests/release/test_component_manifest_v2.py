@@ -34,15 +34,13 @@ EMBEDDING_FILES: dict[str, bytes] = {
     f"{ROOT}/tokenizer/tokenizer.json": b"{}",
     f"{ROOT}/tokenizer/config.json": b'{"k":1}',
     f"{ROOT}/tokenizer/vocab.txt": b"[PAD]\n",
-    f"{ROOT}/runtime/libonnxruntime.dylib": b"synthetic runtime",
     f"{LICENSES}/NOTICE.txt": b"synthetic notice",
 }
-EXECUTABLE_PATHS = {f"{ROOT}/open-brain-embedding", f"{ROOT}/runtime/libonnxruntime.dylib"}
+EXECUTABLE_PATHS = {f"{ROOT}/open-brain-embedding"}
 DIRECTORIES = [
     "libexec",
     ROOT,
     f"{ROOT}/model",
-    f"{ROOT}/runtime",
     f"{ROOT}/tokenizer",
     "share",
     "share/open-brain",
@@ -69,7 +67,6 @@ def members_for(files: dict[str, bytes], directories: list[str]) -> tuple[v2.Mem
 
 def component_for(platform: str = "macos-arm64") -> dict[str, object]:
     files = EMBEDDING_FILES
-    runtime = f"{ROOT}/runtime/libonnxruntime.dylib"
     return {
         "protocol": v2.PROTOCOL,
         "helper_build": {
@@ -84,9 +81,6 @@ def component_for(platform: str = "macos-arm64") -> dict[str, object]:
         "runtime_build": {
             "upstream_commit": "2" * 40,
             "recipe_sha256": sha(b"runtime recipe"),
-            "library_path": runtime,
-            "library_bytes": len(files[runtime]),
-            "library_sha256": sha(files[runtime]),
             "cpu_only": True,
             "telemetry_compiled": False,
             "dependency_inventory_sha256": sha(b"deps"),
@@ -397,12 +391,15 @@ def test_inventory_rejects_unlisted_paths_and_self_listing() -> None:
     for path in (
         "libexec/other",
         f"{ROOT}/extra.bin",
+        f"{ROOT}/runtime/libonnxruntime.dylib",
         "share/open-brain/inventories/embedding.json",
     ):
         with pytest.raises(ComponentManifestError):
             v2.render_inventory(extra_file(path))
     with pytest.raises(ComponentManifestError):
         v2.render_inventory(extra_file("share/open-brain/other", "directory", 0o755))
+    with pytest.raises(ComponentManifestError):
+        v2.render_inventory(extra_file(f"{ROOT}/runtime", "directory", 0o755))
 
 
 def test_inventory_rejects_case_and_unicode_collisions() -> None:
@@ -491,9 +488,10 @@ COMPONENT_EDITS: dict[str, Callable[[dict[str, Any]], object]] = {
     "helper-features": lambda c: c["helper_build"].update(cpu_features=["b", "a"]),
     "runtime-telemetry": lambda c: c["runtime_build"].update(telemetry_compiled=True),
     "runtime-cpu": lambda c: c["runtime_build"].update(cpu_only=1),
-    "runtime-bytes": lambda c: c["runtime_build"].update(library_bytes=1),
-    "runtime-hash": lambda c: c["runtime_build"].update(library_sha256="0" * 64),
-    "runtime-path": lambda c: c["runtime_build"].update(library_path=f"{ROOT}/runtime/evil.so"),
+    # The runtime is linked into the helper; a separate library declaration is refused.
+    "runtime-library": lambda c: c["runtime_build"].update(
+        library_path=f"{ROOT}/runtime/libonnxruntime.dylib"
+    ),
     "model-path": lambda c: c["model"].update(path=f"{ROOT}/model/other.onnx"),
     "model-bytes": lambda c: c["model"].update(bytes=1),
     "model-hash": lambda c: c["model"].update(sha256="0" * 64),
@@ -891,8 +889,9 @@ def test_inventory_requires_the_role_executable_as_a_regular_file() -> None:
     for edited in (linked, missing):
         with pytest.raises(ComponentManifestError):
             v2.render_inventory(v2.Inventory("0.1.0", "base", "macos-arm64", edited, None))
-    executable_missing = tuple(m for m in embedding_inventory().members
-                               if m.path != v2.EXECUTABLES["embedding"])
+    executable_missing = tuple(
+        m for m in embedding_inventory().members if m.path != v2.EXECUTABLES["embedding"]
+    )
     with pytest.raises(ComponentManifestError):
         v2.render_inventory(with_members(executable_missing))
 
@@ -940,8 +939,9 @@ def test_symlink_members_need_an_exact_target_field() -> None:
     data = v2.render_inventory(base_inventory())
     document = json.loads(data)
     links = [row for row in document["members"] if row["kind"] == "symlink"]
-    assert links and all(set(row) == {"path", "kind", "mode", "bytes", "sha256", "target"}
-                         for row in links)
+    assert links and all(
+        set(row) == {"path", "kind", "mode", "bytes", "sha256", "target"} for row in links
+    )
     assert all("target" not in row for row in document["members"] if row["kind"] != "symlink")
     with pytest.raises(ComponentManifestError):
         v2.parse_inventory(mutated(data, lambda v: [r.pop("target", None) for r in v["members"]]))

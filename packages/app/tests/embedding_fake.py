@@ -22,14 +22,11 @@ from open_brain.services import embedding_helper
 ROOT = "libexec/open-brain-embedding"
 LICENSES = "share/open-brain/licenses/embedding"
 VERSION = "0.1.0"
-RUNTIME_NAME = "libonnxruntime.dylib" if sys.platform == "darwin" else "libonnxruntime.so"
-RUNTIME = f"{ROOT}/runtime/{RUNTIME_NAME}"
 EXECUTABLE = f"{ROOT}/open-brain-embedding"
 DIRECTORIES = (
     "libexec",
     ROOT,
     f"{ROOT}/model",
-    f"{ROOT}/runtime",
     f"{ROOT}/tokenizer",
     "share",
     "share/open-brain",
@@ -168,7 +165,6 @@ def resource_files(helper: bytes) -> dict[str, bytes]:
         f"{ROOT}/tokenizer/tokenizer.json": b"{}",
         f"{ROOT}/tokenizer/config.json": b'{"k":1}',
         f"{ROOT}/tokenizer/vocab.txt": b"[PAD]\n",
-        RUNTIME: b"synthetic runtime",
         f"{LICENSES}/NOTICE.txt": b"synthetic notice",
     }
 
@@ -190,9 +186,6 @@ def component_for(
         "runtime_build": {
             "upstream_commit": "2" * 40,
             "recipe_sha256": sha(b"runtime recipe"),
-            "library_path": RUNTIME,
-            "library_bytes": len(files[RUNTIME]),
-            "library_sha256": sha(files[RUNTIME]),
             "cpu_only": True,
             "telemetry_compiled": False,
             "dependency_inventory_sha256": sha(b"deps"),
@@ -227,10 +220,9 @@ def component_for(
 def inventory_for(
     files: Mapping[str, bytes], platform: str, preprocess: Mapping[str, object] | None = None
 ) -> v2.Inventory:
-    executable = {EXECUTABLE, RUNTIME}
     rows = [v2.Member(path, "directory", 0o755, 0, None) for path in DIRECTORIES]
     rows += [
-        v2.Member(path, "file", 0o755 if path in executable else 0o644, len(data), sha(data))
+        v2.Member(path, "file", 0o755 if path == EXECUTABLE else 0o644, len(data), sha(data))
         for path, data in files.items()
     ]
     return v2.Inventory(

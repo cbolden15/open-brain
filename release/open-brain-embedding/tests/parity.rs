@@ -1,7 +1,7 @@
 //! Native-vs-reference parity for the ONNX Runtime backend.
 //!
-//! Needs the local G4 assets, the development runtime and the isolated reference
-//! interpreter, so it is ignored by default:
+//! Needs the local G4 assets, the static ONNX Runtime build (`ORT_LIB_LOCATION`) and the
+//! isolated reference interpreter, so it is ignored by default:
 //! `cargo test --manifest-path release/open-brain-embedding/Cargo.toml --test parity -- --ignored`
 
 #![cfg(not(feature = "fake-inference"))]
@@ -99,13 +99,8 @@ fn requests() -> Vec<(&'static str, Vec<String>)> {
 }
 
 #[test]
-#[ignore = "needs local G4 assets, runtime and reference interpreter"]
+#[ignore = "needs local G4 assets and reference interpreter"]
 fn ort_backend_matches_reference_embedder() {
-    let dylib = required(if cfg!(target_os = "macos") {
-        "build/g4-ort-macos/Release/libonnxruntime.1.31.0.dylib"
-    } else {
-        "build/g4-ort-linux/Release/libonnxruntime.so.1.31.0"
-    });
     let assets = required("build/g4-assets-1/minilm");
     let python = required("build/g4-ref/bin/python");
     let reference = required("tools/g4_embedding_probe/payload/reference.py.txt");
@@ -120,8 +115,6 @@ fn ort_backend_matches_reference_embedder() {
         .arg(&stage)
         .arg("--helper")
         .arg(env!("CARGO_BIN_EXE_open-brain-embedding"))
-        .arg("--runtime-library")
-        .arg(&dylib)
         .arg("--assets")
         .arg(&assets)
         .stdout(Stdio::null())
@@ -200,14 +193,11 @@ fn ort_backend_matches_reference_embedder() {
         native.len()
     );
 
-    // A staged runtime without a model fails closed, text-free.
+    // The linked-in runtime without a model fails closed, text-free.
     let nomodel = tmp.join("nomodel");
     fs::create_dir_all(nomodel.join("tokenizer")).unwrap();
-    fs::create_dir_all(nomodel.join("runtime")).unwrap();
     fs::copy(stage.join("component.json"), nomodel.join("component.json")).unwrap();
     fs::copy(stage.join("tokenizer/tokenizer.json"), nomodel.join("tokenizer/tokenizer.json")).unwrap();
-    let runtime = open_brain_embedding::ort_inference::RUNTIME_NAME;
-    std::os::unix::fs::symlink(stage.join("runtime").join(runtime), nomodel.join("runtime").join(runtime)).unwrap();
     let (code, out, err) = run_helper(&nomodel, &request(&cid, "query", &["hello".to_string()]));
     assert_eq!(code, 2);
     assert!(String::from_utf8(out).unwrap().contains("\"code\":\"inference_failed\""));

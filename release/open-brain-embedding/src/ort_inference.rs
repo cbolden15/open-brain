@@ -1,5 +1,5 @@
-//! ONNX Runtime backend. The runtime library is loaded dynamically from the staged
-//! `runtime/` directory by absolute path; no loader environment variable is read.
+//! ONNX Runtime backend. ONNX Runtime is linked statically into the helper, so nothing
+//! is loaded from the staged directory except the model; no loader environment variable is read.
 
 use crate::component::{Component, Pooling};
 use crate::inference::{Inference, InferenceError};
@@ -9,11 +9,6 @@ use ort::session::builder::AutoDevicePolicy;
 use ort::value::Tensor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-#[cfg(target_os = "macos")]
-pub const RUNTIME_NAME: &str = "libonnxruntime.dylib";
-#[cfg(not(target_os = "macos"))]
-pub const RUNTIME_NAME: &str = "libonnxruntime.so";
 
 /// Rows per session run, as in the reference embedder's document batches.
 const BATCH_ROWS: usize = 16;
@@ -46,8 +41,7 @@ impl OrtInference {
 fn load(dir: &Path) -> Option<Loaded> {
     let dir = std::path::absolute(dir).ok()?;
     let comp = Component::load(&dir)?;
-    let env = ort::init_from(dir.join("runtime").join(RUNTIME_NAME))
-        .ok()?
+    let env = ort::init()
         .with_name("open-brain-embedding")
         .with_telemetry(false)
         // Native log text never reaches stderr.

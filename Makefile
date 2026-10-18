@@ -5,7 +5,8 @@ NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain/open-brain
 NATIVE_GRAPHIFY_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain-graphify
 NATIVE_MANIFEST = $(NATIVE_OUTPUT)/release/open-brain-component-manifest-v1.txt
 EMBEDDING_OUTPUT ?= build/embedding
-EMBEDDING_RUNTIME_LIBRARY ?= build/g4-ort-macos/Release/libonnxruntime.1.31.0.dylib
+# Release directory of the static ONNX Runtime build (tools/g4_embedding_probe/ort-build-recipe.json).
+EMBEDDING_RUNTIME_BUILD ?= $(if $(filter Darwin,$(shell uname -s)),build/g4-ort-macos-static,build/g4-ort-linux-static)/Release
 EMBEDDING_RUNTIME_SOURCE ?= build/g4-src/onnxruntime
 EMBEDDING_ASSETS ?= build/g4-assets-1/minilm
 EMBEDDING_PLATFORM ?= $(if $(filter Darwin,$(shell uname -s)),macos-arm64,linux-x86_64)
@@ -103,7 +104,7 @@ native-audit: native
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native audit --artifact $(NATIVE_ARTIFACT) --graphify-artifact $(NATIVE_GRAPHIFY_ARTIFACT) $(EMBEDDING_ARCHIVE_OPTION)
 
 embedding-native:
-	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.embedding_native --version "$(EMBEDDING_VERSION)" --platform $(EMBEDDING_PLATFORM) --runtime-library "$(EMBEDDING_RUNTIME_LIBRARY)" --runtime-source "$(EMBEDDING_RUNTIME_SOURCE)" --assets "$(EMBEDDING_ASSETS)" --output "$(EMBEDDING_OUTPUT)"
+	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.embedding_native --version "$(EMBEDDING_VERSION)" --platform $(EMBEDDING_PLATFORM) --runtime-build "$(EMBEDDING_RUNTIME_BUILD)" --runtime-source "$(EMBEDDING_RUNTIME_SOURCE)" --assets "$(EMBEDDING_ASSETS)" --output "$(EMBEDDING_OUTPUT)"
 
 smoke:
 	uv run --frozen --python 3.14 --no-dev --group native-build python -m tools.open_brain_dev.base_native smoke --root . --artifact $(NATIVE_ARTIFACT) --graphify-artifact $(NATIVE_GRAPHIFY_ARTIFACT)

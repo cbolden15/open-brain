@@ -52,7 +52,6 @@ _EMBEDDING_DIRECTORIES: Final = frozenset(
         _EMBEDDING_ROOT,
         f"{_EMBEDDING_ROOT}/model",
         f"{_EMBEDDING_ROOT}/tokenizer",
-        f"{_EMBEDDING_ROOT}/runtime",
         "share",
         "share/open-brain",
         "share/open-brain/inventories",
@@ -69,7 +68,6 @@ _LINK_ROOTS: Final = {
 # Entry links outside the role root, each with its one exact target.
 _ROOT_LINKS: Final = {"base": {"bin/open-brain": "../libexec/open-brain/open-brain"}}
 MAX_LINK_DEPTH: Final = 4
-_RUNTIME_NAME: Final = re.compile(r"^libonnxruntime[0-9A-Za-z._-]*$")
 _TRIPLES: Final = {
     "linux-x86_64": frozenset({"x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"}),
     "macos-arm64": frozenset({"aarch64-apple-darwin"}),
@@ -386,9 +384,8 @@ def _is_executable_location(role: str, path: str) -> bool:
         return True
     if path.startswith("share/"):
         return False
-    if role == "embedding":
-        return path.startswith(f"{_EMBEDDING_ROOT}/runtime/")
-    return True
+    # ONNX Runtime is linked into the embedding helper; only the helper is executable.
+    return role != "embedding"
 
 
 def _check_embedding_path(member: Member) -> None:
@@ -399,9 +396,6 @@ def _check_embedding_path(member: Member) -> None:
         _fail("directory outside the embedding resource")
     fixed = {EXECUTABLES["embedding"], MODEL_PATH, *TOKENIZER_PATHS.values()}
     if path in fixed or path.startswith(_LICENSES_ROOT + "/"):
-        return
-    runtime = f"{_EMBEDDING_ROOT}/runtime/"
-    if path.startswith(runtime) and _RUNTIME_NAME.fullmatch(path[len(runtime) :]):
         return
     _fail("file outside the embedding resource")
 
@@ -521,9 +515,7 @@ def _validate_members(inventory: Inventory) -> None:
     if kinds.get(inventory_path(inventory.role).rpartition("/")[0]) != "directory":
         _fail("inventory directory is not declared")
     executable = EXECUTABLES[inventory.role]
-    if not any(
-        m.path == executable and m.kind == "file" and m.mode == 0o755 for m in members
-    ):
+    if not any(m.path == executable and m.kind == "file" and m.mode == 0o755 for m in members):
         _fail("role executable is not a declared 0755 regular file")
     _validate_links(inventory)
 
@@ -622,9 +614,6 @@ _RUNTIME_FIELDS: Final = frozenset(
     {
         "upstream_commit",
         "recipe_sha256",
-        "library_path",
-        "library_bytes",
-        "library_sha256",
         "cpu_only",
         "telemetry_compiled",
         "dependency_inventory_sha256",
@@ -710,16 +699,6 @@ def validate_embedding_component(
     _hex64(runtime["dependency_inventory_sha256"])
     if runtime["cpu_only"] is not True or runtime["telemetry_compiled"] is not False:
         _fail("runtime must be CPU-only and telemetry-free")
-    library = _string(runtime["library_path"], limit=1024)
-    prefix = f"{_EMBEDDING_ROOT}/runtime/"
-    if not library.startswith(prefix) or _RUNTIME_NAME.fullmatch(library[len(prefix) :]) is None:
-        _fail("runtime library path is not a pinned native library")
-    _entry(
-        inventory,
-        library,
-        _integer(runtime["library_bytes"], minimum=1),
-        _hex64(runtime["library_sha256"]),
-    )
 
     model = _object(root["model"], _MODEL_FIELDS)
     _string(model["repository"])

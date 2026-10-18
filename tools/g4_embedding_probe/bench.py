@@ -81,18 +81,14 @@ def _exchange(staged: Path, payload: bytes) -> tuple[dict[str, Any], int]:
     return response, rss
 
 
-def _verify_sources(helper: Path, runtime_library: Path, assets: Path) -> None:
-    for path in (helper, runtime_library, *(assets / rel for rel in MODEL_FILES.values())):
+def _verify_sources(helper: Path, assets: Path) -> None:
+    for path in (helper, *(assets / rel for rel in MODEL_FILES.values())):
         _sha256(path)
 
 
-def _stage(
-    root: Path, serial: int, helper: Path, runtime_library: Path, assets: Path
-) -> tuple[Path, str]:
-    _verify_sources(helper, runtime_library, assets)
-    staged = stage(
-        root / f"stage-{serial}", helper=helper, runtime_library=runtime_library, assets=assets
-    )
+def _stage(root: Path, serial: int, helper: Path, assets: Path) -> tuple[Path, str]:
+    _verify_sources(helper, assets)
+    staged = stage(root / f"stage-{serial}", helper=helper, assets=assets)
     return staged, _sha256(staged / "component.json")
 
 
@@ -113,7 +109,6 @@ def percentile(values: list[float], fraction: float) -> float:
 def run(
     *,
     helper: Path,
-    runtime_library: Path,
     assets: Path,
     scratch: Path,
     query_runs: int,
@@ -132,14 +127,14 @@ def run(
         exchange_ms: list[float] = []
         peak = 0
         began = time.perf_counter()
-        persistent, component_id = _stage(root, serial, helper, runtime_library, assets)
+        persistent, component_id = _stage(root, serial, helper, assets)
         pinned = _staged_hashes(persistent)
         stage_create_ms = (time.perf_counter() - began) * 1000
         installed = sum(p.stat().st_size for p in persistent.rglob("*") if p.is_file())
         for index in range(query_runs):
             if per_invocation:
                 began = time.perf_counter()
-                staged, component_id = _stage(root, serial + 1, helper, runtime_library, assets)
+                staged, component_id = _stage(root, serial + 1, helper, assets)
             else:
                 if index:
                     began = time.perf_counter()
@@ -224,7 +219,6 @@ def run(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--helper", type=Path, required=True)
-    parser.add_argument("--runtime-library", type=Path, required=True)
     parser.add_argument("--assets", type=Path, required=True)
     parser.add_argument("--scratch", type=Path, required=True)
     parser.add_argument("--query-runs", type=int, default=41)
@@ -237,7 +231,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     result = run(
         helper=args.helper.resolve(),
-        runtime_library=args.runtime_library.resolve(),
         assets=args.assets.resolve(),
         scratch=args.scratch.resolve(),
         query_runs=args.query_runs,
