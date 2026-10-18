@@ -385,6 +385,9 @@ class LifecycleJournalV2(LifecycleJournal):
         return journal
 
     def _state(self) -> _ConsumerState:
+        return cast(_ConsumerState, super()._state())
+
+    def _verify_state(self) -> _ConsumerState:
         if not self.connection.in_transaction:
             raise LifecycleError("local_operation_failed")
         if not self._shape_matches() or [

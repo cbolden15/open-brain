@@ -90,7 +90,12 @@ def read_snapshot(engine: BrainEngine) -> Iterator[sqlite3.Connection]:
                 != PHASE1_STATE_SCHEMA_VERSION
             ):
                 raise T03Error("incompatible_runtime")
-            with historical_read_snapshot(connection, engine.profile):
+            from .capture_lifecycle import lifecycle_read_snapshot
+
+            with (
+                historical_read_snapshot(connection, engine.profile),
+                lifecycle_read_snapshot(connection),
+            ):
                 yield connection
         except sqlite3.Error, StorageError, SharingError:
             raise T03Error("operation_pending") from None
