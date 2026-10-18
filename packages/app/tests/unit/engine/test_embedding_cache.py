@@ -916,7 +916,7 @@ def test_real_helper_rebuild_on_twenty_record_brain(tmp_path: Path) -> None:
 
     inputs = _real_inputs()
     if inputs is None:
-        pytest.skip("contributor helper, runtime or MiniLM assets are not built")
+        pytest.skip("contributor helper or MiniLM assets are not built")
     files = {path: source.read_bytes() for path, source in inputs.items()}
     files[f"{fake.LICENSES}/NOTICE.txt"] = b"synthetic notice"
     base = fake.install(

@@ -905,7 +905,7 @@ def test_real_helper_hybrid_on_frozen_relevance_corpus(tmp_path: Path) -> None:
 
     inputs = _real_inputs()
     if inputs is None:
-        pytest.skip("contributor helper, runtime or MiniLM assets are not built")
+        pytest.skip("contributor helper or MiniLM assets are not built")
     files = {path: source.read_bytes() for path, source in inputs.items()}
     files[f"{fake.LICENSES}/NOTICE.txt"] = b"synthetic notice"
     tmp_path.chmod(0o700)
