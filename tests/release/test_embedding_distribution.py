@@ -704,3 +704,37 @@ def test_homebrew_smoke_renders_v2_and_checks_the_embedding_when_given_an_archiv
     )
     assert '$(if $(wildcard $(EMBEDDING_ARCHIVE)),"$(abspath $(EMBEDDING_ARCHIVE))")' in makefile
     assert "make embedding-native` writes the archive, then" in makefile
+
+
+def _make_dry_run(target: str, output: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["make", "-n", target, f"EMBEDDING_OUTPUT={output}", "EMBEDDING_VERSION=0.1.0", *extra],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+
+
+@pytest.mark.parametrize("target", ["native", "native-audit", "homebrew-smoke"])
+def test_native_targets_never_skip_the_embedding_role_silently(
+    tmp_path: Path, target: str
+) -> None:
+    missing = _make_dry_run(target, tmp_path, "EMBEDDING_REQUIRED=1")
+    assert missing.returncode != 0
+    assert "embedding archive missing" in missing.stderr
+
+    skipped = _make_dry_run(target, tmp_path)
+    assert skipped.returncode == 0, skipped.stderr
+    assert "embedding role skipped" in skipped.stdout
+    assert "--embedding-archive" not in skipped.stdout
+
+    archive = tmp_path / "open-brain-components-v2-embedding-0.1.0-macos-arm64.tar.gz"
+    linux = tmp_path / "open-brain-components-v2-embedding-0.1.0-linux-x86_64.tar.gz"
+    archive.write_bytes(b"")
+    linux.write_bytes(b"")
+    present = _make_dry_run(target, tmp_path, "EMBEDDING_REQUIRED=1")
+    assert present.returncode == 0, present.stderr
+    assert "embedding role skipped" not in present.stdout
+    assert str(tmp_path) in present.stdout
