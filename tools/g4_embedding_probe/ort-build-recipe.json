@@ -34,5 +34,9 @@
     }
   },
   "linking": "Static libraries only. The default target does not build re2, which the runtime needs, so post_build builds it. The helper links them with ORT_LIB_LOCATION=<build_dir>/Release.",
-  "required_cmake_cache": {"onnxruntime_USE_TELEMETRY": "OFF", "onnxruntime_BUILD_SHARED_LIB": "OFF"}
+  "required_cmake_cache": {
+    "onnxruntime_USE_TELEMETRY": "OFF",
+    "onnxruntime_BUILD_SHARED_LIB": "OFF",
+    "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0 (macos-arm64 only)"
+  }
 }

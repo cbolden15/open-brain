@@ -119,6 +119,7 @@ _TELEMETRY: Final = (
     b"ilogmanager",
 )
 _MAX_MINOS: Final = (11, 0, 0)
+_MACOS_TARGET: Final = re.compile(r"^CMAKE_OSX_DEPLOYMENT_TARGET:[A-Z]+=11\.0$")
 _CHUNK: Final = 8 * 1024 * 1024
 _NOTICE_LIMIT: Final = 16 * 1024 * 1024
 EMBEDDING_FILE_LIMIT: Final = 160 * 1024 * 1024
@@ -276,14 +277,32 @@ def audit_minimum_macos(path: Path, runner: Runner) -> None:
         raise EmbeddingNativeError(f"{path.name} requires macOS {text}, above 11.0")
 
 
-def audit_runtime_cache(runtime_build: Path) -> None:
-    """The ONNX Runtime build is static and compiled telemetry out."""
+def audit_runtime_cache(runtime_build: Path, platform: str) -> None:
+    """The ONNX Runtime build is static, compiled telemetry out and, on macOS, targets 11.0.
+
+    The linked-in objects keep their own deployment target; the helper's minos only reflects
+    the final link, so the floor of the runtime code is checked in its build cache.
+    """
     cache = runtime_build / "CMakeCache.txt"
-    lines = _read_regular(cache, limit=_NOTICE_LIMIT).decode("utf-8", errors="replace")
-    if "onnxruntime_USE_TELEMETRY:BOOL=OFF" not in lines.splitlines():
+    text = _read_regular(cache, limit=_NOTICE_LIMIT).decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    if "onnxruntime_USE_TELEMETRY:BOOL=OFF" not in lines:
         raise EmbeddingNativeError("ONNX Runtime build did not compile telemetry out")
-    if "onnxruntime_BUILD_SHARED_LIB:BOOL=OFF" not in lines.splitlines():
+    if "onnxruntime_BUILD_SHARED_LIB:BOOL=OFF" not in lines:
         raise EmbeddingNativeError("ONNX Runtime build is not static")
+    if platform == "macos-arm64" and not any(_MACOS_TARGET.fullmatch(line) for line in lines):
+        raise EmbeddingNativeError("ONNX Runtime build does not target macOS 11.0")
+
+
+def static_libraries(runtime_build: Path) -> list[list[str]]:
+    """Sorted ``[path, sha256]`` of every static library the helper may link."""
+    found = []
+    for path in sorted(runtime_build.rglob("*.a")):
+        if path.is_file() and not path.is_symlink():
+            found.append([path.relative_to(runtime_build).as_posix(), _file_sha256(path)[0]])
+    if not found:
+        raise EmbeddingNativeError("ONNX Runtime build has no static libraries")
+    return found
 
 
 def audit_binary(path: Path, platform: str, runner: Runner) -> None:
@@ -540,7 +559,8 @@ def build_embedding_resource(
         != runtime_commit
     ):
         raise EmbeddingNativeError("ONNX Runtime source is not at the recipe commit")
-    audit_runtime_cache(runtime_build)
+    audit_runtime_cache(runtime_build, platform)
+    libraries = static_libraries(runtime_build)
 
     if runner(
         ["git", "-C", os.fspath(root), "status", "--porcelain", "--", _HELPER_SOURCE.as_posix()]
@@ -626,6 +646,8 @@ def build_embedding_resource(
                         "env": build_env,
                         "manifest_sha256": _sha256((helper_dir / "Cargo.toml").read_bytes()),
                         "rustc": runner(["rustc", "--version"]).strip(),
+                        # ORT_LIB_LOCATION is host-specific; the linked bytes are not.
+                        "static_libraries": libraries,
                     }
                 )
             ),

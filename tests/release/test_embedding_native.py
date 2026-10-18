@@ -24,6 +24,10 @@ GOOD_LIBS = (
     "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n"
     "\t/usr/lib/libiconv.2.dylib (compatibility version 7.0.0)\n"
 )
+GOOD_CACHE = (
+    "a:BOOL=ON\nCMAKE_OSX_DEPLOYMENT_TARGET:UNINITIALIZED=11.0\n"
+    "onnxruntime_BUILD_SHARED_LIB:BOOL=OFF\nonnxruntime_USE_TELEMETRY:BOOL=OFF\n"
+)
 MINOS = "Load command 9\n      cmd LC_BUILD_VERSION\n  cmdsize 32\n platform 1\n    minos {}\n"
 
 
@@ -135,9 +139,9 @@ def make_world(
     build = tmp_path / "ort-build/Release"
     build.mkdir(parents=True)
     (build / "libonnxruntime_session.a").write_bytes(b"synthetic static runtime")
-    (build / "CMakeCache.txt").write_text(
-        "a:BOOL=ON\nonnxruntime_BUILD_SHARED_LIB:BOOL=OFF\nonnxruntime_USE_TELEMETRY:BOOL=OFF\n"
-    )
+    (build / "_deps/re2-build").mkdir(parents=True)
+    (build / "_deps/re2-build/libre2.a").write_bytes(b"synthetic re2")
+    (build / "CMakeCache.txt").write_text(GOOD_CACHE)
     assets = tmp_path / "assets"
     (assets / "onnx").mkdir(parents=True)
     contents = {
@@ -283,6 +287,30 @@ def test_helper_links_the_static_runtime_offline(tmp_path: Path) -> None:
     assert not any("/runtime/" in member.path for member in result.inventory.members)
 
 
+def _helper_recipe(result: en.BuildResult) -> object:
+    component = result.inventory.component
+    assert component is not None
+    return cast(dict[str, object], component["helper_build"])["recipe_sha256"]
+
+
+def test_helper_recipe_binds_the_linked_static_libraries(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    first = _helper_recipe(build(world, tmp_path, "one"))
+    assert _helper_recipe(build(world, tmp_path, "two")) == first
+    (world.runtime_build / "_deps/re2-build/libre2.a").write_bytes(b"another re2 build")
+    assert _helper_recipe(build(world, tmp_path, "three")) != first
+
+
+def test_linux_build_does_not_require_a_macos_floor(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    (world.runtime_build / "CMakeCache.txt").write_text(
+        GOOD_CACHE.replace("CMAKE_OSX_DEPLOYMENT_TARGET:UNINITIALIZED=11.0\n", "")
+    )
+    en.audit_runtime_cache(world.runtime_build, "linux-x86_64")
+    with pytest.raises(en.EmbeddingNativeError, match="macOS 11.0"):
+        en.audit_runtime_cache(world.runtime_build, "macos-arm64")
+
+
 def test_notices_digest_covers_sorted_paths_and_hashes(tmp_path: Path) -> None:
     notices = {f"{LICENSES}/b.txt": b"B", f"{LICENSES}/a.txt": b"A"}
     expected = sha(
@@ -367,6 +395,19 @@ def test_crate_without_license_files_is_refused(tmp_path: Path) -> None:
             "static",
         ),
         (lambda w: (w.runtime_build / "CMakeCache.txt").unlink(), "cannot read"),
+        # The linked-in ORT objects keep their own macOS floor; the helper's minos cannot show it.
+        (
+            lambda w: (w.runtime_build / "CMakeCache.txt").write_text(
+                GOOD_CACHE.replace("TARGET:UNINITIALIZED=11.0", "TARGET:STRING=15.0")
+            ),
+            "macOS 11.0",
+        ),
+        (
+            lambda w: (w.runtime_build / "CMakeCache.txt").write_text(
+                GOOD_CACHE.replace("CMAKE_OSX_DEPLOYMENT_TARGET:UNINITIALIZED=11.0\n", "")
+            ),
+            "macOS 11.0",
+        ),
         (lambda w: w.runner.minos.update({"open-brain-embedding": "14.0"}), "above 11.0"),
         (lambda w: setattr(w.runner, "runtime_commit", "d" * 40), "recipe commit"),
         (lambda w: setattr(w.runner, "dirty", " M src/main.rs\n"), "uncommitted"),
@@ -449,9 +490,11 @@ def test_stage_writes_the_canonical_component_for_an_inventory(tmp_path: Path) -
     result = build(world, tmp_path)
     inventory_file = tmp_path / "embedding.json"
     inventory_file.write_bytes(v2.render_inventory(result.inventory))
+    helper = tmp_path / "synthetic-helper"
+    helper.write_bytes(b"synthetic helper")
     staged = stage.stage(
         tmp_path / "staged",
-        helper=world.runtime_build / "CMakeCache.txt",
+        helper=helper,
         assets=world.assets,
         inventory=inventory_file,
     )
@@ -460,9 +503,7 @@ def test_stage_writes_the_canonical_component_for_an_inventory(tmp_path: Path) -
     assert result.inventory.component is not None
     assert sha(document) == v2.component_id(result.inventory.component)
     # The probe-benchmark mode is unchanged.
-    plain = stage.stage(
-        tmp_path / "plain", helper=world.runtime_build / "CMakeCache.txt", assets=world.assets
-    )
+    plain = stage.stage(tmp_path / "plain", helper=helper, assets=world.assets)
     assert json.loads((plain / "component.json").read_bytes())["preprocess"] == stage.PREPROCESS
 
 
