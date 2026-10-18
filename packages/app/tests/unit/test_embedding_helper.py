@@ -732,12 +732,24 @@ def test_group_writable_ancestor_is_refused_unless_sticky(tmp_path: Path) -> Non
     os.close(eh._open_absolute(shared / "brain"))
 
 
-def test_user_owned_group_writable_ancestor_is_admitted(tmp_path: Path) -> None:
+def test_user_owned_group_writable_ancestor_is_admitted_only_above_the_prefix(
+    tmp_path: Path,
+) -> None:
     # Homebrew's Cellar is 0775 and owned by the installing user (D15).
     cellar = tmp_path / "Cellar"
     (cellar / "open-brain").mkdir(parents=True)
     os.chmod(cellar, 0o775)
-    os.close(eh._open_absolute(cellar / "open-brain"))
+    os.close(eh._open_absolute(cellar / "open-brain", installed_prefix=True))
+    # A Brain root under the same kind of parent stays refused: the helper is
+    # launched by a path beneath it.
+    with pytest.raises(OSError):
+        os.close(eh._open_absolute(cellar / "open-brain"))
+
+
+def test_group_writable_brain_parent_refuses_the_stage(make: Callable[..., Env]) -> None:
+    env = make()
+    os.chmod(env.brain.parent, 0o775)
+    assert failure(lambda: env.backend().embed("query", [QUERY])) == "resource_untrusted"
 
 
 def test_resource_under_group_writable_cellar_verifies(make: Callable[..., Env]) -> None:

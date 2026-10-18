@@ -167,7 +167,7 @@ def _owned(info: os.stat_result) -> bool:
     return info.st_uid == os.getuid() and info.st_mode & 0o022 == 0
 
 
-def _open_absolute(path: Path) -> int:
+def _open_absolute(path: Path, *, installed_prefix: bool = False) -> int:
     """Open an absolute directory one component at a time without following links."""
     if not path.is_absolute():
         raise OSError("relative path")
@@ -178,13 +178,15 @@ def _open_absolute(path: Path) -> int:
             os.close(descriptor)
             descriptor = child
             info = os.fstat(descriptor)
-            # Ancestors above the keg share the base executable's trust (Homebrew's
-            # Cellar is group-writable by design), so group write is admitted only for
-            # root- or user-owned directories (D15). Integrity rests on descriptor
-            # hashing and the private stage; other-writable still needs the sticky bit.
+            # Section 4: reject group/other-writable ancestors unless sticky (e.g. /tmp).
+            # Only the installed prefix's ancestors, which the base executable already
+            # launches from (Homebrew's Cellar is 0775), may be group-writable when
+            # root- or user-owned (D15). The Brain root keeps the strict rule because the
+            # helper is launched by a path beneath it.
             if info.st_mode & 0o002 and not info.st_mode & stat.S_ISVTX:
                 raise OSError("writable ancestor")
-            if info.st_mode & 0o020 and info.st_uid not in (0, os.getuid()):
+            shared = installed_prefix and info.st_uid in (0, os.getuid())
+            if info.st_mode & 0o020 and not info.st_mode & stat.S_ISVTX and not shared:
                 raise OSError("writable ancestor")
         return descriptor
     except BaseException:
@@ -225,7 +227,7 @@ def _read_installed(prefix_fd: int, relative: str) -> bytes:
 @contextmanager
 def _installed_prefix(installed: InstalledEmbedding) -> Iterator[int]:
     try:
-        descriptor = _open_absolute(installed.prefix)
+        descriptor = _open_absolute(installed.prefix, installed_prefix=True)
     except OSError:
         _fail("resource_missing")
     try:
