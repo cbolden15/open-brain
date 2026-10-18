@@ -9,7 +9,7 @@ JSON receipt holding metrics only: no corpus text and no path outside the scratc
 directory. Latency is the wall-clock time of one complete CLI invocation, so it includes
 process start; ``process_start_ms`` records ``--version`` on the same host for context.
 
-The ``whole_command`` section applies the D17/D18 budgets to ``--version``, lexical and
+The ``whole_command`` section applies the D17/D18/D20 budgets to ``--version``, lexical and
 ``hybrid_required`` ``search-page``: warm runs reuse the prepared Brain, while each cold run
 is the first command of a fresh process against a fresh copy of that Brain with no helper
 stage. ``first_invocation_ms`` is the driver's first command; it is the first launch after
@@ -39,7 +39,8 @@ from tools.g4_embedding_probe.corpus import CORPUS, Corpus, Query, load_corpus
 RECEIPT_SCHEMA = "ob.g4-acceptance-receipt.v1"
 TOP_K = 5
 PARAPHRASE_MIN_HIT = 0.90
-WARM_P95_MAX_MS = 500.0
+# D17 whole-command warm p95 budgets; D20 relaxed only hybrid search to 900 ms.
+WARM_P95_MAX_MS = {"version": 500.0, "lexical": 500.0, "hybrid_required": 900.0}
 COLD_MAX_MS = 3000.0
 PROCESS_START_SAMPLES = 5
 COMMAND_TIMEOUT = 900
@@ -131,7 +132,7 @@ def criteria(
     return {
         "paraphrase_hit_at_5_ge_0_90": metrics["paraphrase_hit_at_5"] >= PARAPHRASE_MIN_HIT,
         "exact_id_regressions_zero": not metrics["exact_id_regressions"],
-        "warm_p95_le_500_ms": latency["warm_p95_ms"] <= WARM_P95_MAX_MS,
+        "warm_p95_le_900_ms": latency["warm_p95_ms"] <= WARM_P95_MAX_MS["hybrid_required"],
         "cold_le_3000_ms": latency["cold_ms"] <= COLD_MAX_MS,
         "rebuild_complete": rebuild.get("records") == record_count
         and rebuild.get("uncovered") == 0
@@ -158,7 +159,9 @@ def whole_command_criteria(
     warm: Mapping[str, Mapping[str, Any]], cold: Mapping[str, Mapping[str, Any]]
 ) -> dict[str, bool]:
     result = {
-        f"warm_{name}_p95_le_500_ms": warm[name]["p95_ms"] <= WARM_P95_MAX_MS for name in warm
+        f"warm_{name}_p95_le_{WARM_P95_MAX_MS[name]:.0f}_ms": warm[name]["p95_ms"]
+        <= WARM_P95_MAX_MS[name]
+        for name in warm
     }
     result.update(
         {f"cold_{name}_p95_le_3000_ms": cold[name]["p95_ms"] <= COLD_MAX_MS for name in cold}

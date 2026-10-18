@@ -79,13 +79,13 @@ def test_latency_summary_excludes_the_cold_query() -> None:
 
 def test_criteria_report_each_gate() -> None:
     metrics = {"paraphrase_hit_at_5": 0.9, "exact_id_regressions": []}
-    latency = {"warm_p95_ms": 500.0, "cold_ms": 3000.1}
+    latency = {"warm_p95_ms": 900.0, "cold_ms": 3000.1}
     rebuild = {"records": 6, "uncovered": 0, "excluded_oversize": 0}
     health = {"resource_state": "ready", "cache_state": "ready", "consent_state": "enabled"}
     assert criteria(metrics, latency, rebuild, health, 6) == {
         "paraphrase_hit_at_5_ge_0_90": True,
         "exact_id_regressions_zero": True,
-        "warm_p95_le_500_ms": True,
+        "warm_p95_le_900_ms": True,
         "cold_le_3000_ms": False,
         "rebuild_complete": True,
         "health_ready_ready_enabled": True,
@@ -93,6 +93,8 @@ def test_criteria_report_each_gate() -> None:
     stale = {**health, "cache_state": "stale"}
     assert not criteria(metrics, latency, {**rebuild, "records": 5}, stale, 6)["rebuild_complete"]
     assert not criteria(metrics, latency, rebuild, stale, 6)["health_ready_ready_enabled"]
+    slow = {**latency, "warm_p95_ms": 900.1}
+    assert not criteria(metrics, slow, rebuild, health, 6)["warm_p95_le_900_ms"]
 
 
 def test_note_filename_is_a_title_slug() -> None:
@@ -108,11 +110,16 @@ def test_stage_parts_match_the_product() -> None:
 def test_whole_command_summary_and_criteria() -> None:
     summary = whole_command_summary([float(v) for v in range(1, 21)])
     assert summary == {"runs": 20, "p50_ms": 10.0, "p95_ms": 19.0, "max_ms": 20.0}
-    warm = {"version": {"p95_ms": 500.0}, "hybrid_required": {"p95_ms": 500.1}}
+    warm = {
+        "version": {"p95_ms": 500.0},
+        "lexical": {"p95_ms": 500.1},
+        "hybrid_required": {"p95_ms": 900.0},
+    }
     cold = {"lexical": {"p95_ms": 3000.0}, "hybrid_required": {"p95_ms": 3000.1}}
     assert whole_command_criteria(warm, cold) == {
         "warm_version_p95_le_500_ms": True,
-        "warm_hybrid_required_p95_le_500_ms": False,
+        "warm_lexical_p95_le_500_ms": False,
+        "warm_hybrid_required_p95_le_900_ms": True,
         "cold_lexical_p95_le_3000_ms": True,
         "cold_hybrid_required_p95_le_3000_ms": False,
     }
@@ -168,9 +175,12 @@ def test_measure_whole_commands_runs_cold_commands_without_a_stage(tmp_path: Pat
         summary["runs"] == 3 for summary in (*result["warm"].values(), *result["cold"].values())
     )
     assert set(result["criteria"]) == {
-        f"{kind}_{name}_p95_le_{limit}_ms"
-        for kind, limit in (("warm", 500), ("cold", 3000))
-        for name in ("version", "lexical", "hybrid_required")
+        "warm_version_p95_le_500_ms",
+        "warm_lexical_p95_le_500_ms",
+        "warm_hybrid_required_p95_le_900_ms",
+        "cold_version_p95_le_3000_ms",
+        "cold_lexical_p95_le_3000_ms",
+        "cold_hybrid_required_p95_le_3000_ms",
     }
     # Six warm searches see the prepared stage; six cold searches see none.
     assert log.read_text().split() == ["staged"] * 6 + ["cold"] * 6
