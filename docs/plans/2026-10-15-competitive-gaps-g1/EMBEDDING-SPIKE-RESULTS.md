@@ -48,7 +48,7 @@ designates Apache-2.0, so distribution must carry the full Apache-2.0 text plus 
 Recipe `tools/g4_embedding_probe/ort-build-recipe.json` (SHA-256 `e39a06bde97be2f6cdf36998caf3d05e56318977f6e72e40b1615173f22abf27`).
 `--no_telemetry` maps to `-Donnxruntime_USE_TELEMETRY=OFF`, which leaves the 1DS client unlinked.
 
-| Check | macOS arm64 | Linux x86_64 (X1) |
+| Check | macOS arm64 | Linux x86_64 |
 |---|---|---|
 | Library SHA-256 | `ad50b487ba86e83d2c8983b3363de39b81cd054d471443324e341c05ddb58f9b` | `d02b770e5f2b09ffde120af0f4daa2ed4a9aa9b94db74f718d2a0c0ff66520a5` |
 | Size | 27.5 MB | 33.8 MB |
@@ -99,7 +99,7 @@ Each query re-hashes every staged byte against the pinned hashes, launches one h
 `embed` request and validates the response (`tools/g4_embedding_probe/bench.py`, persistent verified
 stage, decision D7). Rebuild = 10,009 chunks in 86 bounded exchanges, re-hashing before each.
 
-| Budget | Limit | macOS arm64 (M1 Pro) | Linux x86_64 (X1) |
+| Budget | Limit | macOS arm64 (M1 Pro) | Linux x86_64 |
 |---|---:|---:|---:|
 | Warm query p95 | ≤ 500 ms | 181 ms | 198 ms |
 | Cold (stage creation + first query) | ≤ 3 s | 1055 ms | 570 ms |

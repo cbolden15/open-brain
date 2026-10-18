@@ -4417,7 +4417,7 @@ measurement (T5.4, 2026-10-18) put the first command after `brew install` at 6.2
 old one-file base paid this cost on every call, because it extracted fresh files each time.
 
 Cause: macOS validates each freshly written Mach-O file once, as in NATIVE-EMBED-001, and the folder
-holds about 50 of them. Linux (X1) does not show the cost.
+holds about 50 of them. Linux does not show the cost.
 
 Action: measure warm runs and the first run after install separately. A cold budget that counts the
 first run after install cannot be met by layout alone on this host.

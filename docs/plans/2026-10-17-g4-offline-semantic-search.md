@@ -59,6 +59,6 @@ sections on eligibility and embedding consent. Spike evidence:
 
 End-to-end on a disposable synthetic Brain through the real CLI: import the frozen corpus, enable
 embedding, rebuild, run all 60 queries in `hybrid_required`; paraphrase hit@5 ≥ 90%, no exact-ID
-regression vs lexical; benchmark budgets on macOS arm64 and X1 linux-x86_64; full `make verify`,
+regression vs lexical; benchmark budgets on macOS arm64 and Linux x86_64; full `make verify`,
 `make native-audit`, `make homebrew-smoke`, `make native-integration-smoke` on the Mac; `make verify` and
-`make native-audit` on X1; independent read-only review of the final SHA.
+`make native-audit` on Linux x86_64; independent read-only review of the final SHA.
