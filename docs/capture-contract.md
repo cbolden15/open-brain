@@ -94,6 +94,8 @@ The policy is validated against this Brain's durable identity before any submiss
 
 The policy's `allowed_capture_tiers` set is the sole tier authority for this path. A request may select one tier inside that set. A missing tier becomes `unknown`, and it is accepted only when the set itself includes `unknown`. A tier outside the set is refused with `tier_not_permitted` before any engine call, leaving no partial state. No client flag can widen the set.
 
+Ordinary MCP `brain_capture` does not advertise `privacy_tier`; explicit tier selection is owner-only. A `brain_capture` call that still supplies a valid tier is refused with `tier_not_permitted` before any engine call. Use the owner CLI `capture --privacy-tier` or a granted `brain_capture_submit` session instead.
+
 Non-owner admission gates apply: the principal is the tenant and actor pair from the policy identity, and rate, concurrency, and bounded writer waiting are enforced before the writer lease. Replay is idempotent on the delivery ID and request digest, and a reused delivery ID with different bytes conflicts rather than overwriting.
 
 ## Digest and receipt binding

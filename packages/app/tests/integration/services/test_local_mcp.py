@@ -196,7 +196,7 @@ def test_scoped_capture_registry_requires_grant_safe_operation_and_injection(
         granted.call_tool("brain_capture", {"text": "scoped registry capture"})["status"]
         == "captured"
     )
-    with pytest.raises(McpCallError, match="capture privacy tier requires owner authority"):
+    with pytest.raises(McpCallError, match="^tier_not_permitted$"):
         granted.call_tool(
             "brain_capture",
             {"text": "scoped tier override", "privacy_tier": "secret"},
@@ -1764,14 +1764,42 @@ def test_malformed_request_metadata_is_rejected(tasks: Any, metadata: object) ->
 
 def test_capture_privacy_tier_is_refused_through_the_non_owner_sink(tasks: Any) -> None:
     adapter = _adapter(tasks, capture=True, search=False)
-    with pytest.raises(McpCallError, match="^capture privacy tier requires owner authority$"):
-        adapter.call_tool(
-            "brain_capture", {"text": "synthetic tiered capture", "privacy_tier": "work"}
-        )
+    for tier in ("work", "unknown"):
+        with pytest.raises(McpCallError, match="^tier_not_permitted$"):
+            adapter.call_tool(
+                "brain_capture", {"text": "synthetic tiered capture", "privacy_tier": tier}
+            )
     with pytest.raises(McpCallError, match="^invalid tool arguments$"):
         adapter.call_tool("brain_capture", {"text": "synthetic", "privacy_tier": "synthetic-tier"})
     plain = adapter.call_tool("brain_capture", {"text": "synthetic plain mcp capture"})
     assert plain["status"] == "captured"
+
+
+def test_capture_privacy_tier_refusal_reaches_the_wire_with_its_code(tasks: Any) -> None:
+    adapter = _adapter(tasks, capture=True, search=False)
+    capture_tool = next(tool for tool in adapter.list_tools() if tool["name"] == "brain_capture")
+    assert set(capture_tool["inputSchema"]["properties"]) == {"text", "idempotency_key"}
+    responses = _wire(
+        adapter,
+        INITIALIZE,
+        _call(
+            "brain_capture",
+            {
+                "text": "synthetic wire tiered capture",
+                "idempotency_key": "k1",
+                "privacy_tier": "work",
+            },
+        ),
+        _call(
+            "brain_capture", {"text": "synthetic wire tiered capture", "idempotency_key": "k1"}, 3
+        ),
+    )
+    assert responses[1]["result"] == {
+        "content": [{"type": "text", "text": "tier_not_permitted"}],
+        "isError": True,
+    }
+    assert responses[2]["result"]["structuredContent"]["status"] == "captured"
+    assert responses[2]["result"]["structuredContent"]["duplicate"] is False
 
 
 def _destination_policy(
@@ -2532,6 +2560,18 @@ def test_capture_submit_replay_is_idempotent_and_out_of_set_tiers_are_refused(
             "brain_capture_submit",
             {"text": "synthetic destination denied tier", "privacy_tier": "secret"},
         )
+    denied = _wire(
+        adapter,
+        INITIALIZE,
+        _call(
+            "brain_capture_submit",
+            {"text": "synthetic destination wire denied tier", "privacy_tier": "secret"},
+        ),
+    )
+    assert denied[1]["result"] == {
+        "content": [{"type": "text", "text": "tier_not_permitted"}],
+        "isError": True,
+    }
     with pytest.raises(McpCallError, match="^invalid tool arguments$"):
         adapter.call_tool("brain_capture_submit", {"text": "synthetic", "privacy_tier": 7})
 
