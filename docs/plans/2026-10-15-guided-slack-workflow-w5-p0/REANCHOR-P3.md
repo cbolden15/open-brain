@@ -59,8 +59,11 @@ current captured approved copy (the result `count` equals the member count). The
 `setup-apply`, after `approve` and after a reconciled `approve`. Until then the journal stays
 `active`, so a partial release or an edited member can still be repaired in the same journal.
 
-`completed` is terminal, as RECOVERY.md requires. Every `advance`, including `cancel`, refuses with
-`invalid_request`. `status` still reads the selected source. The interactive guide reports the
+`completed` is terminal. RECOVERY.md only requires a completed journal to be kept until the owner
+removes it; refusing every `advance`, including `cancel`, with `invalid_request` is a P4 choice. If
+the completion marker cannot be written after a succeeded `setup-apply` or `approve`, that step
+still reports its real outcome, the journal stays `active`, and the next non-cancel action records
+the marker and refuses. `status` still reads the selected source. The interactive guide reports the
 completion and asks nothing. The journal is kept until the owner removes it. A message edited after
 completion is repaired with the existing owner `open-brain sharing preview` and `approve`
 commands, not by reopening the journal.

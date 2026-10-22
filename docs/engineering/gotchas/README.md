@@ -4,6 +4,23 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-014: Plugin `t07-ui` `vi.waitFor` default timeout flakes under load
+
+Category: Testing / Host.
+
+Symptom: during a coordinator `make verify` on the W5 branch, one assertion in
+`packages/obsidian-plugin/tests/t07-ui.test.ts` failed because `vi.waitFor` hit
+its default 1000 ms timeout at 1008 ms. Python tests were running concurrently
+on the same machine. Three isolated reruns passed 702/702. W5 does not touch the
+plugin.
+
+Action: when this is the only failure, rerun the plugin suite alone with
+`make plugin-test` before treating it as a regression, and record both results.
+Do not raise the timeout or change the test to hide it; a repeat in an isolated
+run is a real failure.
+
+Discovered: 2026-10-22, W5 guided Slack final verify.
+
 ### TESTING-013: Any checkout write during `make verify` fails harness acceptance
 
 Category: Testing / Verification.

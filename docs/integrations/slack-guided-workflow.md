@@ -54,7 +54,7 @@ A decision file is a JSON object, 0600 under a 0700 directory and at most 65,536
 
 A write first returns `needs_confirmation` with the exact intent. Read it, then send the same action and arguments again with `"confirmation": {"intent_sha256": "<from the intent>", "decision": "approve"}` and the new `expected_revision`. A changed intent needs a new confirmation.
 
-Exit codes: 0 for completed or cancelled, 2 for an invalid command or decision, 3 for `needs_confirmation`, 78 for a refusal or unknown outcome.
+Exit codes: 0 for completed or cancelled, 2 for an invalid command or decision, 3 for `needs_confirmation` or `partial`, 78 for a refusal or unknown outcome. The interactive `slack` command also exits 3 when it stops at its five-page limit. A `completed` journal refuses every action, including `cancel`, with exit 2 and `invalid_request`.
 
 ## The journey and its checkpoints
 
@@ -81,7 +81,7 @@ Exit codes: 0 for completed or cancelled, 2 for an invalid command or decision, 
 
 The interactive `slack` command fetches at most five pages per run and asks before each page. When setup is applied it prints the approved copy IDs, how many selected messages have a current approved copy, and a reusable recall task to give the client.
 
-The journal becomes `completed` once setup is applied and every selected message has a current approved copy. Until then it stays `active`, so you can release the rest or repair an edited message in the same journal. A completed journal refuses every further action. Repair a message edited later with `open-brain sharing preview` and `approve`, as in the [cited-recall guide](slack-decision-recall.md).
+The journal becomes `completed` once setup is applied and every selected message has a current approved copy. Until then it stays `active`, so you can release the rest or repair an edited message in the same journal. A completed journal refuses every further action. If the `completed` marker itself could not be written after a successful `setup-apply` or `approve`, that step still reports its real outcome and the journal stays `active`; the next action records the marker and refuses with `invalid_request`. Repair a message edited later with `open-brain sharing preview` and `approve`, as in the [cited-recall guide](slack-decision-recall.md).
 
 ## Recovery
 
@@ -94,7 +94,7 @@ The guide never retries on its own. A lost acknowledgement or crash leaves the o
 
 `journal_busy` means another guide operation holds this workflow's lifetime guard. Wait for it to finish. A stale guard is never cleared by elapsed time. To start over, remove the journal file yourself after every guide process has stopped. Receipts, captures and approvals stay; the safe resume evidence is lost.
 
-The journal is bound to the device and inode of the collector state root as well as its path. Moving another collector state into the same path makes every command refuse with `binding_mismatch`.
+The journal is bound to the device and inode of the collector state root as well as its path. Moving another collector state into the same path makes every command refuse with `binding_mismatch`. Restoring the root from a backup, copying it or remounting it also gives it a new identity, so the guide treats it as a swap: `status` and every `advance` report `binding_mismatch`, and the guide cannot resume that journal. `cancel` stays available in that one case. It is journal-only, keeps every receipt and unresolved operation, and makes no collector or engine call. Start a new journal afterwards. A different Brain, collector state path or executable still refuses `cancel` too.
 
 ## Limits
 
