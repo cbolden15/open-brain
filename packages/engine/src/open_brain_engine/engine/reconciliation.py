@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from open_brain_engine.portable.v1 import validate_portable_write
 from open_brain_engine.storage.filesystem import (
     RootConfinementError,
     StorageError,
+    read_confined,
     read_confined_tree,
 )
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown
@@ -22,7 +24,8 @@ from .normalization import _portable_id
 from .search_projection import (
     canonical_source_rows,
     project_search_document,
-    source_search_title,
+    source_projection,
+    source_projection_text,
     upsert_search_document,
 )
 
@@ -293,8 +296,8 @@ def _projection_inputs(
     captures = tuple(
         connection.execute(
             """
-            SELECT capture_id, payload_family, space_id, search_text, title, accepted_at,
-                   source_origin, source_reference, provenance_json,
+            SELECT capture_id, payload_family, payload_json, space_id, search_text, title,
+                   accepted_at, source_origin, source_reference, provenance_json,
                    (
                        NOT EXISTS (
                            SELECT 1
@@ -316,6 +319,16 @@ def _projection_inputs(
             """
         )
     )
+
+    def read_blob(relative: str) -> bytes | None:
+        if portable_files is not None:
+            return portable_files.get(relative)
+        return read_confined(
+            root=engine.profile.root,
+            relative=relative,
+            expected_root_identity=engine.profile.root_identity,
+        )
+
     capture_by_id: dict[str, sqlite3.Row] = {}
     inputs: list[_ProjectionInput] = []
     for capture in captures:
@@ -335,6 +348,23 @@ def _projection_inputs(
             connection, capture_id
         ):
             continue
+        # The record projector derives this exact text and title, so its rows confirm.
+        text = source_projection_text(
+            json.loads(capture["payload_json"]),
+            stored_text=body,
+            read_blob=read_blob,
+        )
+        if text is None:
+            # The projector can never confirm a file whose blob is unreadable.
+            continue
+        _body, _indexed, title = source_projection(
+            text,
+            source_reference=_row_string(capture, "source_reference"),
+            payload_family=payload_family,
+            stored_title=(
+                None if capture["title"] is None else _row_string(capture, "title")
+            ),
+        )
         inputs.append(
             _ProjectionInput(
                 result_id=capture_id,
@@ -342,12 +372,8 @@ def _projection_inputs(
                 record_type="source",
                 payload_family=payload_family,
                 space_id=space_id,
-                title=(
-                    _row_string(capture, "title")
-                    if capture["title"] is not None
-                    else source_search_title(payload_family=payload_family, body=body)
-                ),
-                body=body,
+                title=title,
+                body=text,
                 canonical_path=None,
                 updated_at=_row_string(capture, "accepted_at"),
             )

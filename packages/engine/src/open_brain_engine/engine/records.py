@@ -16,17 +16,16 @@ from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
 from .consent_contracts import EgressMode
-from .contracts import FilePayload, LocalEngineContext
-from .harness_memory import is_harness_source_reference
+from .contracts import LocalEngineContext
 from .materializer import _payload_search_text
 from .mcp_eligibility import capture_visible, record_visible
 from .normalization import _privacy, _role_claim
 from .privacy_projection import parse_effective_privacy_json
 from .search_projection import (
-    public_harness_record_text,
     public_search_text,
     public_source_origin,
-    source_search_title,
+    source_projection,
+    source_projection_text,
 )
 from .sharing import require_capture_eligibility
 from .t03_contracts import EffectiveAuthority, T03Error, validate_wire
@@ -157,27 +156,25 @@ class RecordProjector:
         _revision, record = self._capture(head)
         reference = record["source"]["reference"]
         payload = record["payload"]
-        text = _payload_search_text(payload)
-        if payload.get("kind") == "file":
-            digest = payload["blob_sha256"]
-            blob = read_confined(
+        text = source_projection_text(
+            payload,
+            stored_text=_payload_search_text(payload),
+            read_blob=lambda relative: read_confined(
                 root=self.profile.root,
-                relative=f"sources/blobs/sha256/{digest[:2]}/{digest}",
+                relative=relative,
                 expected_root_identity=self.profile.root_identity,
-            )
-            if blob is None or sha256(blob).hexdigest() != digest:
-                raise T03Error("not_found")
-            text = FilePayload(payload["file_name"], payload["media_type"], blob).search_text()
-        body, indexed_body = public_harness_record_text(text, source_reference=reference)
+            ),
+        )
+        if text is None:
+            raise T03Error("not_found")
         row = self.connection.execute(
             "SELECT title FROM captures WHERE capture_id=?", (head,)
         ).fetchone()
-        title = (
-            row["title"]
-            if row is not None
-            and row["title"] is not None
-            and not is_harness_source_reference(reference)
-            else source_search_title(payload_family=record["payload"]["family"], body=indexed_body)
+        body, indexed_body, title = source_projection(
+            text,
+            source_reference=reference,
+            payload_family=record["payload"]["family"],
+            stored_title=None if row is None else row["title"],
         )
         origin = self._origin(record)
         summary = {

@@ -272,7 +272,21 @@ def test_legacy_current_publication_damage_refuses_without_hidden_cursor_influen
                 "WHERE result_id=?",
                 (legacy_fixture.PAGE_ID,),
             )
-        assert current.retrieval.search_page(tail, authority=external).to_wire() == expected
+        changed = cast(
+            dict[str, Any], current.retrieval.search_page(tail, authority=external).to_wire()
+        )
+        # Cursor tokens are freshly allocated per page, so compare everything else, then
+        # resume from the cursor issued before the hidden change: its binding must hold.
+        assert expected["next_cursor"] is not None and changed["next_cursor"] is not None
+        assert {**changed, "next_cursor": None} == {**expected, "next_cursor": None}
+        resumed = cast(
+            dict[str, Any],
+            current.retrieval.search_page(
+                replace(search, cursor=expected["next_cursor"]), authority=external
+            ).to_wire(),
+        )
+        assert resumed["results"]
+        assert all(row["record_id"] != legacy_fixture.PAGE_ID for row in resumed["results"])
 
 
 def test_sharing_provider_consent_surface_matrix(tmp_path: Path) -> None:
