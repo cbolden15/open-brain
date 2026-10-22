@@ -314,21 +314,40 @@ def test_consent_selection_and_per_message_release_need_separate_owner_checkpoin
 
 
 def test_edited_message_needs_new_inspection_and_release_preview(guide: Guide) -> None:
-    receipts, _selection = selected_and_consented(guide, ["Status: draft plan"])
+    receipts, _selection = selected_and_consented(guide, ["Status: draft plan", "Owner: Sam"])
+    first: list[str] = []
+    for receipt_id in receipts:
+        code, done = guide.confirm("approve", {"preview_id": released(guide, receipt_id)[
+            "preview_id"
+        ]})
+        assert code == 0, done
+        first = done["data"]["approved_copy_ids"]
+    assert done["data"]["count"] == 2
     stale = released(guide, receipts[0])
+    # A full rescan: the first message was edited, the second is unchanged.
     support.queue(
         guide.fixture,
         "conversations.history",
-        [support.history_page([{
-            **support.message("1760000000.000001", "Status: final plan"),
-            "edited": {"ts": "1760000500.000001"},
-        }])],
+        [
+            support.history_page([{
+                **support.message("1760000000.000001", "Status: final plan"),
+                "edited": {"ts": "1760000500.000001"},
+            }], "page-1"),
+            support.history_page([support.message("1760000001.000001", "Owner: Sam")]),
+        ],
     )
-    _code, previewed = guide.confirm("preview")
-    code, imported = guide.confirm("import", {"preview_id": previewed["data"]["preview_id"]})
-    assert code == 0, imported
-    edited = imported["data"]["receipt_ids"]
-    assert len(edited) == 1 and edited[0] != receipts[0]
+    new_receipts: list[str] = []
+    for _page in range(2):
+        _code, previewed = guide.confirm("preview")
+        code, imported = guide.confirm("import", {"preview_id": previewed["data"]["preview_id"]})
+        assert code == 0, imported
+        new_receipts += imported["data"]["receipt_ids"]
+    assert receipts[0] not in new_receipts
+    edited = [
+        receipt_id for receipt_id in new_receipts
+        if "final plan" in str(guide.advance("inspect", {"receipt_id": receipt_id})[1]["data"])
+    ]
+    assert len(edited) == 1
 
     code, refused = guide.advance("approve", {"preview_id": stale["preview_id"]})
     assert (code, refused["code"]) == (78, "revision_conflict"), refused
@@ -346,8 +365,13 @@ def test_edited_message_needs_new_inspection_and_release_preview(guide: Guide) -
     fresh = released(guide, edited[0])
     assert "Status: final plan" in json.loads(fresh["payload_utf8"])["text"]
     code, done = guide.confirm("approve", {"preview_id": fresh["preview_id"]})
-    assert (code, done["data"]["count"]) == (0, 1), done
-    assert len(done["data"]["approved_copy_ids"]) == 1
+    assert (code, done["data"]["count"]) == (0, 2), done
+    copies = done["data"]["approved_copy_ids"]
+    assert copies[:2] == first and len(copies) == 3
+    # Only the edited member was re-approved; the other member's approval is untouched.
+    approvals = [item for item in journal(guide)["operations"]
+                 if item["action"] == "approve" and item["state"] == "completed"]
+    assert len(approvals) == 3
 
 
 def test_stale_selection_member_refuses_release(guide: Guide) -> None:
