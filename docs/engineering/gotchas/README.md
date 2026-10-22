@@ -4,6 +4,23 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-013: Any checkout write during `make verify` fails harness acceptance
+
+Category: Testing / Verification.
+
+Symptom: the W5 guided Slack baseline `make verify` reported 8745 passed and 26
+errors, all in `tests/release/test_harness_acceptance.py` with
+`source_changed_during_run`. The coordinator had written workstream notes into
+the checkout while the run was in progress. The same file passed 32/32 on a clean
+checkout of the same commit.
+
+Action: treat these errors as a tree-changed signal, not a code failure (see
+BUILD-018). Commit or move every file first, including untracked workstream
+notes and gotcha edits. Then run the gate on a frozen tree with no other writer
+in that checkout and keep logs and receipts outside it.
+
+Discovered: 2026-10-22, W5 guided Slack workflow baseline.
+
 ### BUILD-019: Native fallback modules consume the fixed archive audit budget
 
 Category: Dependencies; Build Pipeline.

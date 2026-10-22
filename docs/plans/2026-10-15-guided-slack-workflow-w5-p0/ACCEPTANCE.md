@@ -1,6 +1,6 @@
 # W5 P0 acceptance map and exit record
 
-Status: P0 specification candidate. P1–P4 implementation, runtime acceptance and live checks are not run. The five contracts below supersede ambiguous W5 proposal wording only for the bounded guide v1. Source baseline is `377d23849467bb33ec4bcb31dcd79b812b60fbbb`; W4 tested candidate remains `7818f4f3138b887220c414119be9ac16e28b0a80` and is historical evidence only.
+Status: implemented on branch `feat/w5-guided-slack-workflow`, pending final gates (P1–P4 code head `67fad50`, 2026-10-22). Native acceptance and live checks are not run. The five contracts below supersede ambiguous W5 proposal wording only for the bounded guide v1. Source baseline is `377d23849467bb33ec4bcb31dcd79b812b60fbbb`; W4 tested candidate remains `7818f4f3138b887220c414119be9ac16e28b0a80` and is historical evidence only.
 
 Worktree/source root: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b`. Branch `feat/slack-cited-recall-w4-20261015-6d407b`; local origin/main `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`, no fetch. No other checkout or worktree is changed.
 

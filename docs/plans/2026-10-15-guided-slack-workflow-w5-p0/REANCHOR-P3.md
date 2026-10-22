@@ -50,3 +50,23 @@ is inspected.
 The unit tests in `packages/app/tests/unit/test_scoped_policy_authoring.py` were written just
 after `scoped_policy_authoring.py`, not before. All later P3 behavior and every review fix had
 a failing test first.
+
+## P4 decision: when a journal becomes completed
+
+This replaces P3 deviation 6. A journal becomes `completed` when all of these hold: a
+`setup-apply` has completed, no operation is unresolved, and every member of the selection has a
+current captured approved copy (the result `count` equals the member count). The check runs after
+`setup-apply`, after `approve` and after a reconciled `approve`. Until then the journal stays
+`active`, so a partial release or an edited member can still be repaired in the same journal.
+
+`completed` is terminal, as RECOVERY.md requires. Every `advance`, including `cancel`, refuses with
+`invalid_request`. `status` still reads the selected source. The interactive guide reports the
+completion and asks nothing. The journal is kept until the owner removes it. A message edited after
+completion is repaired with the existing owner `open-brain sharing preview` and `approve`
+commands, not by reopening the journal.
+
+The cross-journal race test (`test_source_guide_release_recovery.py`) runs two journals against one
+Brain, collector state and Slack source. The second journal reroutes the shared source to its own
+destination. The first journal's `select`, `release-preview` and `policy-preview` then refuse with
+`inspection_required`. Exactly one release preview and one approval exist, and the approved copy
+is in the second journal's space.

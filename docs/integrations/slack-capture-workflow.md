@@ -4,6 +4,8 @@ The optional collector retains selected Slack observations, extracts separate de
 
 This is a contributor implementation. The installed `0.1.0` executable may lack these interfaces. Check `open-brain catalog --json` on the candidate: state schema 17, runtime session 12 and Portable Brain 12. Read [compatibility and migration](../portable-brain-v12.md) before upgrading an existing Brain.
 
+To choose a channel, import, inspect and release messages without copying IDs between commands, use the [guided Slack workflow](slack-guided-workflow.md). It drives the same commands described here.
+
 ## Configure selected sources
 
 Reuse [Slack authorization and policy setup](slack.md). Credentials stay in the OS credential store. Core installation does not install or enable the collector. Set private absolute paths:
