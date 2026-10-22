@@ -15,7 +15,13 @@ Milestone: W5 P1–P4 to PR-ready (no push). Caps: 6 active, 12 total.
 | 5b | (child 5 resumed, not a new child) | P3 review fixes | opus | done: `0816dd4`, `6edd7c0`; v1 refuses existing spaces; new engine `InboxSpaceTasks.space_capture_ids`; full focused 7831 pass / 19 fail under 97% disk + concurrent other-session tests, all 19 pass in isolation; adapter unit 103/103 x3 by coordinator |
 | 7 | task-tdd-implementer | P4 deferred items + docs | opus | done: `3b0c714`..`a094bce` (5 commits); guide files 196/196 on default temp root (151 failures were self-inflicted world-writable `--basetemp`); item 7 not done |
 
+| 8 | task-spec-compliance-reviewer | final whole-branch review (read-only) | opus | READY_WITH_FIXES: 1 Important (cancel after state-root restore), 4 Minor |
+| 7b | (child 7 resumed, not a new child) | final review fixes | opus | done: `905a2cc`, `24d08a8`, `558e691`; guide files 199/199 |
+
 Final gates: coordinator, on a frozen committed tree.
+
+- Gate 1 on `2569d96`: Python 9079 passed / 0 failed; Obsidian plugin 701/702 (t07-ui `vi.waitFor` 1000 ms default hit at 1008 ms under load; 702/702 on 3 isolated reruns; plugin untouched by W5; gotcha TESTING-014); desktop stage not reached.
+- Gate 2: rerun after final-review fixes (this commit is its head).
 
 Concurrency note: a separate Codex session created `.worktrees/owner-egress-policy` and `.worktrees/search-projection-drift` (base `dd4c31d`, external-provider egress overlay changes) on 2026-10-22. Overlaps W5 P3 egress surface; second-to-merge must rebase and re-review.
 
