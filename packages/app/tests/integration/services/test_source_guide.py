@@ -464,6 +464,20 @@ def test_status_reports_binding_mismatch_for_another_collector_state(guide: Guid
     assert code == 78 and payload is not None and payload["code"] == "binding_mismatch"
 
 
+def test_collector_state_swapped_in_at_the_same_path_is_a_binding_mismatch(guide: Guide) -> None:
+    import shutil
+
+    guide.through_choose()
+    guide.confirm("configure")
+    collector = guide.state.parent
+    collector.rename(guide.root / "collector-original")
+    shutil.copytree(guide.root / "collector-original", collector, symlinks=True)
+    code, payload, _ = guide.run("status", *guide.common(), "--json")
+    assert code == 78 and payload is not None and payload["code"] == "binding_mismatch"
+    code, refused = guide.advance("accounts")
+    assert (code, refused["code"]) == (78, "binding_mismatch")
+
+
 def test_receipts_from_journal_only_and_journal_never_holds_inventory(guide: Guide) -> None:
     guide.through_choose()
     code, refused = guide.advance("inspect", {"receipt_id": "custody:" + "1" * 64})

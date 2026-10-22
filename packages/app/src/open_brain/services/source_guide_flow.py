@@ -382,10 +382,23 @@ def _executable_binding(executable: CollectorExecutable) -> dict[str, object]:
 
 
 def _collector_binding(paths: GuidePaths) -> str:
+    """Paths plus the on-disk identity of the collector state root.
+
+    The device/inode pair catches a different collector state moved in at the
+    same path; no collector file or format is read or written for it.
+    """
+    try:
+        root = os.stat(paths.state.parent)
+    except OSError:
+        raise _Stop("state_uninitialized") from None
+    if not stat.S_ISDIR(root.st_mode):
+        raise _Stop("state_uninitialized")
     value = {
         "brain_root": os.fspath(paths.brain),
         "collector_state": os.fspath(paths.state),
         "live_root": os.fspath(paths.state.parent / "live"),
+        "state_root_device": root.st_dev,
+        "state_root_inode": root.st_ino,
     }
     return "sha256:" + hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
