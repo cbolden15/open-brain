@@ -100,6 +100,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/source_guide.py",
         "services/source_guide_adapter.py",
         "services/source_guide_display.py",
+        "services/source_guide_journal.py",
         "services/space_inbox.py",
         "services/t03_adapters.py",
     }
