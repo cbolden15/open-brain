@@ -21,6 +21,7 @@ from open_brain_engine.core.models import (
     PrivacyReason,
     PrivacyTier,
     Provenance,
+    narrowest_tier,
 )
 from open_brain_engine.engine.capture import CaptureTasks
 from open_brain_engine.engine.consent_contracts import EgressMode, ProviderConsentState
@@ -79,6 +80,10 @@ _LOCAL_TIERS = frozenset(PrivacyTier) - {PrivacyTier.SECRET}
 _SPACE_PREFIX = "Harness memory "
 # Read-only: earlier releases routed local-only records to per-project spaces.
 _LEGACY_LOCAL_PREFIX = "Harness local memory "
+
+
+def _now_ns() -> int:
+    return time.time_ns()
 
 
 def _digest(value: str) -> str:
@@ -169,13 +174,15 @@ class HarnessWorkflow:
     ) -> dict[str, object]:
         """Return only delivery metadata; no source text enters acknowledgements.
 
-        ``observed_at`` is when the event was observed, in nanoseconds since the
-        epoch. A spooled replay passes its enqueue time, so it never overwrites a
-        head revision observed after it. Inline captures are observed now.
+        ``observed_at`` is passed only by a spooled replay: its enqueue time, in
+        nanoseconds since the epoch. Such a replay may be skipped when a newer head
+        exists, unless it tightens privacy. Inline captures are stamped now and are
+        never skipped, so clock skew can never drop a later marking.
         """
         captured: list[str] = []
         deliveries: list[str] = []
-        observed = time.time_ns() if observed_at is None else observed_at
+        replay = observed_at is not None
+        observed = _now_ns() if observed_at is None else observed_at
         try:
             policy = self.policy()
             authored = "\n".join(message.text for message in messages if message.authored)
@@ -251,7 +258,8 @@ class HarnessWorkflow:
                     ),
                 )
                 capture_id, delivery_id = self._capture_revision(
-                    client, project, policy, decision, identity, source, memory, observed
+                    client, project, policy, decision, identity, source, memory, observed,
+                    replay=replay,
                 )
                 deliveries.append(delivery_id)
                 if capture_id is not None:
@@ -283,6 +291,8 @@ class HarnessWorkflow:
         source: str,
         memory: HarnessMemory,
         observed_at: int | None = None,
+        *,
+        replay: bool = False,
     ) -> tuple[str | None, str]:
         if self.tasks.sources is None:
             raise ValueError("source_tasks_unavailable")
@@ -335,10 +345,12 @@ class HarnessWorkflow:
         ):
             revision_key = cast(str, head.revision_key)
         elif (
-            head.capture_id is not None
+            replay
+            and head.capture_id is not None
             and head_observed is not None
             and observed_at is not None
             and observed_at < head_observed
+            and not self._tightens(head.capture_id, decision.tier)
         ):
             # Superseded: report the newer head as this request's delivery.
             return head.capture_id, "harness.memory." + identity + "." + _digest(
@@ -392,6 +404,14 @@ class HarnessWorkflow:
             raise ValueError("revision_not_captured")
         self._route(receipt.capture_id, space.space_id)
         return receipt.capture_id, delivery_id
+
+    def _tightens(self, head_capture_id: str, tier: PrivacyTier) -> bool:
+        """True when ``tier`` is narrower than the head's; such a write is never stale."""
+        receipt = cast(CaptureTasks, self.tasks.capture).get(head_capture_id)
+        if receipt is None:
+            return True  # Unknown head tier: fail toward applying the write.
+        head_tier = receipt.final_admitted_tier
+        return head_tier != tier and narrowest_tier(head_tier, tier) == tier
 
     def _capture_context(self, client: str) -> PublicJobCaptureContext:
         def identifier(prefix: str) -> str:

@@ -36,7 +36,8 @@ removed; a failed line moves behind the others so it cannot starve later
 captures, and nothing is discarded. A line refused 16 times is parked: it stays
 in the spool and in the refused count but is no longer retried. Each line
 records when it was enqueued, and a replay never overwrites a source revision
-observed after it, so a stale retry cannot undo a later confidentiality marking. There are no receipts: delivery IDs make a
+observed after it, unless the replay tightens privacy. Inline captures are never
+skipped, so clock skew cannot drop a later confidentiality marking. There are no receipts: delivery IDs make a
 replayed line a downstream no-op. Status works while the Brain is unavailable
 and counts pending lines and their latest refused or unavailable attempts.
 
@@ -145,6 +146,21 @@ opaque path digest that the bridge cannot map back. To remove those, or anything
 captured under a source rule you later deleted, use the owner purge commands:
 `open-brain source withdraw` for a harness source and `open-brain retract` for
 a capture (see `docs/owner-retraction.md`).
+
+## Known limits
+
+The owner accepts these for now:
+
+- Excluding a path does not hide the digest-named spaces of unmapped projects
+  nested below it, such as `/a/secret/app` under an exclusion of `/a/secret`. A
+  verified Pi can still read their `unknown` records from other projects. Purge
+  them with `open-brain source withdraw` or `open-brain retract`.
+- Exclusion and digest matching is case-sensitive, even on case-insensitive
+  macOS volumes.
+- A parked spool line never retries automatically, and there is no command to
+  un-park it.
+- Secret rows are dropped from the decision-change scan, so a secret "changed"
+  decision does not supersede its predecessor in a verified Pi's view.
 
 ## Lifecycle adapters
 

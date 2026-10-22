@@ -608,3 +608,36 @@ def test_stale_spooled_replay_cannot_undo_a_newer_confidential_marking(tmp_path:
     assert workflow.capture("codex", "session", project, [message])["status"] == "acknowledged"
     assert workflow.recall("lentil", provider="codex").status == "success"
 
+
+def test_tightening_replay_with_an_older_timestamp_still_applies(tmp_path: Path) -> None:
+    workflow, _, project, _, _ = setup(tmp_path)
+    message = MemoryMessage("user", "I prefer lentil soup.", 1, True, "entry-1")
+    assert workflow.capture("codex", "session", project, [message])["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success"
+    marked = (message, MemoryMessage("user", "Confidential:\nI prefer violet pencils.", 2))
+    # A replay stamped long before the head (a skewed clock) still lowers the tier.
+    assert workflow.capture("codex", "session", project, marked, observed_at=1)["status"] == (
+        "acknowledged"
+    )
+    assert workflow.recall("lentil", provider="codex").status == "success_empty"
+
+
+def test_inline_capture_is_never_skipped_even_with_a_skewed_back_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_brain.services import harness_workflow
+
+    workflow, _, project, _, _ = setup(tmp_path)
+    message = MemoryMessage("user", "I prefer lentil soup.", 1, True, "entry-1")
+    marked = (message, MemoryMessage("user", "Confidential:\nI prefer violet pencils.", 2))
+    # A replay from a host whose clock runs far ahead wrote the current head.
+    ahead = 4_000_000_000_000_000_000
+    assert workflow.capture("codex", "session", project, marked, observed_at=ahead)[
+        "status"
+    ] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success_empty"
+    monkeypatch.setattr(harness_workflow, "_now_ns", lambda: 1)
+    # This host's clock is behind, but an inline capture always applies.
+    assert workflow.capture("codex", "session", project, [message])["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success"
+
