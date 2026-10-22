@@ -841,10 +841,13 @@ class ReleaseFlow(GuideFlow):
             self._sharing_completed(finished, prepared, request, value)
 
         finished, _value = self._run(document, prepared, "approve", request, complete)
+        summary = self._summary("approve", finished)
+        finished = self._finish_if_released(finished, summary)
         return result_envelope(
-            "approve", "completed", document=finished,
-            data=self._summary("approve", finished),
-            next_actions=("release-preview", "policy-preview"),
+            "approve", "completed", document=finished, data=summary,
+            next_actions=(
+                () if finished["status"] == "completed" else ("release-preview", "policy-preview")
+            ),
         )
 
     def _summary(self, phase: str, document: Mapping[str, object]) -> dict[str, object]:
@@ -877,6 +880,30 @@ class ReleaseFlow(GuideFlow):
             selection_id=None if selection is None else cast(str, selection["selection_id"]),
             approved_copy_ids=copies[:24],
         )
+
+    def _finish_if_released(
+        self, document: dict[str, object], summary: Mapping[str, object]
+    ) -> dict[str, object]:
+        """Mark the journal `completed` once setup is applied and the release is whole.
+
+        Completion needs a completed setup-apply, no unresolved operation and a
+        current captured approved copy for every selected member. Until then the
+        journal stays `active` so a partial release or an edited member can be
+        repaired in the same journal. `completed` is terminal and kept until the
+        owner removes it; later repairs use the existing owner sharing commands.
+        """
+        selection = self._selection(document)
+        if (
+            document["status"] != "active"
+            or selection is None
+            or not self._completed(document, "setup-apply")
+            or self._unresolved(document)
+            or summary["count"] != len(cast(list[str], selection["member_source_ids"]))
+        ):
+            return document
+        finished = copy.deepcopy(document)
+        finished["status"] = "completed"
+        return self._write(finished, reserve=0)
 
     def _previewed_head(self, document: Mapping[str, object], preview_id: str) -> str | None:
         for item in self._completed(document, "release-preview"):
@@ -1156,9 +1183,10 @@ class ReleaseFlow(GuideFlow):
             }
 
         finished, _value = self._run(document, prepared, "setup-apply", request, complete)
+        summary = self._summary("setup-apply", finished)
         return result_envelope(
-            "setup-apply", "completed", document=finished,
-            data=self._summary("setup-apply", finished),
+            "setup-apply", "completed", document=self._finish_if_released(finished, summary),
+            data=summary,
         )
 
     # -- reconcile -----------------------------------------------------------
@@ -1190,11 +1218,13 @@ class ReleaseFlow(GuideFlow):
         if isinstance(prepared, dict):
             return prepared
         finished = self._replay(document, prepared, sequence, action, saved)
+        data = _progress("reconcile")
+        if action == "approve":
+            data = self._summary("reconcile", finished)
+            finished = self._finish_if_released(finished, data)
         return result_envelope(
-            "reconcile", "completed", document=finished,
-            data=self._summary("reconcile", finished) if action == "approve"
-            else _progress("reconcile"),
-            next_actions=self._after(action),
+            "reconcile", "completed", document=finished, data=data,
+            next_actions=() if finished["status"] == "completed" else self._after(action),
         )
 
     @staticmethod

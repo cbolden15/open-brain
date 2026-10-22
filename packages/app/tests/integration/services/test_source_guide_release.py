@@ -540,6 +540,47 @@ def test_json_journey_from_start_to_scoped_setup_without_client_launch(guide: Gu
     assert b"synthetic-tool" not in stored and b"mcpServers" not in stored
 
 
+def setup_applied(guide: Guide) -> dict[str, Any]:
+    preview_id = setup_previewed(guide)["preview_id"]
+    code, done = guide.confirm("setup-apply", {"preview_id": preview_id})
+    assert (code, done["outcome"]) == (0, "completed"), done
+    return done
+
+
+def test_journal_completes_after_setup_apply_once_every_member_is_released(
+    guide: Guide,
+) -> None:
+    approved_one(guide)
+    policy_applied(guide)
+    done = setup_applied(guide)
+    assert done["data"]["count"] == 1
+    assert journal(guide)["status"] == "completed"
+    # A completed journal is terminal: no further action, including cancel.
+    for action in ("policy-preview", "cancel"):
+        code, refused = guide.advance(action)
+        assert (code, refused["code"]) == (2, "invalid_request")
+    assert journal(guide)["status"] == "completed"
+
+
+def test_partial_release_stays_active_for_repair_until_every_member_is_current(
+    guide: Guide,
+) -> None:
+    receipts, _selection = selected_and_consented(guide, ["Decision: one.", "Owner: two."])
+    code, done = guide.confirm("approve", {"preview_id": released(guide, receipts[0])[
+        "preview_id"
+    ]})
+    assert code == 0, done
+    policy_applied(guide)
+    done = setup_applied(guide)
+    assert done["data"]["count"] == 1
+    assert journal(guide)["status"] == "active"
+    code, done = guide.confirm("approve", {"preview_id": released(guide, receipts[1])[
+        "preview_id"
+    ]})
+    assert (code, done["data"]["count"]) == (0, 2), done
+    assert journal(guide)["status"] == "completed"
+
+
 def test_revoked_consent_refuses_setup_apply_before_any_config_write(guide: Guide) -> None:
     from open_brain.services.session_consent import DurableProviderConsentStore
 
@@ -634,6 +675,12 @@ def test_interactive_flow_from_start_to_scoped_setup_with_each_owner_checkpoint(
     assert "\u001b" not in output and "‮" not in output and "\u0007" not in output
     assert (guide.project / ".mcp.json").exists()
     assert not (guide.root / "launched").exists()
+    assert state["status"] == "completed"
+    # Resuming a completed journal asks nothing and makes no call.
+    revision, asked = state["revision"], len(prompts)
+    code, _, output = guide.run("slack", *guide.common())
+    assert code == 0 and "workflow is completed" in output, output
+    assert len(prompts) == asked and journal(guide)["revision"] == revision
 
 
 def test_current_captured_approval_is_not_released_again(guide: Guide) -> None:

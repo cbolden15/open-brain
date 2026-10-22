@@ -414,6 +414,12 @@ def run_interactive(
         assert document is not None
         session.workflow_id = cast(str, document["workflow_id"])
         session.revision = cast(int, document["revision"])
+        if document["status"] == "completed":
+            session.say(
+                "This workflow is completed: setup is applied and every selected message has a "
+                "current approved copy. Repair later edits with the owner sharing commands."
+            )
+            return 0
         done = _completed(document)
         if "preflight" not in done:
             _preflight(session)
