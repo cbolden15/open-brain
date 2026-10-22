@@ -97,6 +97,9 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/scoped_setup.py",
         "services/session_authority.py",
         "services/session_consent.py",
+        "services/source_guide.py",
+        "services/source_guide_adapter.py",
+        "services/source_guide_display.py",
         "services/space_inbox.py",
         "services/t03_adapters.py",
     }
