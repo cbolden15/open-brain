@@ -13,7 +13,6 @@ from open_brain_engine.portable.v1 import validate_portable_write
 from open_brain_engine.storage.filesystem import (
     RootConfinementError,
     StorageError,
-    read_confined,
     read_confined_tree,
 )
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown
@@ -24,6 +23,7 @@ from .normalization import _portable_id
 from .search_projection import (
     canonical_source_rows,
     project_search_document,
+    read_source_blob,
     source_projection,
     source_projection_text,
     upsert_search_document,
@@ -323,11 +323,7 @@ def _projection_inputs(
     def read_blob(relative: str) -> bytes | None:
         if portable_files is not None:
             return portable_files.get(relative)
-        return read_confined(
-            root=engine.profile.root,
-            relative=relative,
-            expected_root_identity=engine.profile.root_identity,
-        )
+        return read_source_blob(engine.profile, relative)
 
     capture_by_id: dict[str, sqlite3.Row] = {}
     inputs: list[_ProjectionInput] = []

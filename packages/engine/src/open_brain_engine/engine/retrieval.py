@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
@@ -23,7 +24,9 @@ from .search_projection import (
     canonical_source_rows,
     public_search_text,
     public_source_origin,
+    read_source_blob,
     source_projection,
+    source_projection_text,
     upsert_search_document,
 )
 from .t03_contracts import (
@@ -53,6 +56,16 @@ class _CompiledQuery:
 
 class RetrievalOperations(_LocalEngineOperations):
     def _upsert_source_search(self, connection: sqlite3.Connection, capture: sqlite3.Row) -> None:
+        # The record projector reads file text from the blob, not the stored metadata
+        # string, so this row must too or every match on it is projection_stale.
+        text = source_projection_text(
+            json.loads(cast(str, capture["payload_json"])),
+            stored_text=cast(str, capture["search_text"]),
+            read_blob=lambda relative: read_source_blob(self.profile, relative),
+        )
+        if text is None:
+            # The projector can never confirm a file whose blob is unreadable.
+            return
         self._upsert_search(
             connection,
             result_id=cast(str, capture["capture_id"]),
@@ -61,12 +74,12 @@ class RetrievalOperations(_LocalEngineOperations):
             payload_family=cast(str, capture["payload_family"]),
             space_id=cast(str | None, capture["space_id"]),
             title=source_projection(
-                cast(str, capture["search_text"]),
+                text,
                 source_reference=cast(str, capture["source_reference"]),
                 payload_family=cast(str, capture["payload_family"]),
                 stored_title=cast(str | None, capture["title"]),
             )[2],
-            body=cast(str, capture["search_text"]),
+            body=text,
             canonical_path=None,
             updated_at=cast(str, capture["accepted_at"]),
         )

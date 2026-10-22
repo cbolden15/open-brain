@@ -287,6 +287,14 @@ def test_legacy_current_publication_damage_refuses_without_hidden_cursor_influen
         )
         assert resumed["results"]
         assert all(row["record_id"] != legacy_fixture.PAGE_ID for row in resumed["results"])
+        # The cursor issued after the hidden change must resume to the same page too.
+        resumed_after = cast(
+            dict[str, Any],
+            current.retrieval.search_page(
+                replace(search, cursor=changed["next_cursor"]), authority=external
+            ).to_wire(),
+        )
+        assert {**resumed_after, "next_cursor": None} == {**resumed, "next_cursor": None}
 
 
 def test_sharing_provider_consent_surface_matrix(tmp_path: Path) -> None:

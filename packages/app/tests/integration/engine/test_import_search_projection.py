@@ -101,6 +101,19 @@ def test_round_tripped_file_capture_is_searchable_by_its_file_body(tmp_path: Pat
     assert found[file_capture]["title"] == "attachment.md text/markdown Imported attachment heading"
 
 
+def test_markdown_vault_import_is_searchable_by_note_body_without_rederive(
+    tmp_path: Path,
+) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "note.md").write_bytes(b"# Vault heading\nquasarvault body token\n")
+    engine = _engine(tmp_path / "brain")
+    assert engine.markdown_import.import_directory(str(vault), confirm=lambda _: True).imported == 1
+    found = _found(engine, "quasarvault")
+    assert len(found) == 1
+    assert _mismatched(engine) == set()
+
+
 def test_imported_untitled_text_capture_title_agrees(tmp_path: Path) -> None:
     engine, _file, text_capture = _imported(tmp_path)
     found = _found(engine, "beryllium")
@@ -165,6 +178,22 @@ def _with_owner_captures(engine: BrainEngine) -> tuple[str, str]:
     return file_capture, text_capture
 
 
+def test_source_row_writer_indexes_blob_text_for_a_metadata_only_capture(
+    tmp_path: Path,
+) -> None:
+    """The lifecycle-restore and import writer must not re-index the stored metadata text."""
+    engine = _imported_fixture(tmp_path)
+    excerpt = _found(engine, "blob")[_FIXTURE_FILE]["excerpt"]
+    with engine._writer_lease.acquire_shared_writer(), engine._store.transaction() as connection:
+        capture = connection.execute(
+            "SELECT * FROM captures WHERE capture_id=?", (_FIXTURE_FILE,)
+        ).fetchone()
+        assert capture["search_text"] != excerpt
+        engine._upsert_source_search(connection, capture)
+    assert _mismatched(engine) == set()
+    assert set(_found(engine, "blob")) == {_FIXTURE_FILE}
+
+
 def test_rederive_heals_drifted_rows_for_every_capture_kind(tmp_path: Path) -> None:
     engine = _imported_fixture(tmp_path)
     owner_file, owner_text = _with_owner_captures(engine)
@@ -222,7 +251,7 @@ def test_owner_file_and_text_rows_are_unchanged_by_rederive(tmp_path: Path) -> N
     assert _mismatched(engine) == set()
 
 
-@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+@pytest.mark.parametrize("damage", ["missing", "corrupt", "symlink"])
 def test_unreadable_file_blob_is_left_out_of_the_index(tmp_path: Path, damage: str) -> None:
     engine = _imported_fixture(tmp_path)
     blobs = [path for path in (engine.profile.root / "sources/blobs").rglob("*") if path.is_file()]
@@ -230,6 +259,11 @@ def test_unreadable_file_blob_is_left_out_of_the_index(tmp_path: Path, damage: s
     blobs[0].chmod(0o600)
     if damage == "missing":
         blobs[0].unlink()
+    elif damage == "symlink":
+        outside = tmp_path / "outside-blob"
+        outside.write_bytes(blobs[0].read_bytes())
+        blobs[0].unlink()
+        blobs[0].symlink_to(outside)
     else:
         blobs[0].write_bytes(b"tampered blob bytes")
     rederive_live_search_projection(engine)

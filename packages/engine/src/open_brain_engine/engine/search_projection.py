@@ -12,8 +12,9 @@ from typing import cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import ContentOrigin, Provenance
+from open_brain_engine.storage.filesystem import StorageError, read_confined
 
-from .contracts import FilePayload, project_public_result_text
+from .contracts import FilePayload, LocalEngineContext, project_public_result_text
 from .harness_memory import (
     HarnessMemory,
     encode_memory,
@@ -103,6 +104,23 @@ def source_projection_text(
     return FilePayload(
         cast(str, payload["file_name"]), cast(str, payload["media_type"]), blob
     ).search_text()
+
+
+def read_source_blob(profile: LocalEngineContext, relative: str) -> bytes | None:
+    """Read one source blob for indexing; an unsafe or unreadable blob is absent.
+
+    The record projector refuses the same record, so treating a confinement or
+    storage failure as a missing blob keeps one bad file from aborting a rebuild
+    while never indexing text the projector cannot confirm.
+    """
+    try:
+        return read_confined(
+            root=profile.root,
+            relative=relative,
+            expected_root_identity=profile.root_identity,
+        )
+    except StorageError:
+        return None
 
 
 def source_projection(
