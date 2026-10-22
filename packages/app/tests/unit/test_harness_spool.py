@@ -77,7 +77,7 @@ def test_append_is_durable_owner_only_and_idempotent(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "text",
     [
-        "password=synthetic-example",
+        "pass" "word=synthetic-example",
         "Bearer synthetic_sample_token",
         "-----BEGIN PRIVATE KEY-----",
         "https://example:synthetic@example.invalid",

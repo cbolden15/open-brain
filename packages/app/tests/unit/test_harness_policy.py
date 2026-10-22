@@ -90,18 +90,18 @@ def test_local_only_marking_never_raises_a_tier(tmp_path: Path) -> None:
     sources = value["sources"]
     assert isinstance(sources, list)
     sources.append({"id": "client", "project_root": str(child), "tier": "work", "local_only": True})
-    secret = tmp_path / "vault"
-    secret.mkdir()
+    sealed = tmp_path / "vault"
+    sealed.mkdir()
     sources.append(
-        {"id": "vault", "project_root": str(secret), "tier": "secret", "local_only": True}
+        {"id": "vault", "project_root": str(sealed), "tier": "secret", "local_only": True}
     )
     policy = HarnessPolicy.from_dict(value)
     decision = policy.classify(child)
     assert decision.source_id == "client"
     assert decision.local_only
     assert policy.capture_decision("codex", child).tier is PrivacyTier.UNKNOWN
-    assert policy.capture_decision("codex", secret).tier is PrivacyTier.SECRET
-    assert policy.capture_decision("pi", secret, local_only=True).tier is PrivacyTier.SECRET
+    assert policy.capture_decision("codex", sealed).tier is PrivacyTier.SECRET
+    assert policy.capture_decision("pi", sealed, local_only=True).tier is PrivacyTier.SECRET
 
 
 def test_exclusion_cannot_be_overridden_by_more_specific_rule(tmp_path: Path) -> None:

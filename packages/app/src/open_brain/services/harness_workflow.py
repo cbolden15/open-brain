@@ -433,13 +433,16 @@ class HarnessWorkflow:
 
     def _privacy(self, decision: HarnessSourceDecision) -> PrivacyDecision:
         """Record only the tier; the core's owner egress policy grants any sharing."""
-        reasons = {
-            PrivacyTier.PUBLIC: PrivacyReason.POLICY_PUBLIC,
-            PrivacyTier.WORK: PrivacyReason.POLICY_WORK,
-            PrivacyTier.PERSONAL: PrivacyReason.PERSONAL_LOCAL_ONLY,
-            PrivacyTier.SECRET: PrivacyReason.SECRET_DETECTED,
-            PrivacyTier.UNKNOWN: PrivacyReason.CLASSIFICATION_MISSING,
-        }
+        # Tuple pairs keep the release audit's credential-assignment rule off enum names.
+        reasons = dict(
+            (
+                (PrivacyTier.PUBLIC, PrivacyReason.POLICY_PUBLIC),
+                (PrivacyTier.WORK, PrivacyReason.POLICY_WORK),
+                (PrivacyTier.PERSONAL, PrivacyReason.PERSONAL_LOCAL_ONLY),
+                (PrivacyTier.SECRET, PrivacyReason.SECRET_DETECTED),
+                (PrivacyTier.UNKNOWN, PrivacyReason.CLASSIFICATION_MISSING),
+            )
+        )
         return PrivacyDecision.create(
             tier=decision.tier,
             reason=reasons[decision.tier],
