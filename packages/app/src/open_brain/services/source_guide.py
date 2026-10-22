@@ -1,8 +1,9 @@
 """`open-brain source guide`: owner-local guided Slack commands before root selection.
 
-This build implements read-only `status`. The interactive `slack` flow and the
-one-phase `advance` writes are registered and refuse as not implemented. No
-command here selects a default Brain, bootstraps the engine or creates state.
+`status` reads the workflow journal and the collector's noncreating metadata.
+`advance` performs one named decision through the shared coordinator in
+`source_guide_flow`; `slack` drives the same coordinator from terminal prompts.
+No command here selects a default Brain; status never bootstraps or creates state.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 from open_brain_engine.engine import PHASE1_STATE_SCHEMA_VERSION
 
@@ -26,7 +27,14 @@ from open_brain.services.source_guide_adapter import (
 )
 from open_brain.services.source_guide_display import render_health, safe_display
 
-__all__ = ["GuidePaths", "guide_status", "render_status", "run_source_guide"]
+__all__ = [
+    "GuidePaths",
+    "guide_status",
+    "journal_status",
+    "render_status",
+    "run_source_guide",
+    "system_alias",
+]
 
 _COMMON: Final = {
     "--data-dir": "brain",
@@ -35,6 +43,9 @@ _COMMON: Final = {
     "--collector-executable": "executable",
 }
 _LEAVES: Final = frozenset({"slack", "status", "advance"})
+# Only these exact OS-owned top-level aliases are rewritten to their canonical
+# /private targets (macOS); arbitrary user symlinks still refuse as unsafe.
+_SYSTEM_ALIASES: Final = ("var", "tmp", "etc")
 _MESSAGES: Final = {
     "invalid_request": "The guide command is invalid. Pass each required absolute path once.",
     "unsafe_path": (
@@ -54,6 +65,8 @@ _MESSAGES: Final = {
         "No guided Slack workflow has selected a source yet. Nothing was created or changed."
     ),
     "journal_incompatible": "This build cannot read the existing workflow state file.",
+    "journal_busy": "Another guide operation holds this workflow. Nothing was changed.",
+    "binding_mismatch": "The workflow state belongs to another Brain or collector state.",
     "operation_failed": "The collector refused the read-only metadata request.",
     "operation_unknown": "The collector did not return a valid result in time.",
 }
@@ -91,6 +104,20 @@ def _envelope(
     }
 
 
+def system_alias(path: Path) -> Path:
+    """Rewrite `/var`, `/tmp` or `/etc` to `/private/...` only when the OS link says so."""
+    parts = path.parts
+    if len(parts) < 2 or parts[1] not in _SYSTEM_ALIASES:
+        return path
+    try:
+        target = os.readlink(Path("/") / parts[1])
+    except OSError:
+        return path
+    if target not in {f"private/{parts[1]}", f"/private/{parts[1]}"}:
+        return path
+    return Path("/private", *parts[1:])
+
+
 def _within(child: Path, parent: Path) -> bool:
     return child == parent or parent in child.parents
 
@@ -115,9 +142,9 @@ def _parse(arguments: Sequence[str]) -> tuple[str, GuidePaths, bool, Path | None
             if key in values or (key == "decision" and decision is not None):
                 raise _UsageError
             if key == "decision":
-                decision = value
+                decision = system_alias(value)
             else:
-                values[key] = Path(os.path.normpath(value))
+                values[key] = system_alias(Path(os.path.normpath(value)))
             index += 2
             continue
         raise _UsageError
@@ -154,13 +181,30 @@ def guide_status(paths: GuidePaths, *, selected_source_id: str | None) -> dict[s
     return _envelope("status", "completed", None, {"kind": "health", "report": report})
 
 
-def _selected_source(journal: Path) -> str | None:
-    """The workflow journal names the selected source; this build has no journal reader."""
+def journal_status(paths: GuidePaths) -> dict[str, object]:
+    """Read-only status for the source selected by the existing workflow journal.
+
+    Reads the journal without its CAS lock or guard and never writes, so status
+    cannot update timestamps, settle markers or create files.
+    """
+    from open_brain.services.source_guide_flow import GuideFlow, is_stop, stop_envelope
+    from open_brain.services.source_guide_journal import JournalError
+
     try:
-        os.lstat(journal)
-    except FileNotFoundError:
-        return None
-    raise GuideAdapterError("journal_incompatible")
+        executable = resolve_collector_executable(paths.executable)
+        collector_handshake(executable)
+        document, source_id = GuideFlow(paths).selected_source(executable)
+    except (GuideAdapterError, JournalError) as error:
+        return _envelope("status", "refused", error.code)
+    except Exception as error:
+        if not is_stop(error):
+            raise
+        return cast(dict[str, object], stop_envelope("status", error))
+    result = guide_status(paths, selected_source_id=source_id)
+    if document is not None:
+        result["workflow_id"] = document["workflow_id"]
+        result["revision"] = document["revision"]
+    return result
 
 
 def render_status(result: Mapping[str, object]) -> str:
@@ -193,18 +237,31 @@ def run_source_guide(arguments: Sequence[str]) -> int:
     leaf = arguments[0] if arguments else "status"
     action = leaf if leaf in _LEAVES - {"slack"} else "status"
     try:
-        leaf, paths, json_output, _decision = _parse(arguments)
+        leaf, paths, json_output, decision_file = _parse(arguments)
     except _UsageError:
         return _emit(
             _envelope(action, "refused", "invalid_request"), json_output="--json" in arguments
         )
-    if leaf != "status":
-        if not json_output:
-            sys.stderr.write(f"source guide {leaf} is not implemented in this build.\n")
-            return 78
-        return _emit(_envelope(leaf, "refused", "operation_failed"), json_output=True)
-    try:
-        selected = _selected_source(paths.journal)
-    except GuideAdapterError as error:
-        return _emit(_envelope("status", "refused", error.code), json_output=json_output)
-    return _emit(guide_status(paths, selected_source_id=selected), json_output=json_output)
+    if leaf == "advance":
+        from open_brain.services.source_guide_flow import (
+            GuideFlow,
+            read_decision_file,
+            stop_envelope,
+        )
+
+        try:
+            decision = read_decision_file(cast(Path, decision_file))
+        except Exception as error:
+            stopped = stop_envelope("advance", error)
+            if stopped is None:
+                raise
+            return _emit(stopped, json_output=True)
+        return _emit(GuideFlow(paths).advance(decision), json_output=True)
+    if leaf == "slack":
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            sys.stderr.write("source guide slack requires an interactive terminal.\n")
+            return 2
+        from open_brain.services.source_guide_interactive import run_interactive
+
+        return run_interactive(paths)
+    return _emit(journal_status(paths), json_output=json_output)

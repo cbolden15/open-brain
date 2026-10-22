@@ -127,46 +127,65 @@ def test_installed_collector_without_journal_is_uninitialized_and_creates_nothin
     assert sorted(str(path) for path in tmp_path.rglob("*")) == before
 
 
-def test_existing_journal_is_not_reinterpreted_by_this_build(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("mode", "code"), [(0o600, "journal_incompatible"), (0o644, "unsafe_path")]
+)
+def test_malformed_or_widened_journal_is_refused_without_repair(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mode: int, code: str
 ) -> None:
     compile_single_user_local(tmp_path / "brain")
     (tmp_path / "guide").mkdir(mode=0o700)
-    (tmp_path / "guide" / "journal.json").write_text("{}")
+    journal = tmp_path / "guide" / "journal.json"
+    journal.write_text("{}")
+    journal.chmod(mode)
+    before = sorted(str(path) for path in tmp_path.rglob("*"))
 
-    code, payload, _ = _run(
+    status, payload, _ = _run(
         capsys, ["status", *_common(tmp_path, _installed_collector()), "--json"]
     )
 
-    assert code == 78
-    assert payload is not None and payload["code"] == "journal_incompatible"
+    assert status == 78
+    assert payload is not None and payload["code"] == code
+    assert sorted(str(path) for path in tmp_path.rglob("*")) == before
+    assert journal.read_text() == "{}"
 
 
-@pytest.mark.parametrize("leaf", ["slack", "advance"])
-def test_write_phases_refuse_as_not_implemented(
+def test_slack_requires_a_terminal_and_advance_requires_a_private_decision(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
-    leaf: str,
 ) -> None:
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("no collector launch")
 
     monkeypatch.setattr(source_guide, "resolve_collector_executable", refuse)
-    extra = (
-        ["--decision-file", str(tmp_path / "decision.json"), "--json"] if leaf == "advance" else []
-    )
-    code, payload, error = _run(capsys, [leaf, *_common(tmp_path), *extra])
-
-    assert code == 78
-    if leaf == "advance":
-        assert payload is not None
-        assert payload["outcome"] == "refused"
-        assert payload["action"] == "advance"
-    else:
-        assert "not implemented in this build" in error
+    code, payload, error = _run(capsys, ["slack", *_common(tmp_path)])
+    assert (code, payload) == (2, None) and "interactive terminal" in error
     code, payload, _ = _run(capsys, ["slack", *_common(tmp_path), "--json"])
+    assert code == 2 and payload is not None and payload["code"] == "invalid_request"
+    code, payload, _ = _run(
+        capsys,
+        ["advance", *_common(tmp_path), "--decision-file", str(tmp_path / "missing.json"),
+         "--json"],
+    )
     assert code == 2
+    assert payload is not None
+    assert (payload["action"], payload["outcome"], payload["code"]) == (
+        "advance", "refused", "invalid_request"
+    )
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS system aliases only")
+def test_only_exact_system_aliases_are_canonicalized(tmp_path: Path) -> None:
+    assert source_guide.system_alias(Path("/tmp/guide/journal.json")) == Path(
+        "/private/tmp/guide/journal.json"
+    )
+    assert source_guide.system_alias(Path("/var/folders/x")) == Path("/private/var/folders/x")
+    assert source_guide.system_alias(Path("/etc/x")) == Path("/private/etc/x")
+    assert source_guide.system_alias(Path("/Users/x")) == Path("/Users/x")
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path)
+    assert source_guide.system_alias(link / "x") == link / "x"
 
 
 def test_status_renders_versioned_health_from_the_installed_collector(tmp_path: Path) -> None:

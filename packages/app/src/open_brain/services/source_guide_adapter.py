@@ -691,9 +691,13 @@ def read_resource_inventory(
                 raise _refuse()
             try:
                 resource_id = _identifier(item["resource_id"])
-                name = _identifier(item["name"])
             except GuideAdapterError:
                 raise _refuse() from None
+            # Names are untrusted display text: controls are escaped by the one
+            # safe renderer, never used as identity, so they do not refuse a page.
+            name = item["name"]
+            if type(name) is not str or not 1 <= len(name) <= 512:
+                raise _refuse()
             if item["resource_type"] != "channel" or resource_id in seen:
                 raise _refuse()
             seen.add(resource_id)
