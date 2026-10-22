@@ -437,3 +437,82 @@ def test_expired_release_preview_never_auto_authorizes_approval(
         78, "authority_refused", ["release-preview"]
     )
     assert _counts(guide)["approve"] == 0
+
+
+def _second_journal(guide: Guide, tmp_path: Path) -> Guide:
+    """Another workflow against the same Brain, collector state and launcher."""
+    import copy
+
+    other = copy.copy(guide)
+    (tmp_path / "guide-b").mkdir(mode=0o700)
+    other.journal = tmp_path / "guide-b" / "journal.json"
+    other.workflow_id = "guide:synthetic-2"
+    other.revision = 0
+    other._decisions = 10_000
+    return other
+
+
+def test_two_journals_on_one_source_keep_scope_and_never_duplicate_a_release(
+    guide: Guide, tmp_path: Path
+) -> None:
+    """Interleaved writes from two journals rely on engine CAS, not a shared lock."""
+    from packages.app.tests.integration.services import source_guide_support as support
+    from packages.app.tests.integration.services.test_source_guide_release import acknowledge
+
+    first = inspected(guide, [TEXT])
+    other = _second_journal(guide, tmp_path)
+    other.through_choose()
+    assert other.confirm("configure")[0] == 0
+    support.queue(other.fixture, "conversations.history",
+                  [support.history_page([support.message("1760000000.000001", TEXT)])])
+    _code, previewed = other.confirm("preview")
+    code, imported = other.confirm("import", {"preview_id": previewed["data"]["preview_id"]})
+    assert code == 0, imported
+    second = imported["data"]["receipt_ids"]
+    # The same Slack message resolves to the same custody receipt and logical source.
+    assert second == first
+    acknowledge(other, second[0])
+
+    space_a = destination(guide, "Release A")
+    space_b = destination(other, "Release B")
+    assert space_a != space_b
+    assert guide.confirm("route", {"receipt_id": first[0]})[0] == 0
+    # The second workflow reroutes the shared source with a fresh route version.
+    assert other.confirm("route", {"receipt_id": second[0]})[0] == 0
+    (row,) = sources(guide).values()
+    assert row["space_id"] == space_b
+
+    # The first workflow notices its route is no longer current and never widens scope.
+    code, refused = guide.advance("select", {"member_receipt_ids": first})
+    assert (code, refused["code"], refused["next_actions"]) == (
+        78, "inspection_required", ["route"]
+    )
+    code, refused = guide.advance(
+        "release-preview", {"receipt_id": first[0], "provider_ids": ["openai"]}
+    )
+    assert (code, refused["code"]) == (78, "inspection_required")
+
+    assert other.confirm("select", {"member_receipt_ids": second})[0] == 0
+    assert other.confirm("consent", {"provider_id": "openai"})[0] == 0
+    preview = released(other, second[0])
+    code, done = other.confirm("approve", {"preview_id": preview["preview_id"]})
+    assert (code, done["data"]["count"]) == (0, 1), done
+    (copy_id,) = done["data"]["approved_copy_ids"]
+
+    code, refused = guide.advance("policy-preview")
+    assert (code, refused["code"]) == (78, "inspection_required")
+    code, policy = other.advance("policy-preview")
+    assert code == 0, policy
+    assert json.loads(policy["data"]["payload_utf8"])["space_ids"] == [space_b]
+
+    profile = open_existing_single_user_local(guide.brain)
+    with closing(open_local_database_read_only(profile)) as connection:
+        assert connection.execute("SELECT count(*) FROM sharing_previews").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM sharing_decisions").fetchone()[0] == 1
+        (copy_space,) = connection.execute(
+            "SELECT s.space_id FROM source_revisions r JOIN logical_sources s "
+            "USING(source_id) WHERE r.capture_id=?", (copy_id,)
+        ).fetchone()
+    assert copy_space == space_b
+    assert [item["action"] for item in journal(guide)["operations"]
+            if item["state"] == "completed"].count("approve") == 0

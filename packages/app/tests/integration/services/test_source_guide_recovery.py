@@ -668,3 +668,71 @@ def test_supervisor_sigkill_while_collector_child_holds_inherited_guard(guide: G
     code, imported = guide.confirm("import", {"preview_id": preview_id})
     assert code == 0, imported
     assert guide.history() == 1
+
+
+def test_real_custody_quota_refuses_import_with_capacity_reached_and_deletes_nothing(
+    guide: Guide,
+) -> None:
+    """The collector's 256-item retained custody quota, reached through a guide import.
+
+    Slack history pages hold one message and the journal is bounded, so one
+    journal cannot import 257 pages. The other retained items are staged as
+    another source's pending receipts in the same real custody store, the way
+    a second workflow or source shares it; only Slack HTTP is synthetic.
+    """
+    from open_brain_collector import custody as custody_module
+    from open_brain_collector.custody import CustodyStore
+    from open_brain_connectors.runtime.live_common import local_source_privacy
+    from open_brain_connectors.runtime.live_storage import PrivateJsonStore
+    from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
+
+    store = PrivateJsonStore(guide.state.parent / "live" / "capture")
+
+    def custody() -> dict[str, Any]:
+        return cast(dict[str, Any], cast(dict[str, Any], store.read("custody.json"))["receipts"])
+
+    _configured(guide)
+    _pages(guide, 2)
+    code, previewed = guide.confirm("preview")
+    assert code == 0, previewed
+    code, done = guide.confirm("import", {"preview_id": previewed["data"]["preview_id"]})
+    assert code == 0, done
+    imported = done["data"]["receipt_ids"]
+    retained = [item for item in custody().values() if item["intake"] is not None]
+    seed = custody_module.MAX_RETAINED_ITEMS - len(retained)
+    CustodyStore(store).stage(
+        source_id="slack.another-source",
+        binding="sha256:" + "d" * 64,
+        generation="e" * 64,
+        control_epoch=0,
+        intakes=tuple(
+            SourceRecordIntake(
+                SourceRecordKey("slack", "account:other", "channel:COTHER", f"m{index}", "r1"),
+                f"https://example.test/m{index}",
+                "synthetic retained item",
+                local_source_privacy(),
+            )
+            for index in range(seed)
+        ),
+    )
+    before = custody()
+    assert sum(item["intake"] is not None for item in before.values()) == 256
+
+    code, previewed = guide.confirm("preview")
+    assert code == 0, previewed
+    preview_id = previewed["data"]["preview_id"]
+    code, refused = guide.confirm("import", {"preview_id": preview_id})
+    assert (code, refused["outcome"], refused["code"]) == (78, "refused", "capacity_reached")
+
+    journal = _journal(guide)
+    assert journal["status"] == "active"
+    assert (journal["operations"][-1]["action"], journal["operations"][-1]["state"]) == (
+        "import", "refused"
+    )
+    assert journal["retained_receipt_ids"] == imported
+    # The closed evidence schema keeps only the mapped guide code (REANCHOR-P2).
+    assert journal["operations"][-1]["evidence"] is None
+    assert b"collector_custody_quota_exceeded" not in guide.journal.read_bytes()
+    # Nothing was deleted or released to make room; the refused page stays pending.
+    assert custody() == before
+    assert _health(guide)["pending_preview"]["preview_id"] == preview_id
