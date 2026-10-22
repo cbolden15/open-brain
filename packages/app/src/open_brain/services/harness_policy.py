@@ -1,4 +1,8 @@
-"""Owner-selected source rules and provider eligibility for harness memory."""
+"""Owner-selected source rules and write-time capture tiers for harness memory.
+
+Policy B: each capture gets its tier when it is written. Provider grants are not a
+read authority; the core's owner egress policy and provider consent decide reads.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,13 @@ _SCHEMA = "open-brain-harness-policy.v1"
 _ID = re.compile(r"[a-z][a-z0-9._-]{0,63}")
 _CLOUD_TIERS = frozenset({PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL})
 _LOCAL_MARKING = re.compile(r"(?im)^\s*(?:confidential|local[- ]only|private)\s*:")
+_DEFAULT_TIERS = {
+    "pi": PrivacyTier.UNKNOWN,
+    "claude-code": PrivacyTier.PERSONAL,
+    "codex": PrivacyTier.PERSONAL,
+    "hermes": PrivacyTier.UNKNOWN,
+}
+_DEFAULTABLE_TIERS = _CLOUD_TIERS | {PrivacyTier.UNKNOWN}
 
 
 class HarnessPolicyError(ValueError):
@@ -46,35 +57,36 @@ class HarnessSourceDecision:
 @dataclass(frozen=True, slots=True)
 class HarnessPolicy:
     enabled: bool
-    providers: tuple[tuple[str, frozenset[PrivacyTier]], ...]
     sources: tuple[HarnessSourceRule, ...]
     exclusions: tuple[Path, ...]
+    client_defaults: tuple[tuple[str, PrivacyTier], ...] = ()
 
     @classmethod
     def from_dict(cls, value: object) -> HarnessPolicy:
-        if not isinstance(value, dict) or set(value) != {
-            "schema_version",
-            "enabled",
+        required = {"schema_version", "enabled", "sources", "exclusions"}
+        if not isinstance(value, dict) or not required <= set(value) <= required | {
             "providers",
-            "sources",
-            "exclusions",
+            "client_defaults",
         }:
             raise HarnessPolicyError()
         if value["schema_version"] != _SCHEMA or type(value["enabled"]) is not bool:
             raise HarnessPolicyError()
-        providers = value["providers"]
+        # Legacy v1 provider grants are validated for shape and then ignored.
+        providers = value.get("providers", {})
+        defaults = value.get("client_defaults", {})
         sources = value["sources"]
         exclusions = value["exclusions"]
         if (
             not isinstance(providers, dict)
             or len(providers) > 32
+            or not isinstance(defaults, dict)
+            or len(defaults) > 32
             or not isinstance(sources, list)
             or len(sources) > 256
             or not isinstance(exclusions, list)
             or len(exclusions) > 256
         ):
             raise HarnessPolicyError()
-        grants: list[tuple[str, frozenset[PrivacyTier]]] = []
         for provider, raw_tiers in providers.items():
             if not isinstance(provider, str) or _ID.fullmatch(provider) is None:
                 raise HarnessPolicyError()
@@ -84,10 +96,16 @@ class HarnessPolicy:
                 or len(raw_tiers) != len(set(str(tier) for tier in raw_tiers))
             ):
                 raise HarnessPolicyError()
-            tiers = frozenset(_tier(tier) for tier in raw_tiers)
-            if not tiers <= _CLOUD_TIERS:
+            if not frozenset(_tier(tier) for tier in raw_tiers) <= _CLOUD_TIERS:
                 raise HarnessPolicyError()
-            grants.append((provider, tiers))
+        client_defaults: list[tuple[str, PrivacyTier]] = []
+        for client, raw_tier in defaults.items():
+            if not isinstance(client, str) or _ID.fullmatch(client) is None:
+                raise HarnessPolicyError()
+            default = _tier(raw_tier)
+            if default not in _DEFAULTABLE_TIERS:
+                raise HarnessPolicyError()
+            client_defaults.append((client, default))
         rules: list[HarnessSourceRule] = []
         for source in sources:
             if not isinstance(source, dict) or set(source) != {
@@ -120,7 +138,7 @@ class HarnessPolicy:
         paths = tuple(_path(path) for path in exclusions)
         if len(set(paths)) != len(paths):
             raise HarnessPolicyError()
-        return cls(value["enabled"], tuple(sorted(grants)), tuple(rules), paths)
+        return cls(value["enabled"], tuple(rules), paths, tuple(sorted(client_defaults)))
 
     def classify(self, project: Path, *, authored_text: str = "") -> HarnessSourceDecision:
         """Resolve an explicit path rule; text markings may only restrict it."""
@@ -136,14 +154,32 @@ class HarnessPolicy:
         marked = bool(_LOCAL_MARKING.search(authored_text))
         return HarnessSourceDecision(rule.source_id, rule.tier, rule.local_only or marked)
 
-    def allowed_tiers(self, provider: str) -> frozenset[PrivacyTier]:
-        """Unknown or revoked providers receive no cloud grant."""
-        if not self.enabled:
-            return frozenset()
-        return next((tiers for name, tiers in self.providers if name == provider), frozenset())
+    def capture_decision(
+        self,
+        client: str,
+        project: Path,
+        *,
+        authored_text: str = "",
+        local_only: bool = False,
+    ) -> HarnessSourceDecision:
+        """Tier one capture at write time; a local-only marking only lowers it.
 
-    def permits_provider(self, decision: HarnessSourceDecision, provider: str) -> bool:
-        return not decision.local_only and decision.tier in self.allowed_tiers(provider)
+        A matching source rule wins. Otherwise the owner's per-client default
+        applies, then the built-in default. Any other client is unknown.
+        """
+        decision = self.classify(project, authored_text=authored_text)
+        if decision.source_id is None:
+            tier = next(
+                (tier for name, tier in self.client_defaults if name == client),
+                _DEFAULT_TIERS.get(client, PrivacyTier.UNKNOWN),
+            )
+            marked = local_only or bool(_LOCAL_MARKING.search(authored_text))
+        else:
+            tier = decision.tier
+            marked = local_only or decision.local_only
+        if marked and tier is not PrivacyTier.SECRET:
+            tier = PrivacyTier.UNKNOWN
+        return HarnessSourceDecision(decision.source_id, tier, tier not in _CLOUD_TIERS)
 
 
 def load_harness_policy(path: Path) -> HarnessPolicy:

@@ -1,4 +1,4 @@
-from open_brain.services.harness_continuity import capture_batches, indexed_memories
+from open_brain.services.harness_batching import capture_batches, indexed_memories
 from open_brain.services.harness_memory import MemoryMessage
 
 
