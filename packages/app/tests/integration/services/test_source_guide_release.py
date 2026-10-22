@@ -27,6 +27,13 @@ from packages.app.tests.integration.services.test_source_guide import Guide, new
 def guide(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> Guide:
+    return new_release_guide(tmp_path, capsys, monkeypatch)
+
+
+def new_release_guide(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> Guide:
+    """A capture guide plus a private consent directory and a never-launched runtime."""
     current = new_guide(tmp_path, capsys, monkeypatch)
     (tmp_path / "consent").mkdir(mode=0o700)
     runtime = tmp_path / "runtime" / "open-brain"
