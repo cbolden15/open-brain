@@ -519,7 +519,8 @@ def test_external_provider_reads_work_only_when_policy_and_consent_both_allow(
 
     def found(*consented: PrivacyTier) -> set[str]:
         page = engine.retrieval.search_page(request, authority=_external(engine, *consented))
-        return {str(row["record_id"]) for row in page.to_wire()["results"]}
+        rows = cast(list[dict[str, object]], page.to_wire()["results"])
+        return {str(row["record_id"]) for row in rows}
 
     def readable(capture_id: str, *consented: PrivacyTier) -> bool:
         try:
