@@ -404,7 +404,8 @@ def setup_previewed(guide: Guide) -> dict[str, Any]:
     return dict(previewed["data"])
 
 
-def test_scoped_policy_and_setup_handoff_without_client_launch(guide: Guide) -> None:
+def test_json_journey_from_start_to_scoped_setup_without_client_launch(guide: Guide) -> None:
+    """`start` through `setup-apply`, one `advance` per step; only Slack HTTP is synthetic."""
     import hashlib
 
     copies = approved_one(guide)
@@ -521,3 +522,56 @@ def test_changed_policy_is_stale_and_never_repaired(guide: Guide) -> None:
     code, refused = guide.advance("policy-preview")
     assert (code, refused["code"]) == (78, "authority_refused")
     assert json.loads(policy_path.read_text()) == widened
+
+
+def test_interactive_flow_from_start_to_scoped_setup_with_each_owner_checkpoint(
+    guide: Guide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import builtins
+    import sys
+    from typing import cast
+
+    from packages.app.tests.integration.services.test_source_guide import DATE_FLOOR, HOSTILE
+
+    support.queue(guide.fixture, "conversations.history",
+                  [support.history_page([support.message("1760000000.000001", HOSTILE)])])
+    support.queue(guide.fixture, "conversations.list",
+                  [support.channel_page([("CGENERAL", "general")])] * 2)
+    arguments = guide.preflight_arguments()
+    answers = [
+        "start",
+        "claude-code", "project", str(guide.project),
+        cast(str, arguments["consent_state"]), cast(str, arguments["policy_path"]),
+        cast(str, arguments["runtime_path"]), "openai", "2.1.300",
+        "1", "1", DATE_FLOOR, "",
+        "approve", "approve", "approve", "approve",  # configure, preview, import, acknowledge
+        "release", "Guide release", "approve",  # create-destination
+        "1", "approve", "approve", "approve",  # route, select, consent
+        "approve", "approve",  # release-preview, approve with the full payload shown
+        "approve", "approve", "approve",  # policy-apply, setup-preview, setup-apply
+    ]
+    prompts: list[str] = []
+
+    def ask(prompt: str) -> str:
+        prompts.append(prompt)
+        return answers.pop(0)
+
+    monkeypatch.setattr(builtins, "input", ask)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
+    code, _, output = guide.run("slack", *guide.common())
+    assert code == 0, output
+    assert answers == []
+    assert sum("Type approve" in prompt for prompt in prompts) == 13
+    state = journal(guide)
+    (approved,) = [item for item in state["operations"]
+                   if item["action"] == "approve" and item["state"] == "completed"]
+    copy_id = approved["evidence"]["copy_capture_id"]
+    assert f"Approved copy IDs: {copy_id}" in output
+    assert "Selection completeness: 1 of 1" in output
+    assert "Reusable recall task:" in output
+    assert "Slack coverage beyond the selected approved messages is unknown" in output
+    assert "complete sharing payload" in output and "complete policy payload" in output
+    assert "\u001b" not in output and "‮" not in output and "\u0007" not in output
+    assert (guide.project / ".mcp.json").exists()
+    assert not (guide.root / "launched").exists()

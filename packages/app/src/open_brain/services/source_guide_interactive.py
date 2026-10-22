@@ -23,7 +23,7 @@ from open_brain.services.source_guide_display import (
 )
 from open_brain.services.source_guide_flow import parse_decision, stop_envelope
 from open_brain.services.source_guide_journal import JournalError
-from open_brain.services.source_guide_release import ReleaseFlow
+from open_brain.services.source_guide_release import RECALL_TASK, ReleaseFlow
 
 if TYPE_CHECKING:
     from open_brain.services.source_guide import GuidePaths
@@ -117,6 +117,10 @@ class _Session:
         binding = cast(dict[str, object], intent["execution_binding"])
         executable = cast(dict[str, object], binding["executable"])
         self.say(f"Collector: {executable['path']} sha256 {executable['sha256']}")
+        data = proposed["data"]
+        if isinstance(data, dict) and data.get("kind") == "owner_preview":
+            # The complete external payload or owned fragments are shown with the intent.
+            self.show_payload(cast(dict[str, object], data))
         self.say(f"Intent: {intent['intent_sha256']}")
         answer = self.ask("Type approve to run this step, anything else to stop: ")
         if answer.strip() != "approve":
@@ -130,6 +134,16 @@ class _Session:
         if result["outcome"] != "completed":
             self.refuse(result)
         return result
+
+    def show_payload(self, data: Mapping[str, object]) -> None:
+        try:
+            body = render_body(cast(str, data["payload_utf8"]), limit_bytes=_BODY_LIMIT)
+        except GuideDisplayError:
+            self.say("This payload is larger than the terminal inspection limit; stopping.")
+            raise _Stopped(78) from None
+        self.say(f"--- complete {data['subject']} payload sha256 {data['payload_sha256']} ---")
+        self.write(body + "\n")
+        self.say("--- end of payload ---")
 
     def choose_number(self, label: str, count: int, *, more: bool = False) -> int | None:
         suffix = ", m for more" if more else ""
@@ -276,6 +290,106 @@ def _capture(session: _Session) -> int:
     return 3
 
 
+def _journal(session: _Session) -> dict[str, object]:
+    document = session.flow.journal.read()
+    if document is None:
+        raise _Stopped(78)
+    return document
+
+
+def _requests(document: Mapping[str, object], action: str) -> list[dict[str, object]]:
+    return [
+        cast(dict[str, object], json.loads(cast(str, item["canonical_request_utf8"])))
+        for item in cast(list[dict[str, object]], document["operations"])
+        if item["action"] == action and item["state"] == "completed"
+    ]
+
+
+def _pick_members(session: _Session, receipts: list[str]) -> list[str]:
+    for index, receipt_id in enumerate(receipts, 1):
+        session.say(f"{index}. inspected message [{receipt_id}]")
+    while True:
+        answer = session.ask(
+            "Messages to release, numbers separated by commas in order (at most 24): "
+        )
+        picked = [item.strip() for item in answer.split(",") if item.strip()]
+        if (
+            picked
+            and len(picked) <= 24
+            and all(item.isdigit() and 1 <= int(item) <= len(receipts) for item in picked)
+            and len(set(picked)) == len(picked)
+        ):
+            return [receipts[int(item) - 1] for item in picked]
+        session.say("Choose listed numbers, each once.")
+
+
+def _release(session: _Session) -> int:
+    """Route, select, consent, then preview and approve each message on its own."""
+    document = _journal(session)
+    choices = cast(dict[str, object], document["choices"])
+    if choices["destination_space_id"] is None:
+        name = session.ask(
+            "Name for a new dedicated Work release space (blank to use an existing empty "
+            "space ID): "
+        ).strip()
+        if name:
+            session.confirmed("create-destination", {"name": name})
+        else:
+            space = session.ask("Existing empty space ID: ").strip()
+            session.checked("destination", {"space_id": space})
+    document = _journal(session)
+    acknowledged = list(dict.fromkeys(
+        cast(str, item["receipt_id"]) for item in _requests(document, "acknowledge-inspection")
+    ))
+    if not acknowledged:
+        session.say("No message has been completely inspected; nothing can be released.")
+        return 3
+    # On resume the owner picks the remaining members; each still gets its own approval.
+    members = _pick_members(session, acknowledged)
+    if not _requests(document, "select"):
+        for receipt_id in members:
+            proposed = session.step("route", {"receipt_id": receipt_id})
+            if proposed["outcome"] == "refused" and proposed["code"] == "invalid_request":
+                continue  # Already routed by this workflow at the current head.
+            session.approve(proposed, "route", {"receipt_id": receipt_id})
+        session.confirmed("select", {"member_receipt_ids": members})
+    provider = cast(str, choices["provider_id"])
+    if not _requests(_journal(session), "consent"):
+        session.confirmed("consent", {"provider_id": provider})
+    for receipt_id in members:
+        released = session.confirmed(
+            "release-preview", {"receipt_id": receipt_id, "provider_ids": [provider]}
+        )
+        preview_id = cast(dict[str, object], released["data"])["preview_id"]
+        session.say("Inspect the complete external payload below before approving it.")
+        session.confirmed("approve", {"preview_id": preview_id})
+    previewed = session.checked("policy-preview")
+    session.show_payload(cast(dict[str, object], previewed["data"]))
+    session.confirmed(
+        "policy-apply",
+        {"policy_sha256": cast(dict[str, object], previewed["data"])["payload_sha256"]},
+    )
+    setup = session.confirmed("setup-preview")
+    applied = session.confirmed(
+        "setup-apply", {"preview_id": cast(dict[str, object], setup["data"])["preview_id"]}
+    )
+    summary = cast(dict[str, object], applied["data"])
+    copies = cast(list[str], summary["approved_copy_ids"])
+    total = len(cast(list[str], _requests(_journal(session), "select")[-1]["member_source_ids"]))
+    session.say("Scoped client setup applied. The client and model were not launched.")
+    session.say("Approved copy IDs: " + (", ".join(copies) if copies else "none"))
+    session.say(
+        f"Selection completeness: {summary['count']} of {total} selected messages have a "
+        "current approved copy."
+    )
+    session.say("Reusable recall task: " + RECALL_TASK)
+    session.say(
+        "Slack coverage beyond the selected approved messages is unknown; this is not a "
+        "complete channel history."
+    )
+    return 0
+
+
 def run_interactive(
     paths: GuidePaths,
     *,
@@ -307,7 +421,15 @@ def run_interactive(
         if "configure" not in done:
             session.confirmed("configure")
             session.say("Source configured. Collection stays manual; nothing is scheduled.")
-        return _capture(session)
+        if cast(dict[str, object], document["choices"])["destination_space_id"] is None:
+            captured = _capture(session)
+            if captured != 0:
+                return captured
+            answer = session.ask("Type release to choose messages for release, anything else to "
+                                 "stop: ")
+            if answer.strip() != "release":
+                return 0
+        return _release(session)
     except _Stopped as stopped:
         return stopped.exit_code
     except JournalError as error:
