@@ -97,6 +97,12 @@ configuration declares Pi in `local_only_clients` with a loopback
 every read. Without that, Pi gets the same cloud ceiling as Claude Code and
 Codex, and a `local_only: true` read request is refused without content.
 
+Guardrail 1 checks the `model_endpoint` string declared in the bridge
+configuration. It does not inspect Pi's live model routing. A stale declaration,
+left in place after Pi is pointed at a hosted model, still grants Pi the unshared
+tiers. Keep the declaration in sync with Pi's own model settings, and remove it
+before switching Pi to any non-local model.
+
 ## Opt-out and troubleshooting
 
 Launch the harness with `OPEN_BRAIN_HARNESS_DISABLED=1` to disable new hook/extension

@@ -15,6 +15,7 @@ import json
 import os
 import re
 import stat
+import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
 from hashlib import sha256
@@ -36,6 +37,9 @@ _LOCK = "spool.lock"
 _MAX_LINE_BYTES = 256 * 1024
 _MAX_SPOOL_BYTES = 64 * 1024 * 1024
 _DRAIN_LIMIT = 16
+# A line refused this many times is parked: kept and counted, but not retried.
+_MAX_REFUSED_ATTEMPTS = 16
+_FIELDS = frozenset({"id", "request", "attempts", "last_status", "last_error", "enqueued_at"})
 _BRAIN = re.compile(r"brn_[a-z2-7]{26}\Z")
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 _DELIVERED = frozenset({"acknowledged", "success_empty"})
@@ -45,6 +49,7 @@ class _CaptureArguments(TypedDict):
     timestamps: Mapping[int, str | None]
     local_only: NotRequired[bool]
     selection: NotRequired[tuple[tuple[int, int], ...]]
+    observed_at: NotRequired[int]
 
 
 class HarnessSpoolError(ValueError):
@@ -113,7 +118,7 @@ class HarnessSpool:
                 document["local_only"] = True
             if len(batches) > 1:
                 document["selection"] = [list(key) for key in batch.selection]
-            if len(_line(document, 0, None)) > _MAX_LINE_BYTES:
+            if len(_line(_entry(document, 0))) > _MAX_LINE_BYTES:
                 raise HarnessSpoolError("request_too_large")
             documents.append(document)
         return tuple(documents)
@@ -138,10 +143,7 @@ class HarnessSpool:
                 known = {cast(str, entry["id"]) for entry in entries}
                 for identifier, document in zip(identifiers, documents, strict=True):
                     if identifier not in known:
-                        entries.append(
-                            {"id": identifier, "request": document, "attempts": 0,
-                             "last_status": None, "last_error": None}
-                        )
+                        entries.append(_entry(document, time.time_ns()))
                         known.add(identifier)
                 self._write(directory, entries)
         except HarnessSpoolError as error:
@@ -154,10 +156,18 @@ class HarnessSpool:
             result.update({"request_ids": identifiers[:16], "batch_count": len(identifiers)})
         return result
 
-    def deliver(self, workflow: HarnessWorkflow, document: dict[str, object]) -> dict[str, object]:
-        """Deliver one request through the workflow; failures are metadata only."""
+    def deliver(
+        self, workflow: HarnessWorkflow, document: dict[str, object],
+        *, observed_at: int | None = None,
+    ) -> dict[str, object]:
+        """Deliver one request through the workflow; failures are metadata only.
+
+        A replay passes its enqueue time, so it cannot overwrite a newer head.
+        """
         try:
             client, session, project, messages, arguments = _decode(document, self.brain_id)
+            if observed_at is not None:
+                arguments["observed_at"] = observed_at
             raw = workflow.capture(client, session, project, messages, **arguments)
         except Exception:
             # Callers must never log raw provider/storage exception contents.
@@ -168,7 +178,8 @@ class HarnessSpool:
         """Replay the oldest lines, at most 16, and remove the delivered ones.
 
         A failed line moves behind every other line, so a failing prefix cannot
-        starve later captures. Nothing is discarded until delivery succeeds.
+        starve later captures. Nothing is discarded until delivery succeeds; a
+        line refused 16 times is parked and stays visible in status.
         """
         if type(limit) is not int or not 1 <= limit <= _DRAIN_LIMIT:
             return self._metadata("refused", "invalid_limit")
@@ -180,7 +191,13 @@ class HarnessSpool:
         try:
             # Hold the lock only while reading and rewriting, never across delivery.
             with self._locked(create=False) as directory:
-                batch = self._load(directory)[:limit]
+                batch = [
+                    entry for entry in self._load(directory)
+                    if not (
+                        entry["last_status"] == "refused"
+                        and cast(int, entry["attempts"]) >= _MAX_REFUSED_ATTEMPTS
+                    )
+                ][:limit]
         except FileNotFoundError:
             if self.root.exists() or self.root.is_symlink():
                 return self._metadata("refused", "invalid_spool")
@@ -194,7 +211,10 @@ class HarnessSpool:
         failed: dict[str, tuple[str, str | None]] = {}
         for entry in batch:
             identifier = cast(str, entry["id"])
-            acknowledgement = self.deliver(workflow, cast(dict[str, object], entry["request"]))
+            acknowledgement = self.deliver(
+                workflow, cast(dict[str, object], entry["request"]),
+                observed_at=cast(int, entry["enqueued_at"]),
+            )
             status = cast(str, acknowledgement["status"])
             if status in _DELIVERED:
                 delivered.add(identifier)
@@ -289,6 +309,11 @@ class HarnessSpool:
             try:
                 _check(os.fstat(lock))
                 fcntl.flock(lock, fcntl.LOCK_EX)
+                # A crash can leave a temporary sibling holding source text.
+                for name in os.listdir(directory):
+                    if name.startswith(_SPOOL + ".tmp-"):
+                        with suppress(FileNotFoundError):
+                            os.unlink(name, dir_fd=directory)
                 yield directory
             finally:
                 os.close(lock)
@@ -311,8 +336,9 @@ class HarnessSpool:
                 entry = json.loads(raw)
                 if (
                     not isinstance(entry, dict)
-                    or set(entry) != {"id", "request", "attempts", "last_status", "last_error"}
+                    or set(entry) != _FIELDS
                     or type(entry["attempts"]) is not int
+                    or type(entry["enqueued_at"]) is not int
                     or entry["last_status"] not in {None, "pending", "refused", "unavailable"}
                     or not isinstance(entry["request"], dict)
                     or entry["id"] != request_id(entry["request"])
@@ -324,15 +350,7 @@ class HarnessSpool:
         return entries
 
     def _write(self, directory: int, entries: list[dict[str, object]]) -> None:
-        body = b"".join(
-            _line(
-                cast(dict[str, object], entry["request"]),
-                cast(int, entry["attempts"]),
-                cast(str | None, entry["last_status"]),
-                cast(str | None, entry["last_error"]),
-            )
-            for entry in entries
-        )
+        body = b"".join(_line(entry) for entry in entries)
         if len(body) > _MAX_SPOOL_BYTES:
             raise HarnessSpoolError("spool_full")
         temporary = _SPOOL + ".tmp-" + uuid4().hex
@@ -374,17 +392,21 @@ def request_id(document: dict[str, object]) -> str:
     return sha256(portable_canonical_json_bytes(document)).hexdigest()
 
 
-def _line(
-    document: dict[str, object], attempts: int, status: str | None, error: str | None = None
-) -> bytes:
-    entry = {
+def _entry(document: dict[str, object], enqueued_at: int) -> dict[str, object]:
+    return {
         "id": request_id(document),
         "request": document,
-        "attempts": attempts,
-        "last_status": status,
-        "last_error": error,
+        "attempts": 0,
+        "last_status": None,
+        "last_error": None,
+        "enqueued_at": enqueued_at,
     }
-    return portable_canonical_json_bytes(entry) + b"\n"
+
+
+def _line(entry: dict[str, object]) -> bytes:
+    fields = {key: entry[key] for key in _FIELDS}
+    fields["id"] = request_id(cast(dict[str, object], entry["request"]))
+    return portable_canonical_json_bytes(fields) + b"\n"
 
 
 def _check(metadata: os.stat_result) -> None:

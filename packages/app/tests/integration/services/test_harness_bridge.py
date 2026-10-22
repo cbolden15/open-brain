@@ -1008,3 +1008,71 @@ def test_inline_capture_spools_only_when_delivery_fails(
         "pending": 0, "refused": 0, "unavailable": 0,
     }
     assert all(body == b"" for body in spooled(config))  # Delivered lines are removed.
+
+
+def test_verified_pi_never_reads_legacy_secret_records(tmp_path: Path) -> None:
+    from open_brain_engine.engine.harness_memory import (
+        SOURCE_PREFIX,
+        HarnessCitation,
+        HarnessMemory,
+    )
+
+    from open_brain.services.harness_policy import HarnessSourceDecision
+    from open_brain.services.harness_workflow import _LEGACY_LOCAL_PREFIX, _digest
+
+    path, project, _, config = setup(tmp_path)
+    secret = "I prefer synthetic-vault-phrase violet notebooks."
+    # Recreate a record the pre-Policy-B code wrote: secret tier, legacy local space.
+    with harness_bridge._workflow(HarnessBridgeConfig.load(path), local_only_host=True) as flow:
+        memory = HarnessMemory(
+            "preference", secret, secret,
+            HarnessCitation("pi", "pi", "project-" + _digest(str(project)), "legacy", 0,
+                            "user", None, None),
+        )
+        decision = HarnessSourceDecision(None, PrivacyTier.SECRET, True)
+        capture_id, _ = flow._capture_revision(
+            "pi", project, flow.policy(), decision, "legacy-secret",
+            SOURCE_PREFIX + "legacy-secret", memory,
+        )
+        assert capture_id is not None
+        space = flow.tasks.spaces.create_space(
+            _LEGACY_LOCAL_PREFIX + _digest(str(project)), delivery_id="synthetic.legacy.space",
+        )
+        flow._route(capture_id, space.space_id)
+    assert run_harness("enqueue", path, "pi", pi_capture(project, "I prefer violet pens."))[
+        "status"
+    ] == "queued"
+    assert run_harness("drain", path, "pi")["status"] == "delivered"
+    declare_pi(path, config, "http://127.0.0.1:11434")
+    request = {"project_path": str(project), "query": "violet notebooks", "local_only": True}
+    for action in ("recall", "search"):
+        result = run_harness(action, path, "pi", request)
+        assert result["status"] == "ok", result
+        assert "synthetic-vault-phrase" not in json.dumps(result)
+    source = run_harness("source", path, "pi", {**request, "capture_id": capture_id})
+    assert source["status"] == "refused"
+    assert "synthetic-vault-phrase" not in json.dumps(source)
+
+
+def test_exclusion_withholds_already_captured_memories_from_every_reader(tmp_path: Path) -> None:
+    path, project, policy, config = setup(tmp_path)
+    other = unmapped(tmp_path)
+    assert run_harness("enqueue", path, "codex", event(project))["status"] == "queued"
+    drained = run_harness("drain", path, "codex")
+    capture_id = cast(list[dict[str, Any]], drained["results"])[0]["acknowledgement"][
+        "capture_ids"
+    ][0]
+    declare_pi(path, config, "http://127.0.0.1:11434")
+    cloud = {"cwd": str(other), "query": "preferred editor", "capture_id": capture_id}
+    local = {"project_path": str(other), "query": "preferred editor", "capture_id": capture_id}
+    assert texts(run_harness("recall", path, "codex", cloud)) == ["My preferred editor is Vim."]
+    assert texts(run_harness("recall", path, "pi", local)) == ["My preferred editor is Vim."]
+    # The owner excludes the project after capture; exclusion revokes every read.
+    policy["exclusions"] = [str(project)]
+    _write(Path(config["policy"]), policy)
+    for client, request in (("codex", cloud), ("claude-code", cloud), ("pi", local)):
+        for action in ("recall", "search"):
+            assert texts(run_harness(action, path, client, request)) == []
+        source = run_harness("source", path, client, request)
+        assert source["status"] == "refused", source
+        assert "Vim" not in json.dumps(source)

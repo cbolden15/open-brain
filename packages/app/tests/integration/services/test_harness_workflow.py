@@ -584,3 +584,27 @@ def test_existing_clients_keep_empty_recall_when_consent_and_policy_do_not_overl
     )
     assert narrowed.status == "refused"
     assert narrowed.error_code == "provider_denied"
+
+
+def test_stale_spooled_replay_cannot_undo_a_newer_confidential_marking(tmp_path: Path) -> None:
+    from open_brain.services.harness_events import HarnessCaptureEvent
+    from open_brain.services.harness_spool import HarnessSpool
+
+    workflow, _, project, _, _ = setup(tmp_path)
+    spool = HarnessSpool(tmp_path / "outbox", derive_brain_id(workflow.tasks.profile.tenant_id))
+    message = MemoryMessage("user", "I prefer lentil soup.", 1, True, "entry-1")
+    # Event A (unmarked, work) failed delivery and waits in the spool.
+    stale = HarnessCaptureEvent("codex", "session", project, (message,), {})
+    assert spool.append(stale)["status"] == "queued"
+    # Event B, later in the same session, marks it confidential and is delivered.
+    marked = (message, MemoryMessage("user", "Confidential:\nI prefer violet pencils.", 2))
+    assert workflow.capture("codex", "session", project, marked)["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success_empty"
+    # Replaying A is superseded by the newer head; it neither re-widens nor stays spooled.
+    assert spool.drain(workflow)["status"] == "delivered"
+    assert workflow.recall("lentil", provider="codex").status == "success_empty"
+    assert spool.status()["counts"] == {"pending": 0, "refused": 0, "unavailable": 0}
+    # A capture observed after B still applies normally.
+    assert workflow.capture("codex", "session", project, [message])["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success"
+

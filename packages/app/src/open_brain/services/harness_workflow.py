@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
@@ -21,6 +22,7 @@ from open_brain_engine.core.models import (
     PrivacyTier,
     Provenance,
 )
+from open_brain_engine.engine.capture import CaptureTasks
 from open_brain_engine.engine.consent_contracts import EgressMode, ProviderConsentState
 from open_brain_engine.engine.contracts import (
     CaptureSubmission,
@@ -93,6 +95,32 @@ def _space_name(policy: HarnessPolicy, decision: HarnessSourceDecision, project:
     return _SPACE_PREFIX + _digest(identity)
 
 
+def _excluded_space_names(policy: HarnessPolicy) -> frozenset[str]:
+    """Exclusions revoke reads of what was already captured, not only new captures.
+
+    A source-rule space is withheld when its root overlaps an exclusion. An
+    unmapped project's space is named by its path digest, so only a project
+    excluded exactly can be mapped; nested projects need an owner purge.
+    """
+    names: set[str] = set()
+    for rule in policy.sources:
+        if any(
+            rule.project_root.is_relative_to(path) or path.is_relative_to(rule.project_root)
+            for path in policy.exclusions
+        ):
+            names.add(_SPACE_PREFIX + _digest(f"{rule.source_id}:{rule.project_root}"))
+    for path in policy.exclusions:
+        for prefix in (_SPACE_PREFIX, _LEGACY_LOCAL_PREFIX):
+            names.add(prefix + _digest(str(path)))
+    return frozenset(names)
+
+
+def _revision_parts(key: str) -> tuple[str, int | None]:
+    """Split a revision key into its content part and observation time, if any."""
+    base, separator, stamp = key.partition("@")
+    return base, int(stamp) if separator and stamp.isdigit() else None
+
+
 class HarnessWorkflow:
     """Trusted local host interface; cloud callers never select owner authority.
 
@@ -116,7 +144,6 @@ class HarnessWorkflow:
         self.policy = policy
         self._consent = consent_store
         self._local_only_host = local_only_host
-        self._read_dependencies: list[str] = []
 
     def _owner(self) -> EffectiveAuthority:
         return EffectiveAuthority(
@@ -138,10 +165,17 @@ class HarnessWorkflow:
         timestamps: Mapping[int, str | None] | None = None,
         local_only: bool = False,
         selection: Sequence[tuple[int, int]] | None = None,
+        observed_at: int | None = None,
     ) -> dict[str, object]:
-        """Return only delivery metadata; no source text enters acknowledgements."""
+        """Return only delivery metadata; no source text enters acknowledgements.
+
+        ``observed_at`` is when the event was observed, in nanoseconds since the
+        epoch. A spooled replay passes its enqueue time, so it never overwrites a
+        head revision observed after it. Inline captures are observed now.
+        """
         captured: list[str] = []
         deliveries: list[str] = []
+        observed = time.time_ns() if observed_at is None else observed_at
         try:
             policy = self.policy()
             authored = "\n".join(message.text for message in messages if message.authored)
@@ -217,7 +251,7 @@ class HarnessWorkflow:
                     ),
                 )
                 capture_id, delivery_id = self._capture_revision(
-                    client, project, policy, decision, identity, source, memory
+                    client, project, policy, decision, identity, source, memory, observed
                 )
                 deliveries.append(delivery_id)
                 if capture_id is not None:
@@ -248,6 +282,7 @@ class HarnessWorkflow:
         identity: str,
         source: str,
         memory: HarnessMemory,
+        observed_at: int | None = None,
     ) -> tuple[str | None, str]:
         if self.tasks.sources is None:
             raise ValueError("source_tasks_unavailable")
@@ -291,15 +326,27 @@ class HarnessWorkflow:
         )
         # A plain tier-keyed revision. Returning to an earlier tier or text is a new
         # revision, so it is keyed by its predecessor; an unchanged head is a no-op.
+        # The observation time follows "@" so a stale replay cannot overwrite a
+        # newer head, such as one lowered by a later confidentiality marking.
         tiered = decision.tier.value + "-v1-" + revision_digest
-        if head.capture_id is not None and head.revision_key is not None and (
-            head.revision_key == tiered or head.revision_key.startswith(tiered + "-")
+        head_base, head_observed = _revision_parts(head.revision_key or "")
+        if head.capture_id is not None and (
+            head_base == tiered or head_base.startswith(tiered + "-")
         ):
-            revision_key = head.revision_key
-        elif head.capture_id is None:
-            revision_key = tiered
+            revision_key = cast(str, head.revision_key)
+        elif (
+            head.capture_id is not None
+            and head_observed is not None
+            and observed_at is not None
+            and observed_at < head_observed
+        ):
+            # Superseded: report the newer head as this request's delivery.
+            return head.capture_id, "harness.memory." + identity + "." + _digest(
+                cast(str, head.revision_key)
+            )
         else:
-            revision_key = tiered + "-" + _digest(head.capture_id)
+            base = tiered if head.capture_id is None else tiered + "-" + _digest(head.capture_id)
+            revision_key = base if observed_at is None else f"{base}@{observed_at}"
         delivery_id = "harness.memory." + identity + "." + _digest(revision_key)
         name = _space_name(policy, decision, project)
         space = self.tasks.spaces.create_space(name, delivery_id="harness.space." + _digest(name))
@@ -423,10 +470,21 @@ class HarnessWorkflow:
 
     def _harness_spaces(self, *, legacy_local: bool) -> frozenset[str]:
         prefixes = (_SPACE_PREFIX, _LEGACY_LOCAL_PREFIX) if legacy_local else (_SPACE_PREFIX,)
+        excluded = _excluded_space_names(self.policy())
         return frozenset(
             space.space_id for space in self.tasks.spaces.spaces()
-            if space.name.startswith(prefixes)
+            if space.name.startswith(prefixes) and space.name not in excluded
         )
+
+    def _permitted(self, capture_id: str, authority: EffectiveAuthority) -> bool:
+        """Owner authority ignores read tiers in the engine, so withhold secret here.
+
+        Records written before Policy B can be secret-tier in legacy local spaces.
+        """
+        if not authority.owner:
+            return True
+        receipt = cast(CaptureTasks, self.tasks.capture).get(capture_id)
+        return receipt is not None and receipt.final_admitted_tier in _LOCAL_TIERS
 
     def _provider_authority(
         self, provider: str, *, read_tiers: frozenset[PrivacyTier] | None = None,
@@ -508,6 +566,7 @@ class HarnessWorkflow:
             (row["record_id"], self._read_memory(row["record_id"], authority, consent))
             for row in response["results"]
             if row["provenance"]["source_origin"] == "third_party"
+            and self._permitted(row["record_id"], authority)
         ]
         changes = (
             self._decision_changes(authority, consent)
@@ -568,7 +627,11 @@ class HarnessWorkflow:
         consent: ProviderConsentState | None,
     ) -> HarnessMemory:
         # Capture IDs bind immutable source revisions. Never admit page/owner IDs.
-        if not isinstance(capture_id, str) or not capture_id.startswith("capture_"):
+        if (
+            not isinstance(capture_id, str)
+            or not capture_id.startswith("capture_")
+            or not self._permitted(capture_id, authority)
+        ):
             raise _RecallRefusal("source_unavailable")
         chunks: list[str] = []
         cursor: str | None = None
@@ -610,6 +673,7 @@ class HarnessWorkflow:
             self._read_memory(row["record_id"], authority, consent)
             for row in rows
             if row["provenance"]["source_origin"] == "third_party"
+            and self._permitted(row["record_id"], authority)
         )
 
     def read_context(

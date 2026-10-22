@@ -45,6 +45,8 @@ class FakeWorkflow:
         self.calls: list[tuple[object, ...]] = []
 
     def capture(self, *args: object, **kwargs: object) -> dict[str, object]:
+        # Every replay carries its integer enqueue time; compare the rest exactly.
+        assert type(kwargs.pop("observed_at")) is int
         self.calls.append((*args, kwargs))
         return self.result
 
@@ -327,8 +329,11 @@ def test_crash_during_rewrite_keeps_the_previous_spool(
 def test_leftover_temporary_file_from_a_crash_is_ignored(tmp_path: Path) -> None:
     spool = HarnessSpool(tmp_path / "outbox", BRAIN)
     spool.append(event(tmp_path))
-    (spool.root / "spool.jsonl.tmp-synthetic").write_text("partial")
+    leftover = spool.root / "spool.jsonl.tmp-synthetic"
+    leftover.write_text("partial lentil source text")
     assert spool.status()["counts"] == {"pending": 1, "refused": 0, "unavailable": 0}
+    # A leftover temporary file can hold source text, so opening the spool removes it.
+    assert not leftover.exists()
     assert spool.drain(FakeWorkflow().workflow())["status"] == "delivered"
 
 
@@ -346,3 +351,24 @@ def test_invalid_destination_format_is_rejected() -> None:
     for root, brain in ((Path("relative"), BRAIN), (Path("/tmp/x"), "not-a-brain")):
         with pytest.raises(ValueError, match="invalid_spool"):
             HarnessSpool(root, brain)
+
+
+def test_repeatedly_refused_lines_are_parked_not_rotated_forever(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(harness_spool, "_MAX_REFUSED_ATTEMPTS", 2)
+    spool = HarnessSpool(tmp_path / "outbox", BRAIN)
+    spool.append(event(tmp_path))
+    refusing = FakeWorkflow({"status": "refused", "error_code": "source_excluded"})
+    for _ in range(3):
+        spool.drain(refusing.workflow())
+    assert len(refusing.calls) == 2
+    # Parked lines are kept and visible, never discarded.
+    assert spool.status()["counts"] == {"pending": 1, "refused": 1, "unavailable": 0}
+    assert len(lines(spool)) == 1
+    unavailable = FakeWorkflow({"status": "unavailable", "error_code": "capture_unavailable"})
+    spool.append(replace(event(tmp_path), session_id="second"))
+    for _ in range(3):
+        spool.drain(unavailable.workflow())
+    assert len(unavailable.calls) == 3  # Only refusals park; outages keep retrying.
+

@@ -33,14 +33,18 @@ and spools only the requests whose delivery failed or was unavailable. Drain
 opens an existing, identity-matched Brain and replays the oldest spooled lines,
 at most 16 per run, through the normal engine journal. A delivered line is
 removed; a failed line moves behind the others so it cannot starve later
-captures, and nothing is discarded. There are no receipts: delivery IDs make a
+captures, and nothing is discarded. A line refused 16 times is parked: it stays
+in the spool and in the refused count but is no longer retried. Each line
+records when it was enqueued, and a replay never overwrites a source revision
+observed after it, so a stale retry cannot undo a later confidentiality marking. There are no receipts: delivery IDs make a
 replayed line a downstream no-op. Status works while the Brain is unavailable
 and counts pending lines and their latest refused or unavailable attempts.
 
 The spool is one append-only JSONL file, mode `0600`, in the configured `outbox`
 directory, mode `0700`. Each change writes a temporary sibling, fsyncs it,
 renames it over the spool and fsyncs the directory, so a crash leaves either the
-old or the new file. Earlier releases kept a `requests/` and `receipts/` custody
+old or the new file. Opening the spool deletes any temporary sibling a crash
+left behind, since it can hold source text. Earlier releases kept a `requests/` and `receipts/` custody
 tree in the same directory; the spool ignores it.
 
 The bridge configuration has this shape. Each path is absolute; the directory
@@ -130,6 +134,17 @@ does not inspect Pi's own routing at run time.
 
 A request's `local_only: true` field grants nothing. From an unverified client
 it returns `requires_local_only` with `local_only_host_required` and no content.
+Even a verified Pi never receives a `secret` record, including secret records
+that releases before Policy B wrote into per-project local spaces.
+
+Exclusions are owner revocations at read time as well as at capture. Every
+reader loses a source rule's space when the rule's root overlaps an exclusion,
+and an unmapped project's space when that exact project path is excluded.
+Unmapped projects nested below an excluded directory have spaces named by an
+opaque path digest that the bridge cannot map back. To remove those, or anything
+captured under a source rule you later deleted, use the owner purge commands:
+`open-brain source withdraw` for a harness source and `open-brain retract` for
+a capture (see `docs/owner-retraction.md`).
 
 ## Lifecycle adapters
 
