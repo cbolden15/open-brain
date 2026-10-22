@@ -93,7 +93,8 @@ _ACCOUNT_KEYS: Final = frozenset(
 _RESOURCE_KEYS: Final = frozenset({"resource_id", "name", "resource_type"})
 _PRIVATE_ARGUMENTS_BYTES: Final = 65_536
 # Native collector failure codes map to the closed guide enum; everything else
-# is `operation_failed`. The native code stays private bounded evidence.
+# is `operation_failed`. The native code stays in memory for this invocation
+# only and is never written to the journal (REANCHOR-P2).
 _NATIVE_CODES: Final = {
     "source_invalid_arguments": "invalid_request",
     "source_selection_reset_required": "source_reset_required",
@@ -136,7 +137,7 @@ _MAX_PAGE_RECEIPTS: Final = 25
 
 
 class GuideAdapterError(Exception):
-    """Closed guide code; any native code stays private bounded evidence."""
+    """Closed guide code; any native code is kept in memory only, never journaled."""
 
     def __init__(self, code: str, *, native: str | None = None) -> None:
         super().__init__(code)
