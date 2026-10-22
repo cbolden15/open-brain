@@ -740,4 +740,3 @@ def _project_execution(report: HealthV1, last_run: object, reasons: list[str]) -
         has_more=has_more if type(has_more) is bool else None,
         codes=codes,
     )
-
