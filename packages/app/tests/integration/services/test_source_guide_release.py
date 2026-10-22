@@ -31,7 +31,8 @@ def guide(
     (tmp_path / "consent").mkdir(mode=0o700)
     runtime = tmp_path / "runtime" / "open-brain"
     runtime.parent.mkdir(mode=0o700)
-    runtime.write_text("#!/bin/sh\nexit 0\n")
+    # A launch of the configured runtime would leave this marker; setup never launches it.
+    runtime.write_text(f"#!/bin/sh\ntouch {tmp_path / 'launched'}\n")
     runtime.chmod(0o700)
     return current
 
@@ -371,3 +372,145 @@ def test_stale_selection_member_refuses_release(guide: Guide) -> None:
     assert refused["outcome"] == "refused" and code == 78, refused
     assert journal(guide)["operations"][-1]["state"] == "refused"
     assert not any(item["action"] == "approve" for item in journal(guide)["operations"])
+
+
+def approved_one(guide: Guide) -> list[str]:
+    receipts, _selection = selected_and_consented(guide, ["Decision: keep it invite-only."])
+    preview = released(guide, receipts[0])
+    code, done = guide.confirm("approve", {"preview_id": preview["preview_id"]})
+    assert code == 0, done
+    return list(done["data"]["approved_copy_ids"])
+
+
+def policy_applied(guide: Guide) -> str:
+    code, preview = guide.advance("policy-preview")
+    assert (code, preview["outcome"]) == (0, "completed"), preview
+    digest = preview["data"]["payload_sha256"]
+    code, applied = guide.confirm("policy-apply", {"policy_sha256": digest})
+    assert code == 0, applied
+    return str(digest)
+
+
+def setup_previewed(guide: Guide) -> dict[str, Any]:
+    code, previewed = guide.confirm("setup-preview")
+    assert (code, previewed["outcome"]) == (0, "completed"), previewed
+    return dict(previewed["data"])
+
+
+def test_scoped_policy_and_setup_handoff_without_client_launch(guide: Guide) -> None:
+    import hashlib
+
+    copies = approved_one(guide)
+    code, refused = guide.advance("setup-preview")
+    assert (code, refused["code"], refused["next_actions"]) == (
+        78, "inspection_required", ["policy-apply"]
+    )
+    code, preview = guide.advance("policy-preview")
+    assert (code, preview["outcome"]) == (0, "completed"), preview
+    payload = preview["data"]
+    assert payload["subject"] == "policy" and payload["preview_id"] is None
+    document = json.loads(payload["payload_utf8"])
+    space_id = journal(guide)["choices"]["destination_space_id"]
+    workflow = hashlib.sha256(guide.workflow_id.encode()).hexdigest()
+    assert document["principal_id"] == f"guide:{workflow}:client"
+    assert document["session_id"] == f"guide:{workflow}:session"
+    assert document["capabilities"] == ["content-read", "search"]
+    assert document["space_ids"] == [space_id]
+    assert (document["allowed_read_tiers"], document["allowed_capture_tiers"]) == (["work"], [])
+    assert document["provider_id"] == "openai"
+    policy_path = guide.root / "policy" / "policy.json"
+    assert not policy_path.exists()
+    # Policy bytes never enter the journal; only non-content inputs and the SHA do.
+    assert b"principal_id" not in guide.journal.read_bytes()
+    assert journal(guide)["operations"][-1]["evidence"] == {
+        "policy_sha256": payload["payload_sha256"], "path": str(policy_path)
+    }
+    code, refused = guide.advance("policy-apply", {"policy_sha256": "0" * 64})
+    assert (code, refused["code"]) == (78, "inspection_required")
+    code, applied = guide.confirm("policy-apply", {"policy_sha256": payload["payload_sha256"]})
+    assert (code, applied["data"]["policy_sha256"]) == (0, payload["payload_sha256"]), applied
+    assert policy_path.read_text() == payload["payload_utf8"]
+    assert stat.S_IMODE(os.lstat(policy_path).st_mode) == 0o600
+    assert stat.S_IMODE(os.lstat(policy_path.parent).st_mode) == 0o700
+
+    # An unrelated client setting must survive the owned-fragment apply.
+    config = guide.project / ".mcp.json"
+    config.write_text(json.dumps({"mcpServers": {"unrelated": {"command": "synthetic-tool"}}}))
+    code, proposed = guide.advance("setup-preview")
+    assert code == 3, proposed
+    setup = json.loads(proposed["intent"]["canonical_request_utf8"])
+    assert setup["session_policy"] == str(policy_path)
+    assert setup["policy_sha256"] == payload["payload_sha256"]
+    code, previewed = guide.advance(
+        "setup-preview", confirmation=approve(proposed["intent"])
+    )
+    assert code == 0, previewed
+    shown = json.loads(previewed["data"]["payload_utf8"])
+    assert previewed["data"]["subject"] == "setup"
+    assert shown["permissions"] == {
+        "capture": False, "search": True, "content_read": True, "history_read": False
+    }
+    assert json.loads(config.read_text()) == {
+        "mcpServers": {"unrelated": {"command": "synthetic-tool"}}
+    }
+    code, proposed = guide.advance("setup-apply", {"preview_id": previewed["data"]["preview_id"]})
+    assert code == 3, proposed
+    assert proposed["data"]["payload_utf8"] == previewed["data"]["payload_utf8"]
+    code, done = guide.advance(
+        "setup-apply", {"preview_id": previewed["data"]["preview_id"]},
+        confirmation=approve(proposed["intent"]),
+    )
+    assert (code, done["outcome"]) == (0, "completed"), done
+    assert done["data"]["approved_copy_ids"] == copies and done["data"]["count"] == 1
+    servers = json.loads(config.read_text())["mcpServers"]
+    assert servers["unrelated"] == {"command": "synthetic-tool"}
+    assert set(servers) == {"unrelated", "open-brain"}
+    arguments = servers["open-brain"]["args"]
+    assert str(policy_path) in arguments and "--session-policy" in arguments
+    assert journal(guide)["operations"][-1]["evidence"]["status"] == "configured"
+    assert not (guide.root / "launched").exists()
+    stored = guide.journal.read_bytes()
+    assert b"synthetic-tool" not in stored and b"mcpServers" not in stored
+
+
+def test_revoked_consent_refuses_setup_apply_before_any_config_write(guide: Guide) -> None:
+    from open_brain.services.session_consent import DurableProviderConsentStore
+
+    approved_one(guide)
+    policy_applied(guide)
+    previewed = setup_previewed(guide)
+    code, proposed = guide.advance("setup-apply", {"preview_id": previewed["preview_id"]})
+    assert code == 3
+    binding = journal(guide)["binding"]
+    store = DurableProviderConsentStore(
+        guide.root / "consent" / "state.json",
+        brain_id=binding["brain_id"], issuer_epoch=binding["issuer_epoch"],
+    )
+    (record,) = [item for item in store.load().records if item.active]
+    store.revoke(consent_id=record.consent_id, operation_id="revoke.synthetic",
+                 decided_at="2026-10-22T13:00:00Z")
+    code, refused = guide.advance(
+        "setup-apply", {"preview_id": previewed["preview_id"]},
+        confirmation=approve(proposed["intent"]),
+    )
+    assert (code, refused["outcome"]) == (78, "refused"), refused
+    assert not (guide.project / ".mcp.json").exists()
+    assert not (guide.project / "CLAUDE.md").exists()
+    code, refused = guide.advance("policy-preview")
+    assert (code, refused["code"]) == (78, "authority_refused")
+
+
+def test_changed_policy_is_stale_and_never_repaired(guide: Guide) -> None:
+    approved_one(guide)
+    policy_applied(guide)
+    policy_path = guide.root / "policy" / "policy.json"
+    widened = json.loads(policy_path.read_text())
+    widened["allowed_capture_tiers"] = ["work"]
+    policy_path.write_text(json.dumps(widened))
+    code, refused = guide.advance("setup-preview")
+    assert (code, refused["code"], refused["next_actions"]) == (
+        78, "revision_conflict", ["policy-preview"]
+    )
+    code, refused = guide.advance("policy-preview")
+    assert (code, refused["code"]) == (78, "authority_refused")
+    assert json.loads(policy_path.read_text()) == widened
