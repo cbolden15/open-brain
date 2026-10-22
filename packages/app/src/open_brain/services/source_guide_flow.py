@@ -66,7 +66,22 @@ _MAX_RETAINED: Final = 1000
 _PAGE_RECEIPTS: Final = 25
 _EXECUTION_RESERVE: Final = 24_576
 CONFIRMED_ACTIONS: Final = frozenset(
-    {"configure", "preview", "import", "acknowledge-inspection", "reconcile"}
+    {
+        "configure",
+        "preview",
+        "import",
+        "acknowledge-inspection",
+        "create-destination",
+        "route",
+        "consent",
+        "select",
+        "release-preview",
+        "approve",
+        "policy-apply",
+        "setup-preview",
+        "setup-apply",
+        "reconcile",
+    }
 )
 _ARGUMENTS: Final[dict[str, frozenset[str]]] = {
     "start": frozenset(),
@@ -93,25 +108,20 @@ _ARGUMENTS: Final[dict[str, frozenset[str]]] = {
     "import": frozenset({"preview_id"}),
     "inspect": frozenset({"receipt_id"}),
     "acknowledge-inspection": frozenset({"receipt_id", "inspection_sha256"}),
+    "destination": frozenset({"space_id"}),
+    "create-destination": frozenset({"name"}),
+    "route": frozenset({"receipt_id"}),
+    "consent": frozenset({"provider_id"}),
+    "select": frozenset({"member_receipt_ids"}),
+    "release-preview": frozenset({"receipt_id", "provider_ids"}),
+    "approve": frozenset({"preview_id"}),
+    "policy-preview": frozenset(),
+    "policy-apply": frozenset({"policy_sha256"}),
+    "setup-preview": frozenset(),
+    "setup-apply": frozenset({"preview_id"}),
     "reconcile": frozenset({"operation_sequence"}),
     "cancel": frozenset(),
 }
-# Later-phase actions are valid decision words but are not available in this build.
-_LATER: Final = frozenset(
-    {
-        "destination",
-        "create-destination",
-        "route",
-        "consent",
-        "select",
-        "release-preview",
-        "approve",
-        "policy-preview",
-        "policy-apply",
-        "setup-preview",
-        "setup-apply",
-    }
-)
 # Configure and preview have no operation receipt: an ambiguous outcome halts.
 _HALT_ONLY: Final = frozenset({"configure", "preview"})
 
@@ -258,7 +268,31 @@ def _arguments_ok(action: str, values: dict[str, object]) -> bool:
     if action == "reconcile":
         sequence = values["operation_sequence"]
         return type(sequence) is int and sequence >= 0
+    if action in {"destination", "route", "consent", "approve", "setup-apply"}:
+        key = {"destination": "space_id", "consent": "provider_id"}.get(
+            action, "preview_id" if action in {"approve", "setup-apply"} else "receipt_id"
+        )
+        return _identifier(values[key])
+    if action == "create-destination":
+        return _short_text(values["name"], 80)
+    if action == "select":
+        members = values["member_receipt_ids"]
+        return _unique_ids(members, 24)
+    if action == "release-preview":
+        # One provider per workflow; no bulk or multi-provider release.
+        return _identifier(values["receipt_id"]) and _unique_ids(values["provider_ids"], 1)
+    if action == "policy-apply":
+        return _hex64(values["policy_sha256"])
     return True
+
+
+def _unique_ids(value: object, maximum: int) -> bool:
+    return (
+        isinstance(value, list)
+        and 1 <= len(value) <= maximum
+        and all(_identifier(item) for item in value)
+        and len(set(cast(list[str], value))) == len(value)
+    )
 
 
 def parse_decision(value: object) -> Decision:
@@ -284,8 +318,6 @@ def parse_decision(value: object) -> Decision:
         or type(action) is not str
         or not isinstance(arguments, dict)
     ):
-        raise _Stop("invalid_request")
-    if action in _LATER:
         raise _Stop("invalid_request")
     if action not in _ARGUMENTS or set(arguments) != _ARGUMENTS[action]:
         raise _Stop("invalid_request")
@@ -401,6 +433,9 @@ def _progress(
     count: int | None = None,
     receipt_ids: Sequence[str] = (),
     has_more: bool | None = None,
+    policy_sha256: str | None = None,
+    selection_id: str | None = None,
+    approved_copy_ids: Sequence[str] = (),
 ) -> dict[str, object]:
     return {
         "kind": "progress",
@@ -409,10 +444,10 @@ def _progress(
         "preview_id": preview_id,
         "generation": generation,
         "count": count,
-        "policy_sha256": None,
+        "policy_sha256": policy_sha256,
         "receipt_ids": list(receipt_ids),
-        "selection_id": None,
-        "approved_copy_ids": [],
+        "selection_id": selection_id,
+        "approved_copy_ids": list(approved_copy_ids),
         "has_more": has_more,
     }
 
@@ -471,10 +506,11 @@ class GuideFlow:
         self.bind(document, executable)
         if decision.workflow_id != document["workflow_id"]:
             raise _Stop("binding_mismatch", document=document)
-        if document["status"] == "halted":
-            # A refused import whose page is gone may have committed: nothing continues.
-            raise _Stop("receipt_unresolved", document=document)
-        if document["status"] != "active":
+        if document["status"] == "halted" and decision.action != "cancel":
+            # A refused write that may have committed stops everything except an
+            # explicit journal-only owner cancel (RECOVERY.md cancel row).
+            raise _Stop("receipt_unresolved", document=document, next_actions=("cancel",))
+        if document["status"] not in {"active", "halted"}:
             raise _Stop("invalid_request", document=document)
         if decision.expected_revision != document["revision"]:
             raise _Stop("revision_conflict", document=document)
@@ -634,6 +670,7 @@ class GuideFlow:
         versions: Sequence[Mapping[str, object]],
         report: Mapping[str, object] | None,
         summary: str,
+        data: Mapping[str, object] | None = None,
     ) -> tuple[dict[str, object], int | dict[str, object]]:
         """Return (document, prepared index) when confirmed, else a needs_confirmation result."""
         brain_id, issuer_epoch = brain_identity(self.paths.brain)
@@ -658,6 +695,7 @@ class GuideFlow:
                 "needs_confirmation",
                 document=updated,
                 intent=self._intent(fresh, summary),
+                data=data,
                 next_actions=(decision.action,),
             )
         wanted = decision.confirmation["intent_sha256"]
@@ -1207,7 +1245,10 @@ class GuideFlow:
         return self._imported("import", finished, cast(dict[str, object], value))
 
     def _read_inspection(
-        self, document: Mapping[str, object], receipt_id: str
+        self,
+        document: Mapping[str, object],
+        receipt_id: str,
+        report: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         source_id = configured_source(document)
         if source_id is None or receipt_id not in cast(
@@ -1217,7 +1258,8 @@ class GuideFlow:
         binding = cast(dict[str, object], document["binding"])
         if brain_identity(self.paths.brain) != (binding["brain_id"], binding["issuer_epoch"]):
             raise _Stop("binding_mismatch", document=document)
-        report = self._metadata(source_id=source_id)
+        if report is None:
+            report = self._metadata(source_id=source_id)
         try:
             record = resolve_captured_record(
                 receipt_id=receipt_id,

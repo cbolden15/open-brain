@@ -325,8 +325,17 @@ def test_replaced_last_run_after_lost_import_ack_halts(
     _pages(guide)
     code, blocked = guide.advance("preview")
     assert (code, blocked["code"]) == (78, "receipt_unresolved")
+    assert blocked["next_actions"] == ["cancel"]
+    # The owner exit from a halted journal is journal-only: no authority call, and the
+    # unresolved operation and every receipt stay recorded.
     code, cancelled = guide.advance("cancel")
-    assert code == 78 and cancelled["code"] == "receipt_unresolved"
+    assert (code, cancelled["outcome"]) == (0, "cancelled"), cancelled
+    journal = _journal(guide)
+    assert journal["status"] == "cancelled"
+    assert journal["operations"][sequence]["state"] == "unknown"
+    assert journal["operations"][-1]["action"] == "cancel"
+    code, after = guide.advance("reconcile", {"operation_sequence": sequence})
+    assert after["outcome"] == "refused" and code != 0
     assert guide.history() == 2
 
 

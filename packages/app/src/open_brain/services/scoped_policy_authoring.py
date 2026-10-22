@@ -41,6 +41,7 @@ __all__ = [
     "current_work_consent",
     "guide_principal",
     "preview_scoped_policy",
+    "read_existing_policy",
 ]
 
 _POLICY_VERSION: Final = "launcher-policy.v1"
@@ -163,7 +164,7 @@ def _validate(payload: bytes, inputs: PolicyInputs, state: ProviderConsentState)
         raise PolicyAuthoringError("authority_refused") from None
 
 
-def _existing(path: Path) -> bytes | None:
+def read_existing_policy(path: Path) -> bytes | None:
     try:
         os.lstat(path)
     except FileNotFoundError:
@@ -181,7 +182,7 @@ def preview_scoped_policy(
 ) -> PolicyPreview:
     """Full proposed (or exact existing) policy bytes and SHA, never written anywhere."""
     state = _consent_state(consent_path, brain_id=inputs.brain_id, issuer_epoch=inputs.issuer_epoch)
-    existing = _existing(policy_path)
+    existing = read_existing_policy(policy_path)
     payload = _canonical(_document(inputs)) if existing is None else existing
     # An existing file is only offered for reuse when a fresh parse proves exact scope.
     _validate(payload, inputs, state)
@@ -216,7 +217,7 @@ def apply_scoped_policy(
 ) -> str:
     """Regenerate, compare, revalidate, then create-only; an exact existing file is reused."""
     state = _consent_state(consent_path, brain_id=inputs.brain_id, issuer_epoch=inputs.issuer_epoch)
-    existing = _existing(policy_path)
+    existing = read_existing_policy(policy_path)
     if not expected_absent:
         # Reuse is never a write: the exact confirmed bytes must still be there.
         if existing is None or hashlib.sha256(existing).hexdigest() != policy_sha256:

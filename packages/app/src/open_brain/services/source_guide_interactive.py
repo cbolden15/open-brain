@@ -21,8 +21,9 @@ from open_brain.services.source_guide_display import (
     render_body,
     safe_display,
 )
-from open_brain.services.source_guide_flow import GuideFlow, parse_decision, stop_envelope
+from open_brain.services.source_guide_flow import parse_decision, stop_envelope
 from open_brain.services.source_guide_journal import JournalError
+from open_brain.services.source_guide_release import ReleaseFlow
 
 if TYPE_CHECKING:
     from open_brain.services.source_guide import GuidePaths
@@ -43,7 +44,7 @@ class _Session:
     def __init__(
         self, paths: GuidePaths, ask: Callable[[str], str], write: Callable[[str], object]
     ) -> None:
-        self.flow = GuideFlow(paths)
+        self.flow = ReleaseFlow(paths)
         self.paths = paths
         self.ask = ask
         self.write = write

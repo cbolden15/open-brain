@@ -244,11 +244,8 @@ def run_source_guide(arguments: Sequence[str]) -> int:
             _envelope(action, "refused", "invalid_request"), json_output="--json" in arguments
         )
     if leaf == "advance":
-        from open_brain.services.source_guide_flow import (
-            GuideFlow,
-            read_decision_file,
-            stop_envelope,
-        )
+        from open_brain.services.source_guide_flow import read_decision_file, stop_envelope
+        from open_brain.services.source_guide_release import ReleaseFlow
 
         try:
             decision = read_decision_file(cast(Path, decision_file))
@@ -257,7 +254,7 @@ def run_source_guide(arguments: Sequence[str]) -> int:
             if stopped is None:
                 raise
             return _emit(stopped, json_output=True)
-        return _emit(GuideFlow(paths).advance(decision), json_output=True)
+        return _emit(ReleaseFlow(paths).advance(decision), json_output=True)
     if leaf == "slack":
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             sys.stderr.write("source guide slack requires an interactive terminal.\n")
