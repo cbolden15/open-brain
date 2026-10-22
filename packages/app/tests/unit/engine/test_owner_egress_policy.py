@@ -482,6 +482,91 @@ def test_mixed_member_overlay_requires_every_member_tier_to_be_shared(tmp_path: 
     assert not egress((PrivacyTier.PERSONAL, PrivacyTier.SECRET), *SHAREABLE)
 
 
+def test_mixed_canonical_page_is_shared_only_when_every_member_tier_is(tmp_path: Path) -> None:
+    import json
+
+    from open_brain_engine.engine import DecisionOutcome, ProposalDraft
+    from open_brain_engine.engine.portable_v5_evidence import _retained_and_bases
+    from open_brain_engine.engine.t03_contracts import SearchPageRequest
+
+    engine = BrainEngine.open(
+        compile_single_user_local(tmp_path / "brain", starter_spaces=("Notes",))
+    )
+    space = engine.inbox.spaces()[0]
+    members = [
+        engine.capture.accept(
+            TextPayload(f"mixed pulsar {tier.value}"),
+            delivery_id=f"mixed.{tier.value}",
+            privacy_tier=tier,
+        )
+        for tier in (PrivacyTier.WORK, PrivacyTier.PERSONAL)
+    ]
+    for capture in members:
+        engine.inbox.route(capture.capture_id, space.space_id, delivery_id=capture.capture_id)
+    proposal = engine.review.propose(
+        tuple(capture.capture_id for capture in members),
+        (ProposalDraft("Mixed pulsar", "Mixed pulsar page"),),
+        delivery_id="mixed.proposal",
+    )[0]
+    page_id = engine.review.decide(
+        proposal.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="mixed.decision",
+        expected_review_digest=proposal.review_digest,
+    ).page_id
+    tasks, owner = OwnerEgressPolicyTasks(engine), _owner(engine)
+    every_consent = (PrivacyTier.PUBLIC, PrivacyTier.WORK, PrivacyTier.PERSONAL)
+    request = SearchPageRequest(
+        query="mixed pulsar",
+        filters={"space_ids": [], "payload_families": [], "record_types": ["canonical"]},
+    )
+
+    def page_egress() -> tuple[bool, int, bool]:
+        with _connect(engine.profile) as connection:
+            stored = connection.execute(
+                "SELECT effective_privacy_json FROM canonical_revision_privacy"
+            ).fetchall()
+            search = connection.execute(
+                "SELECT effective_external_egress FROM search_documents WHERE result_id=?",
+                (page_id,),
+            ).fetchone()
+        assert len(stored) == 1
+        authority = json.loads(stored[0][0])["authority"]
+        assert authority["cloud"] is False
+        found = engine.retrieval.search_page(request, authority=_external(engine, *every_consent))
+        rows = cast(list[dict[str, object]], found.to_wire()["results"])
+        return authority["external_egress"], search[0], page_id in {r["record_id"] for r in rows}
+
+    tasks.set({PrivacyTier.PERSONAL}, operation_id="mixed.personal", authority=owner)
+    assert page_egress() == (False, 0, False)
+    with _connect(engine.profile) as connection:
+        honest = connection.execute(
+            "SELECT revision_id, effective_privacy_json FROM canonical_revision_privacy"
+        ).fetchone()
+        widened = json.loads(honest[1])
+        widened["authority"]["external_egress"] = True
+        connection.execute(
+            "UPDATE canonical_revision_privacy SET effective_privacy_json=? WHERE revision_id=?",
+            (json.dumps(widened, sort_keys=True, separators=(",", ":")), honest[0]),
+        )
+        connection.commit()
+        connection.execute("BEGIN")
+        with pytest.raises(Exception, match="base privacy projection mismatch"):
+            _retained_and_bases(connection)
+        connection.rollback()
+        connection.execute(
+            "UPDATE canonical_revision_privacy SET effective_privacy_json=? WHERE revision_id=?",
+            (honest[1], honest[0]),
+        )
+        connection.commit()
+    tasks.set(
+        {PrivacyTier.WORK, PrivacyTier.PERSONAL}, operation_id="mixed.both", authority=owner
+    )
+    assert page_egress() == (True, 1, True)
+    tasks.set({PrivacyTier.WORK}, operation_id="mixed.work", authority=owner)
+    assert page_egress() == (False, 0, False)
+
+
 def test_overlay_never_applies_to_invalid_evidence() -> None:
     from open_brain_engine.engine.owner_egress_policy import OwnerEgressPolicy
     from open_brain_engine.engine.privacy_projection import project_retained_privacy_evidence
