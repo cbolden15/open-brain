@@ -20,6 +20,7 @@ from open_brain_engine.engine import PHASE1_STATE_SCHEMA_VERSION
 
 from open_brain.services.local_runtime_session import RUNTIME_SESSION_VERSION
 from open_brain.services.source_guide_adapter import (
+    PORTABLE_METADATA,
     GuideAdapterError,
     collector_handshake,
     read_guide_metadata,
@@ -58,7 +59,7 @@ _MESSAGES: Final = {
     "collector_incompatible": (
         "The selected collector does not support guide protocol 1 for this build "
         f"(schema {PHASE1_STATE_SCHEMA_VERSION}, runtime {RUNTIME_SESSION_VERSION}, "
-        "Portable 16)."
+        f"Portable {PORTABLE_METADATA})."
     ),
     "collector_changed": "The collector executable changed. Select it again.",
     "state_uninitialized": (

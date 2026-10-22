@@ -23,7 +23,7 @@ from typing import Any, cast
 
 import pytest
 
-from open_brain.services import source_guide_flow
+from open_brain.services import source_guide_adapter, source_guide_flow
 from open_brain.services.source_guide_journal import WorkflowJournal
 from packages.app.tests.integration.services import source_guide_support as support
 from packages.app.tests.integration.services.test_source_guide import (
@@ -154,7 +154,9 @@ def test_configure_ambiguity_is_halt_only_then_new_intent(
     _settled(guide, sequence)
 
     code, halted = guide.advance("reconcile", {"operation_sequence": sequence})
-    assert (code, halted["outcome"], halted["code"]) == (78, "refused", "operation_unknown")
+    assert (code, halted["outcome"], halted["code"]) == (
+        78, "unknown_outcome", "operation_unknown"
+    )
     assert halted["intent"] is None and halted["next_actions"] == ["configure"]
     journal = _journal(guide)
     assert journal["operations"][sequence]["state"] == "unknown"
@@ -278,10 +280,139 @@ def test_refused_import_replay_halts_without_altering_the_saved_request(
     assert journal["operations"][sequence]["state"] == "unknown"
     assert journal["operations"][-1]["state"] == "refused"
     assert journal["retained_receipt_ids"] == []
-    # Halted, resolved: a fresh inspected intent is allowed again.
+    # A refusal never proves the import did not commit: the pending page is gone,
+    # so the workflow halts instead of fetching or importing another page.
+    assert journal["status"] == "halted"
     _pages(guide)
-    code, previewed = guide.confirm("preview")
-    assert code == 0, previewed
+    code, blocked = guide.advance("preview")
+    assert (code, blocked["code"]) == (78, "receipt_unresolved")
+    assert guide.history() == 1
+
+
+def _collector(guide: Guide, *arguments: str) -> dict[str, Any]:
+    """Another actor using the same real collector directly (Slack HTTP still synthetic)."""
+    completed = subprocess.run(
+        [str(guide.executable), "sources", "--state", str(guide.state), "--brain-root",
+         str(guide.brain), "--foreground", *arguments],
+        capture_output=True, check=True, text=True,
+    )
+    return dict(json.loads(completed.stdout))
+
+
+def test_replaced_last_run_after_lost_import_ack_halts(
+    guide: Guide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    preview_id = _previewed(guide)
+    with monkeypatch.context() as patch:
+        _interrupt(patch, "import_preview", "after_commit_before_result")
+        sequence = _crash(guide, "import", {"preview_id": preview_id})
+    _settled(guide, sequence)
+    source_id = json.loads(
+        _journal(guide)["operations"][sequence]["canonical_request_utf8"]
+    )["source_id"]
+    _pages(guide)
+    other = _collector(guide, "preview", "--source-id", source_id)
+    _collector(guide, "import", "--source-id", source_id, "--preview-id", other["preview_id"])
+    assert _health(guide)["pending_preview"]["status"] == "absent"
+
+    code, replay = guide.confirm("reconcile", {"operation_sequence": sequence})
+    assert (code, replay["code"]) == (78, "authority_refused"), replay
+    journal = _journal(guide)
+    assert journal["status"] == "halted"
+    # Saved evidence never manufactures the committed receipts.
+    assert journal["retained_receipt_ids"] == []
+    assert journal["operations"][sequence]["state"] == "unknown"
+    _pages(guide)
+    code, blocked = guide.advance("preview")
+    assert (code, blocked["code"]) == (78, "receipt_unresolved")
+    code, cancelled = guide.advance("cancel")
+    assert code == 78 and cancelled["code"] == "receipt_unresolved"
+    assert guide.history() == 2
+
+
+def test_refused_import_with_page_still_pending_stays_active(
+    guide: Guide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain.services.source_guide_adapter import GuideAdapterError
+
+    preview_id = _previewed(guide)
+
+    def refuse(*_arguments: object, **_keywords: object) -> dict[str, object]:
+        raise GuideAdapterError("operation_failed", native="synthetic_unmapped")
+
+    monkeypatch.setattr(source_guide_flow, "import_preview", refuse)
+    code, refused = guide.confirm("import", {"preview_id": preview_id})
+    assert (code, refused["code"]) == (78, "operation_failed")
+    assert _journal(guide)["status"] == "active"
+    monkeypatch.undo()
+    code, imported = guide.confirm("import", {"preview_id": preview_id})
+    assert code == 0, imported
+
+
+def test_unmapped_refusal_after_page_left_pending_halts(
+    guide: Guide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain.services.source_guide_adapter import GuideAdapterError
+
+    preview_id = _previewed(guide)
+    original: Callable[..., Any] = source_guide_adapter.import_preview
+
+    def commit_then_refuse(*arguments: Any, **keywords: Any) -> dict[str, object]:
+        original(*arguments, **keywords)
+        raise GuideAdapterError("operation_failed", native="synthetic_unmapped")
+
+    monkeypatch.setattr(source_guide_flow, "import_preview", commit_then_refuse)
+    code, refused = guide.confirm("import", {"preview_id": preview_id})
+    assert (code, refused["code"]) == (78, "operation_failed")
+    journal = _journal(guide)
+    assert journal["status"] == "halted"
+    assert journal["retained_receipt_ids"] == []
+    _pages(guide)
+    code, blocked = guide.advance("preview")
+    assert (code, blocked["code"]) == (78, "receipt_unresolved")
+    assert guide.history() == 1
+
+
+def test_private_temporary_name_collision_is_unsafe_path(guide: Guide) -> None:
+    guide.through_choose()
+    collision = guide.journal.with_name(f".{guide.journal.name}.selection-{os.getpid()}.json")
+    collision.write_text("{}")
+    code, refused = guide.advance("configure")
+    assert (code, refused["outcome"], refused["code"]) == (78, "refused", "unsafe_path")
+    assert collision.read_text() == "{}"
+
+
+def test_near_full_journal_can_still_be_cancelled(guide: Guide) -> None:
+    from open_brain.services.source_guide_journal import (
+        MAX_JOURNAL_BYTES,
+        canonical_json,
+        operation_record,
+    )
+
+    guide.advance("start")
+    journal = WorkflowJournal(guide.journal)
+    document = _journal(guide)
+    binding = {
+        "brain_id": document["binding"]["brain_id"],
+        "issuer_epoch": document["binding"]["issuer_epoch"],
+        "collector_binding": document["binding"]["collector_binding"],
+        "source_generation": None,
+        "control_epoch": None,
+        "executable": document["binding"]["executable"],
+    }
+    while len(canonical_json(document).encode()) < MAX_JOURNAL_BYTES - 6_000:
+        item = operation_record(
+            sequence=len(document["operations"]), action="accounts", request={},
+            expected_versions=(), execution_binding=binding,
+        )
+        item["state"] = "completed"
+        document["operations"].append(item)
+    document = journal.write(document, expected_revision=document["revision"], reserve_bytes=0)
+    guide.revision = int(cast(int, document["revision"]))
+    code, accounts = guide.advance("accounts")
+    assert (code, accounts["code"]) == (78, "capacity_reached")
+    code, cancelled = guide.advance("cancel")
+    assert (code, cancelled["outcome"]) == (0, "cancelled"), cancelled
 
 
 def support_selection(value: Any) -> Any:

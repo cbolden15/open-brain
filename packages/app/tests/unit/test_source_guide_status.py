@@ -207,3 +207,11 @@ def test_status_renders_versioned_health_from_the_installed_collector(tmp_path: 
     assert cast(dict[str, object], report["source"])["source_id"] == SOURCE_ID
     assert cast(dict[str, object], report["snapshot"])["consistency"] == "uninitialized"
     assert "Global consistency: unknown" in source_guide.render_status(result)
+
+
+def test_incompatible_message_names_the_bound_portable_coordinate() -> None:
+    from open_brain.services.source_guide_adapter import PORTABLE_METADATA
+
+    source = Path(source_guide.__file__).read_text()
+    assert "Portable 16" not in source
+    assert f"Portable {PORTABLE_METADATA})." in source_guide._MESSAGES["collector_incompatible"]

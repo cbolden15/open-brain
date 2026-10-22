@@ -305,3 +305,15 @@ def test_guard_probe_reports_busy_without_taking_it(tmp_path: Path) -> None:
 def test_module_never_imports_optional_collector() -> None:
     source = Path(journal_module.__file__).read_text()
     assert "open_brain_collector" not in source and "open_brain_connectors" not in source
+
+
+def test_more_than_one_thousand_operations_is_capacity_not_incompatible(tmp_path: Path) -> None:
+    path = _private(tmp_path)
+    journal = WorkflowJournal(path)
+    journal.create(new_journal("guide:synthetic-1", _binding(tmp_path)))
+    document = new_journal("guide:synthetic-1", _binding(tmp_path))
+    operations = cast(list[object], document["operations"])
+    operations.extend(_operation(index) for index in range(1001))
+    with pytest.raises(JournalError) as error:
+        journal.write(document, expected_revision=1, reserve_bytes=0)
+    assert _code(error) == "capacity_reached"

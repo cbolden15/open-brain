@@ -128,7 +128,8 @@ class _Stop(Exception):
     ) -> None:
         super().__init__(code)
         self.code = code
-        self.outcome = outcome
+        # A possibly committed write is never reported as a plain refusal.
+        self.outcome = "unknown_outcome" if code == "operation_unknown" else outcome
         self.document = document
         self.data = data
         self.next_actions = tuple(next_actions)
@@ -448,7 +449,15 @@ class GuideFlow:
             )
         except (GuideAdapterError, JournalError) as error:
             return result_envelope(
-                decision.action, "refused", error.code, workflow_id=decision.workflow_id
+                decision.action,
+                "unknown_outcome" if error.code == "operation_unknown" else "refused",
+                error.code,
+                workflow_id=decision.workflow_id,
+            )
+        except OSError:
+            # Private temporary/journal file failures never escape as raw OS errors.
+            return result_envelope(
+                decision.action, "refused", "unsafe_path", workflow_id=decision.workflow_id
             )
 
     def _advance(self, decision: Decision) -> dict[str, object]:
@@ -462,6 +471,9 @@ class GuideFlow:
         self.bind(document, executable)
         if decision.workflow_id != document["workflow_id"]:
             raise _Stop("binding_mismatch", document=document)
+        if document["status"] == "halted":
+            # A refused import whose page is gone may have committed: nothing continues.
+            raise _Stop("receipt_unresolved", document=document)
         if document["status"] != "active":
             raise _Stop("invalid_request", document=document)
         if decision.expected_revision != document["revision"]:
@@ -543,6 +555,7 @@ class GuideFlow:
         choices: Mapping[str, object] | None = None,
         status: str | None = None,
         state: str = "completed",
+        reserve: int = 16_384,
     ) -> dict[str, object]:
         """Record one journal-only action in a single CAS write."""
         updated = copy.deepcopy(dict(document))
@@ -560,7 +573,28 @@ class GuideFlow:
             cast(dict[str, object], updated["choices"]).update(choices)
         if status is not None:
             updated["status"] = status
-        return self._write(updated)
+        return self._write(updated, reserve=reserve)
+
+    def _halt_unless_pending(
+        self, finished: dict[str, object], source_id: str, preview_id: str
+    ) -> dict[str, object]:
+        """A refused import proves nothing unless the same page is provably still pending.
+
+        Otherwise the workflow halts: the import may have committed receipts this
+        journal does not hold, so no new page is previewed or imported.
+        """
+        try:
+            pending = cast(
+                dict[str, object], self._metadata(source_id=source_id)["pending_preview"]
+            )
+            still_pending = pending["status"] == "present" and pending["preview_id"] == preview_id
+        except GuideAdapterError:
+            still_pending = False
+        if still_pending:
+            return finished
+        halted = copy.deepcopy(finished)
+        halted["status"] = "halted"
+        return self._write(halted, reserve=0)
 
     def _execution_binding(
         self, document: Mapping[str, object], report: Mapping[str, object] | None
@@ -1167,6 +1201,8 @@ class GuideFlow:
             document, prepared, self._import_call(source_id, preview_id), complete
         )
         if failure is not None:
+            if failure.code != "operation_unknown":
+                finished = self._halt_unless_pending(finished, source_id, preview_id)
             self._failed(finished, "import", failure)
         return self._imported("import", finished, cast(dict[str, object], value))
 
@@ -1383,12 +1419,15 @@ class GuideFlow:
         if failure is not None:
             if failure.code == "operation_unknown":
                 raise _Stop("operation_unknown", document=finished, next_actions=("reconcile",))
-            # A refused replay halts: the exact saved request is never altered.
-            raise _Stop(failure.code, document=finished, next_actions=("cancel",))
+            # A refused replay halts unless the page is provably uncommitted; the
+            # exact saved request is never altered or reissued under a new ID.
+            finished = self._halt_unless_pending(finished, source_id, preview_id)
+            raise _Stop(failure.code, document=finished)
         return self._imported("reconcile", finished, cast(dict[str, object], value))
 
     def _cancel(self, document: dict[str, object], _decision: Decision) -> dict[str, object]:
-        updated = self._record(document, "cancel", {}, status="cancelled")
+        # No reserve: a near-full journal can still be cancelled.
+        updated = self._record(document, "cancel", {}, status="cancelled", reserve=0)
         return result_envelope("cancel", "cancelled", document=updated)
 
     # -- status ------------------------------------------------------------

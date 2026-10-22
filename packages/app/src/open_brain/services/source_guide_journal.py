@@ -640,6 +640,11 @@ class WorkflowJournal:
                 raise JournalError("binding_mismatch")
             value = copy.deepcopy(dict(document))
             value["revision"] = expected_revision + 1
+            if (
+                len(cast(list[object], value["operations"])) > _MAX_OPERATIONS
+                or len(cast(list[object], value["retained_receipt_ids"])) > _MAX_RECEIPTS
+            ):
+                raise JournalError("capacity_reached")
             validate_journal(value)
             payload = canonical_json(value).encode("utf-8")
             if len(payload) + reserve_bytes > MAX_JOURNAL_BYTES:
