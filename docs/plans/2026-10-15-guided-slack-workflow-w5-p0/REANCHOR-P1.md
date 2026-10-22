@@ -56,6 +56,9 @@ P1 needs none of the stop triggers:
 - `--guide-guard-fd` is added to the collector parser so the advertised `inherited-flock-v1`
   capability is real. Legacy callers that omit it are unchanged. The guard file itself belongs to
   the P2 journal directory.
+- Account health reports registration only and never compares `credential_ref` (HEALTH.md). The
+  existing `_metadata_account` validator still requires that key to be a string; the dropped
+  namespace-equality check is a credential concern, re-proven by `SlackAuth` on any real use.
 - No explicit canonical-path alias allowlist exists in current source. The reader follows the
   existing `PrivateJsonStore` traversal (`O_NOFOLLOW` from the filesystem anchor), so a symlinked
   ancestor such as macOS `/var` refuses as `unsafe_path`, matching existing collector behavior.

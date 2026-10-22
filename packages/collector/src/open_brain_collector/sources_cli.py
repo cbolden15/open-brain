@@ -97,7 +97,9 @@ def _leaf_command(argv: Sequence[str]) -> str | None:
         token = argv[index]
         if token in {"--state", "--brain-root", "--guide-guard-fd"}:
             index += 2
-        elif token == "--foreground":
+        elif token == "--foreground" or token.startswith(
+            ("--state=", "--brain-root=", "--guide-guard-fd=")
+        ):
             index += 1
         else:
             return token
@@ -163,12 +165,15 @@ def _guide_selection_file(path: str) -> SourceResourceSelection:
 
 def _guide_metadata(argv: Sequence[str]) -> int:
     """Read-only guide health; dispatched before any manager, IPC or engine bootstrap."""
-    parser = _StrictParser(prog="open-brain-collector sources", add_help=False)
+    # The frozen argv form is exact: no abbreviations and no --flag=value spellings.
+    if any(token.startswith(("--state=", "--brain-root=")) for token in argv):
+        return _guide_failure("source_invalid_arguments")
+    parser = _StrictParser(prog="open-brain-collector sources", add_help=False, allow_abbrev=False)
     parser.add_argument("--state", required=True)
     parser.add_argument("--brain-root", required=True)
     parser.add_argument("--foreground", action="store_true")
     commands = parser.add_subparsers(dest="command", required=True)
-    leaf = commands.add_parser("guide-metadata", add_help=False)
+    leaf = commands.add_parser("guide-metadata", add_help=False, allow_abbrev=False)
     locator = leaf.add_mutually_exclusive_group(required=True)
     locator.add_argument("--source-id")
     locator.add_argument("--selection-file")
@@ -199,17 +204,14 @@ def _guide_metadata(argv: Sequence[str]) -> int:
         print(json.dumps(report, sort_keys=True, allow_nan=False))
         return 0
     except Exception as error:
-        print(
-            json.dumps(
-                {
-                    "outcome": "failed",
-                    "failure_code": error.code
-                    if isinstance(error, LiveSourceError)
-                    else "source_operation_failed",
-                }
-            )
+        return _guide_failure(
+            error.code if isinstance(error, LiveSourceError) else "source_operation_failed"
         )
-        return 78
+
+
+def _guide_failure(code: str) -> int:
+    print(json.dumps({"outcome": "failed", "failure_code": code}))
+    return 78
 
 
 class _StrictParser(argparse.ArgumentParser):

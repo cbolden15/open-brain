@@ -172,3 +172,10 @@ def test_health_rendering_escapes_names_and_keeps_unknown_distinct_from_zero() -
     assert "Coverage: partial (partial_page)" in text
     assert "healthy" not in text.lower()
     json.dumps(report)
+
+
+def test_literal_escape_text_is_distinguishable_from_an_escaped_control() -> None:
+    assert safe_display("\\x1b[31m") == "\\\\x1b[31m"
+    assert safe_display("\u001b[31m") == "\\x1b[31m"
+    assert safe_display("\\x1b[31m") != safe_display("\u001b[31m")
+    assert safe_display("C:\\path") == "C:\\\\path"

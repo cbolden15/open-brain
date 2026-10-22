@@ -33,7 +33,6 @@ from open_brain_connectors.runtime.live_common import LiveSourceError, bounded_j
 from open_brain_connectors.runtime.live_storage import PrivateJsonStore
 from open_brain_connectors.runtime.slack_auth import (
     _account_name,
-    _credential_reference,
     _metadata_account,
 )
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
@@ -563,10 +562,8 @@ def _project_account(reader: _Reader, report: HealthV1, connection_id: str) -> N
         account["registration"] = "absent"
         return
     try:
-        value = json.loads(raw)
-        parsed = _metadata_account(value, name)
-        if value["credential_ref"] != _credential_reference(parsed.connection_id, reader.accounts):
-            raise LiveSourceError("invalid_auth_store")
+        # Registration only: the credential reference is never read or compared.
+        parsed = _metadata_account(json.loads(raw), name)
     except (ValueError, UnicodeError, RecursionError, LiveSourceError):
         return
     account.update(

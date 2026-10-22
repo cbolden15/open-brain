@@ -22,6 +22,7 @@ from open_brain_collector import cli, source_metadata, sources_cli
 from open_brain_collector.live_capture import LiveCaptureService
 from open_brain_collector.live_manager import LiveSourceManager, PriorityRuntime
 from open_brain_collector.source_metadata import read_source_metadata
+from open_brain_connectors.runtime import slack_auth
 from open_brain_connectors.runtime.live_common import LiveBatch, local_source_privacy
 from open_brain_connectors.runtime.live_http import LiveHttpTransport
 from open_brain_connectors.runtime.live_storage import OsCredentialStore, PrivateJsonStore
@@ -687,6 +688,42 @@ def test_cli_selection_file_is_strict_and_owner_private(
             {"outcome": "failed", "failure_code": "source_invalid_arguments"},
         )
     del live
+
+
+def test_cli_guide_metadata_refuses_abbreviations_and_equals_forms(tmp_path: Path) -> None:
+    live, brain, _runtime = _configured(tmp_path)
+    state = str(tmp_path / "state.json")
+    other = str(tmp_path / "other" / "state.json")
+    refused = (78, {"outcome": "failed", "failure_code": "source_invalid_arguments"})
+    for argv in (
+        ["--state", state, "--brain-root", str(brain), "--foreground", "guide-metadata",
+         "--source", SOURCE_ID],
+        ["--state", state, "--brain-root", str(brain), "--foreground", "guide-metadata",
+         "--sel", str(tmp_path / "selection.json")],
+        ["--state", state, "--state=" + other, "--brain-root", str(brain), "--foreground",
+         "guide-metadata", "--source-id", SOURCE_ID],
+        ["--state", state, "--brain-root", str(brain), "--brain-root=" + str(brain),
+         "--foreground", "guide-metadata", "--source-id", SOURCE_ID],
+        ["--state=" + state, "--brain-root", str(brain), "--foreground", "guide-metadata",
+         "--source-id", SOURCE_ID],
+    ):
+        assert _cli(argv) == refused
+    del live
+
+
+def test_account_projection_never_reads_credential_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live, brain, _runtime = _configured(tmp_path)
+
+    def refuse(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("credential reference must not be derived or compared")
+
+    assert not hasattr(source_metadata, "_credential_reference")
+    monkeypatch.setattr(slack_auth, "_credential_reference", refuse)
+    report = read_source_metadata(live_root=live, brain_root=brain, source_id=SOURCE_ID)
+
+    assert _section(report, "account")["registration"] == "registered"
 
 
 def test_cli_source_id_named_guide_metadata_keeps_legacy_dispatch(

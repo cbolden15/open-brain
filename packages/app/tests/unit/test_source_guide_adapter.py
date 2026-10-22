@@ -563,3 +563,129 @@ def test_timed_out_read_is_unknown_outcome(
             selected, state=tmp_path / "s.json", brain=tmp_path / "b", source_id=SOURCE_ID
         )
     _assert_code(error, "operation_unknown")
+
+
+def _valid_health() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "snapshot": {
+            "consistency": "per_store",
+            "global_consistency": "unknown",
+            "retryable": False,
+            "reason_codes": ["state_absent"],
+            "evidence_tokens": [{"store": "source", "token": "f" * 64}],
+        },
+        "account": {
+            "registration": "registered",
+            "connection_id": ACCOUNT,
+            "display_name": "Synthetic workspace",
+            "credential_status": "unknown",
+            "last_access_failure_code": None,
+            "last_access_failure_epoch": None,
+        },
+        "source": {
+            "source_id": SOURCE_ID,
+            "generation": "a" * 64,
+            "control_epoch": 0,
+            "configured_status": "disabled",
+            "activity": "manual_idle",
+            "schedule_running": "unknown",
+            "stored_next_run_epoch": None,
+        },
+        "pending_preview": {
+            "status": "present",
+            "preview_id": "preview:" + "b" * 64,
+            "count": 1,
+            "has_more": True,
+            "coverage_codes": ["partial_page"],
+        },
+        "execution": {
+            "outcome": "completed",
+            "finished_epoch": 1_900_000_000,
+            "captured_count": 1,
+            "duplicate_count": 0,
+            "quarantined_count": 0,
+            "last_successful_completion_epoch": 1_900_000_000,
+            "failure_code": None,
+        },
+        "coverage": {"status": "partial", "has_more": True, "codes": ["partial_page"]},
+        "recovery": {
+            "retry_deadline_epoch": None,
+            "retry_deadline_proven": False,
+            "unresolved_receipt_count": 0,
+        },
+        "custody": {
+            "scope": "selected_source",
+            "status": "available",
+            "counts": {
+                "pending": 0,
+                "captured": 1,
+                "duplicate": 0,
+                "quarantined": 0,
+                "history_only": 0,
+            },
+            "retained_items": 1,
+        },
+        "receipt_bindings": [_binding()],
+        "processing_backlog": {
+            "scope": "global",
+            "status": "unavailable",
+            "reason_code": "not_read_by_v1",
+        },
+        "release": {"status": "unavailable", "reason_code": "app_workflow_owned"},
+    }
+
+
+def test_valid_closed_health_is_accepted() -> None:
+    report = _valid_health()
+    assert adapter._validate_health(report) is report
+
+
+def _set(path: tuple[str | int, ...], value: object) -> dict[str, object]:
+    report = _valid_health()
+    target: object = report
+    for key in path[:-1]:
+        target = cast(dict[str, object], target)[key] if isinstance(key, str) else cast(
+            list[object], target
+        )[key]
+    if isinstance(target, dict):
+        target[cast(str, path[-1])] = value
+    else:
+        cast(list[object], target)[cast(int, path[-1])] = value
+    return report
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("coverage", "codes"), ["complete"]),
+        (("pending_preview", "coverage_codes"), ["partial_page"] * 26),
+        (("snapshot", "reason_codes"), ["healthy"]),
+        (("snapshot", "reason_codes"), ["state_absent"] * 17),
+        (("custody", "counts", "pending"), True),
+        (("custody", "counts", "extra"), 0),
+        (("execution", "captured_count"), -1),
+        (("execution", "finished_epoch"), -5),
+        (("execution", "finished_epoch"), True),
+        (("execution", "failure_code"), "provider said no"),
+        (("account", "display_name"), "x" * 513),
+        (("account", "display_name"), "evil\u001b[2J"),
+        (("account", "connection_id"), ""),
+        (("source", "source_id"), "slack.\u0007"),
+        (("source", "control_epoch"), 1.5),
+        (("snapshot", "evidence_tokens"), [{"store": "source", "token": "f" * 64}] * 8),
+        (("snapshot", "evidence_tokens", 0, "store"), "journal"),
+        (("snapshot", "evidence_tokens", 0, "token"), "F" * 64),
+        (("snapshot", "retryable"), 0),
+        (("recovery", "unresolved_receipt_count"), False),
+        (("receipt_bindings", 0, "capture_id"), "x" * 513),
+        (("receipt_bindings", 0, "extra"), True),
+        (("snapshot", "extra"), True),
+        (("extra",), True),
+        (("release", "reason_code"), "ready"),
+    ],
+)
+def test_health_dto_violations_are_refused(path: tuple[str | int, ...], value: object) -> None:
+    with pytest.raises(GuideAdapterError) as error:
+        adapter._validate_health(_set(path, value))
+    _assert_code(error, "operation_failed")

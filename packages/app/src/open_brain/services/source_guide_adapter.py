@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import pwd
+import re
 import selectors
 import signal
 import stat
 import subprocess
 import time
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
@@ -82,88 +85,6 @@ _ACCOUNT_KEYS: Final = frozenset(
     {"provider", "connection_id", "display_name", "scopes", "expires_at_epoch"}
 )
 _RESOURCE_KEYS: Final = frozenset({"resource_id", "name", "resource_type"})
-_HEALTH_SECTIONS: Final[dict[str, frozenset[str]]] = {
-    "snapshot": frozenset(
-        {"consistency", "global_consistency", "retryable", "reason_codes", "evidence_tokens"}
-    ),
-    "account": frozenset(
-        {
-            "registration",
-            "connection_id",
-            "display_name",
-            "credential_status",
-            "last_access_failure_code",
-            "last_access_failure_epoch",
-        }
-    ),
-    "source": frozenset(
-        {
-            "source_id",
-            "generation",
-            "control_epoch",
-            "configured_status",
-            "activity",
-            "schedule_running",
-            "stored_next_run_epoch",
-        }
-    ),
-    "pending_preview": frozenset({"status", "preview_id", "count", "has_more", "coverage_codes"}),
-    "execution": frozenset(
-        {
-            "outcome",
-            "finished_epoch",
-            "captured_count",
-            "duplicate_count",
-            "quarantined_count",
-            "last_successful_completion_epoch",
-            "failure_code",
-        }
-    ),
-    "coverage": frozenset({"status", "has_more", "codes"}),
-    "recovery": frozenset(
-        {"retry_deadline_epoch", "retry_deadline_proven", "unresolved_receipt_count"}
-    ),
-    "custody": frozenset({"scope", "status", "counts", "retained_items"}),
-    "processing_backlog": frozenset({"scope", "status", "reason_code"}),
-    "release": frozenset({"status", "reason_code"}),
-}
-_HEALTH_ENUMS: Final[dict[tuple[str, str], frozenset[object]]] = {
-    ("snapshot", "consistency"): frozenset(
-        {"per_store", "inconsistent", "unavailable", "uninitialized"}
-    ),
-    ("snapshot", "global_consistency"): frozenset({"unknown"}),
-    ("account", "registration"): frozenset({"registered", "absent", "unavailable"}),
-    ("account", "credential_status"): frozenset({"unknown"}),
-    ("source", "activity"): frozenset(
-        {"manual_idle", "awaiting_inspection", "paused", "blocked", "unknown"}
-    ),
-    ("source", "schedule_running"): frozenset({"unknown"}),
-    ("pending_preview", "status"): frozenset({"present", "absent", "unavailable", "inconsistent"}),
-    ("execution", "outcome"): frozenset({"completed", "failed", "unknown"}),
-    ("coverage", "status"): frozenset({"partial", "unsupported", "unknown"}),
-    ("recovery", "retry_deadline_epoch"): frozenset({None}),
-    ("recovery", "retry_deadline_proven"): frozenset({False}),
-    ("custody", "scope"): frozenset({"selected_source"}),
-    ("custody", "status"): frozenset({"available", "unavailable", "inconsistent"}),
-    ("processing_backlog", "status"): frozenset({"unavailable"}),
-    ("release", "status"): frozenset({"unavailable"}),
-}
-_BINDING_KEYS: Final = frozenset(
-    {
-        "receipt_id",
-        "source_id",
-        "generation",
-        "control_epoch",
-        "binding_verified",
-        "current_generation",
-        "supported_slack_observation",
-        "outcome",
-        "capture_id",
-    }
-)
-_BINDING_OUTCOMES: Final = frozenset(
-    {"pending", "captured", "duplicate", "quarantined", "history_only"}
-)
 
 
 class GuideAdapterError(Exception):
@@ -603,33 +524,204 @@ def read_resource_inventory(
     }
 
 
+_Check = Callable[[object], bool]
+
+
+def _enum(*allowed: object) -> _Check:
+    return lambda value: type(value) in {str, bool, type(None)} and value in allowed
+
+
+def _nullable(check: _Check) -> _Check:
+    return lambda value: value is None or check(value)
+
+
+def _bool(value: object) -> bool:
+    return type(value) is bool
+
+
+def _count(value: object) -> bool:
+    return type(value) is int and value >= 0
+
+
+def _epoch(value: object) -> bool:
+    return (type(value) is int and value >= 0) or (
+        type(value) is float and math.isfinite(value) and value >= 0
+    )
+
+
+def _text(value: object) -> bool:
+    return (
+        type(value) is str
+        and 1 <= len(value) <= 512
+        and not any(unicodedata.category(item) == "Cc" for item in value)
+    )
+
+
+def _codes(allowed: frozenset[str], maximum: int) -> _Check:
+    return lambda value: (
+        isinstance(value, list)
+        and len(value) <= maximum
+        and all(type(item) is str and item in allowed for item in value)
+    )
+
+
+def _token(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"store", "token"}
+        and value["store"] in {"brain", "marker", "account", "source", "preview", "custody"}
+        and type(value["token"]) is str
+        and _HEX64.fullmatch(value["token"]) is not None
+    )
+
+
+def _tokens(value: object) -> bool:
+    return isinstance(value, list) and len(value) <= 7 and all(_token(item) for item in value)
+
+
+def _counts(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"pending", "captured", "duplicate", "quarantined", "history_only"}
+        and all(_count(item) for item in value.values())
+    )
+
+
+_HEX64: Final = re.compile(r"[0-9a-f]{64}")
+_REASONS: Final = frozenset(
+    {
+        "state_absent",
+        "binding_absent",
+        "binding_mismatch",
+        "unsafe_path",
+        "invalid_state",
+        "size_limit",
+        "changed_during_read",
+        "relation_mismatch",
+        "legacy_unknown",
+        "not_read_by_v1",
+        "app_workflow_owned",
+    }
+)
+_COVERAGE: Final = frozenset(
+    {
+        "partial_page",
+        "thread_partial",
+        "upstream_unknown",
+        "provider_limit",
+        "unsupported_coverage",
+        "legacy_unknown",
+    }
+)
+_FAILURE: Final = _nullable(
+    _enum("access_denied", "credentials_unavailable", "rate_limited", "operation_failed")
+)
+# Closed HealthV1 per HEALTH.md: every key required, null only where unknown.
+_HEALTH_SCHEMA: Final[dict[str, dict[str, _Check]]] = {
+    "snapshot": {
+        "consistency": _enum("per_store", "inconsistent", "unavailable", "uninitialized"),
+        "global_consistency": _enum("unknown"),
+        "retryable": _bool,
+        "reason_codes": _codes(_REASONS, 16),
+        "evidence_tokens": _tokens,
+    },
+    "account": {
+        "registration": _enum("registered", "absent", "unavailable"),
+        "connection_id": _nullable(lambda value: _identifier_ok(value)),
+        "display_name": _nullable(_text),
+        "credential_status": _enum("unknown"),
+        "last_access_failure_code": _FAILURE,
+        "last_access_failure_epoch": _nullable(_epoch),
+    },
+    "source": {
+        "source_id": lambda value: _identifier_ok(value),
+        "generation": _nullable(lambda value: _identifier_ok(value)),
+        "control_epoch": _nullable(_count),
+        "configured_status": _nullable(_enum("enabled", "disabled", "paused")),
+        "activity": _enum("manual_idle", "awaiting_inspection", "paused", "blocked", "unknown"),
+        "schedule_running": _enum("unknown"),
+        "stored_next_run_epoch": _nullable(_epoch),
+    },
+    "pending_preview": {
+        "status": _enum("present", "absent", "unavailable", "inconsistent"),
+        "preview_id": _nullable(lambda value: _identifier_ok(value)),
+        "count": _nullable(_count),
+        "has_more": _nullable(_bool),
+        "coverage_codes": _codes(_COVERAGE, 25),
+    },
+    "execution": {
+        "outcome": _enum("completed", "failed", "unknown"),
+        "finished_epoch": _nullable(_epoch),
+        "captured_count": _nullable(_count),
+        "duplicate_count": _nullable(_count),
+        "quarantined_count": _nullable(_count),
+        "last_successful_completion_epoch": _nullable(_epoch),
+        "failure_code": _FAILURE,
+    },
+    "coverage": {
+        "status": _enum("partial", "unsupported", "unknown"),
+        "has_more": _nullable(_bool),
+        "codes": _codes(_COVERAGE, 25),
+    },
+    "recovery": {
+        "retry_deadline_epoch": _enum(None),
+        "retry_deadline_proven": lambda value: value is False,
+        "unresolved_receipt_count": _nullable(_count),
+    },
+    "custody": {
+        "scope": _enum("selected_source"),
+        "status": _enum("available", "unavailable", "inconsistent"),
+        "counts": _nullable(_counts),
+        "retained_items": _nullable(_count),
+    },
+    "processing_backlog": {
+        "scope": _enum("global"),
+        "status": _enum("unavailable"),
+        "reason_code": _enum("not_read_by_v1"),
+    },
+    "release": {"status": _enum("unavailable"), "reason_code": _enum("app_workflow_owned")},
+}
+_BINDING_SCHEMA: Final[dict[str, _Check]] = {
+    "receipt_id": lambda value: _identifier_ok(value),
+    "source_id": lambda value: _identifier_ok(value),
+    "generation": lambda value: _identifier_ok(value),
+    "control_epoch": _count,
+    "binding_verified": _bool,
+    "current_generation": _bool,
+    "supported_slack_observation": _bool,
+    "outcome": _enum("pending", "captured", "duplicate", "quarantined", "history_only"),
+    "capture_id": _nullable(lambda value: _identifier_ok(value)),
+}
+
+
+def _identifier_ok(value: object) -> bool:
+    try:
+        _identifier(value)
+    except GuideAdapterError:
+        return False
+    return True
+
+
+def _closed(value: object, schema: Mapping[str, _Check]) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == set(schema)
+        and all(check(value[key]) for key, check in schema.items())
+    )
+
+
 def _validate_health(value: dict[str, object]) -> dict[str, object]:
-    if set(value) != {"schema_version", "receipt_bindings", *_HEALTH_SECTIONS} or (
-        value["schema_version"] != 1 or type(value["schema_version"]) is not int
+    bindings = value.get("receipt_bindings")
+    if (
+        set(value) != {"schema_version", "receipt_bindings", *_HEALTH_SCHEMA}
+        or type(value["schema_version"]) is not int
+        or value["schema_version"] != 1
+        or not all(_closed(value[name], schema) for name, schema in _HEALTH_SCHEMA.items())
+        or not isinstance(bindings, list)
+        or len(bindings) > 768
+        or not all(_closed(item, _BINDING_SCHEMA) for item in bindings)
     ):
         raise _refuse()
-    for section, keys in _HEALTH_SECTIONS.items():
-        item = value[section]
-        if not isinstance(item, dict) or set(item) != keys:
-            raise _refuse()
-    for (section, key), allowed in _HEALTH_ENUMS.items():
-        item = cast(dict[str, object], value[section])[key]
-        if type(item) not in {str, bool, type(None)} or item not in allowed:
-            raise _refuse()
-    bindings = value["receipt_bindings"]
-    if not isinstance(bindings, list) or len(bindings) > 768:
-        raise _refuse()
-    for binding in bindings:
-        if (
-            not isinstance(binding, dict)
-            or set(binding) != _BINDING_KEYS
-            or binding["outcome"] not in _BINDING_OUTCOMES
-            or any(
-                type(binding[key]) is not bool
-                for key in ("binding_verified", "current_generation", "supported_slack_observation")
-            )
-        ):
-            raise _refuse()
     return value
 
 

@@ -35,8 +35,11 @@ def safe_display(text: str) -> str:
     Escaping is display-only: callers keep the original string for digests,
     engine reads and approved copies.
     """
+    # Doubling a literal backslash keeps source text distinct from an escaped control.
     return "".join(
-        _escape(character)
+        "\\\\"
+        if character == "\\"
+        else _escape(character)
         if character != "\n"
         and character not in _KEPT_FORMAT
         and unicodedata.category(character) in _ESCAPED_CATEGORIES
