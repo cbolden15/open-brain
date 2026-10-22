@@ -32,12 +32,16 @@ from open_brain_engine.engine import PHASE1_STATE_SCHEMA_VERSION
 from open_brain.services.local_runtime_session import RUNTIME_SESSION_VERSION
 
 __all__ = [
+    "PORTABLE_METADATA",
     "REQUIRED_OPERATIONS",
     "CapturedRecord",
     "CollectorExecutable",
     "GuideAdapterError",
     "collector_handshake",
+    "configure_source",
+    "import_preview",
     "list_accounts",
+    "preview_source",
     "read_guide_metadata",
     "read_resource_inventory",
     "recheck_collector_executable",
@@ -56,11 +60,13 @@ REQUIRED_OPERATIONS: Final = frozenset(
         "sources.guide_metadata",
     }
 )
-_PORTABLE_METADATA: Final = 16
+# The app catalog owns this coordinate; a parity test binds both and the collector.
+PORTABLE_METADATA: Final = 16
 _HANDSHAKE_DEADLINE: float = 10.0
 _METADATA_DEADLINE: float = 30.0
 _INVENTORY_DEADLINE: float = 120.0
 _CUSTODY_DEADLINE: float = 3600.0
+_WRITE_DEADLINE: float = 3600.0
 _HANDSHAKE_STDOUT: Final = 16_384
 _OPERATION_STDOUT: Final = 4_194_304
 _STDERR_LIMIT: Final = 16_384
@@ -85,6 +91,48 @@ _ACCOUNT_KEYS: Final = frozenset(
     {"provider", "connection_id", "display_name", "scopes", "expires_at_epoch"}
 )
 _RESOURCE_KEYS: Final = frozenset({"resource_id", "name", "resource_type"})
+_PRIVATE_ARGUMENTS_BYTES: Final = 65_536
+# Native collector failure codes map to the closed guide enum; everything else
+# is `operation_failed`. The native code stays private bounded evidence.
+_NATIVE_CODES: Final = {
+    "source_invalid_arguments": "invalid_request",
+    "source_selection_reset_required": "source_reset_required",
+    "rate_limited": "retry_wait",
+    "collector_custody_quota_exceeded": "capacity_reached",
+    "source_stale_preview": "authority_refused",
+    "source_import_cancelled": "authority_refused",
+    "source_privacy_unresolved": "authority_refused",
+    "source_brain_mismatch": "binding_mismatch",
+    "source_changed_during_fetch": "authority_refused",
+}
+_SUMMARY_KEYS: Final = frozenset(
+    {
+        "source_id",
+        "selection",
+        "options",
+        "status",
+        "interval_seconds",
+        "next_run_epoch",
+        "pause_ack_epoch",
+        "last_run",
+    }
+)
+_IMPORT_KEYS: Final = frozenset(
+    {
+        "source_id",
+        "preview_id",
+        "outcome",
+        "captured_count",
+        "duplicate_count",
+        "quarantined_count",
+        "receipt_ids",
+        "finished_epoch",
+        "has_more",
+        "notices",
+        "failure_code",
+    }
+)
+_MAX_PAGE_RECEIPTS: Final = 25
 
 
 class GuideAdapterError(Exception):
@@ -334,7 +382,7 @@ def collector_handshake(executable: CollectorExecutable) -> frozenset[str]:
             != {
                 "schema": PHASE1_STATE_SCHEMA_VERSION,
                 "runtime": RUNTIME_SESSION_VERSION,
-                "portable": _PORTABLE_METADATA,
+                "portable": PORTABLE_METADATA,
             }
             or any(
                 type(item) is not int
@@ -393,8 +441,25 @@ def _invoke(
     elif operation == "sources.guide_metadata" and set(values) == {"source_id"}:
         tail = ["guide-metadata", "--source-id", _identifier(values["source_id"])]
         guarded, deadline = False, _METADATA_DEADLINE
+    elif operation == "sources.guide_metadata" and set(values) == {"selection_file"}:
+        tail = ["guide-metadata", "--selection-file", _private_file(values["selection_file"])]
+        guarded, deadline = False, _METADATA_DEADLINE
+    elif operation == "sources.configure" and set(values) == {"arguments_file"}:
+        tail = ["configure", "--arguments-file", _private_file(values["arguments_file"])]
+        guarded, deadline = True, _WRITE_DEADLINE
+    elif operation == "sources.preview" and set(values) == {"source_id"}:
+        tail = ["preview", "--source-id", _identifier(values["source_id"])]
+        guarded, deadline = True, _WRITE_DEADLINE
+    elif operation == "sources.import" and set(values) == {"source_id", "preview_id"}:
+        tail = [
+            "import",
+            "--source-id",
+            _identifier(values["source_id"]),
+            "--preview-id",
+            _identifier(values["preview_id"]),
+        ]
+        guarded, deadline = True, _WRITE_DEADLINE
     else:
-        # configure/preview/import are guided writes owned by a later phase.
         raise GuideAdapterError("invalid_request")
     if not state.is_absolute() or not brain.is_absolute():
         raise GuideAdapterError("invalid_request")
@@ -422,16 +487,147 @@ def _invoke(
     if code != 0:
         failure = value.get("failure_code")
         if code == 78 and set(value) == {"outcome", "failure_code"} and type(failure) is str:
-            mapped = (
-                "invalid_request" if failure == "source_invalid_arguments" else "operation_failed"
-            )
+            mapped = _NATIVE_CODES.get(failure, "operation_failed")
             raise GuideAdapterError(mapped, native=failure[:128])
         raise GuideAdapterError("operation_unknown")
     return value
 
 
+def _private_file(value: str | None) -> str:
+    """An owned regular no-follow 0600 file under an owned 0700 parent, at most 64 KiB."""
+    if type(value) is not str or not Path(value).is_absolute():
+        raise GuideAdapterError("invalid_request")
+    path = Path(value)
+    try:
+        parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            directory = os.fstat(parent)
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        finally:
+            os.close(parent)
+        try:
+            info = os.fstat(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        raise GuideAdapterError("invalid_request") from None
+    if (
+        directory.st_uid != os.getuid()
+        or stat.S_IMODE(directory.st_mode) & 0o077
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_uid != os.getuid()
+        or info.st_nlink != 1
+        or stat.S_IMODE(info.st_mode) != 0o600
+        or info.st_size > _PRIVATE_ARGUMENTS_BYTES
+    ):
+        raise GuideAdapterError("invalid_request")
+    return value
+
+
 def _refuse() -> GuideAdapterError:
     return GuideAdapterError("operation_failed")
+
+
+def _unknown() -> GuideAdapterError:
+    # The child reported success but its result is not the closed shape: the
+    # write may have committed, so the outcome is unknown, never failed.
+    return GuideAdapterError("operation_unknown")
+
+
+def configure_source(
+    executable: CollectorExecutable,
+    *,
+    state: Path,
+    brain: Path,
+    guard_fd: int,
+    arguments_file: Path,
+) -> dict[str, object]:
+    """Run the existing `sources.configure` with a private closed selection/options file."""
+    value = _invoke(
+        executable,
+        "sources.configure",
+        state=state,
+        brain=brain,
+        guard_fd=guard_fd,
+        arguments={"arguments_file": os.fspath(arguments_file)},
+    )
+    if (
+        set(value) != _SUMMARY_KEYS
+        or not _identifier_ok(value["source_id"])
+        or value["status"] not in {"enabled", "disabled", "paused"}
+    ):
+        raise _unknown()
+    return value
+
+
+def preview_source(
+    executable: CollectorExecutable, *, state: Path, brain: Path, guard_fd: int, source_id: str
+) -> dict[str, object]:
+    """Fetch or return one pending page; source references never leave this function."""
+    value = _invoke(
+        executable,
+        "sources.preview",
+        state=state,
+        brain=brain,
+        guard_fd=guard_fd,
+        arguments={"source_id": source_id},
+    )
+    notices = value.get("notices")
+    if (
+        set(value) != {"source_id", "preview_id", "count", "has_more", "notices", "records"}
+        or value["source_id"] != source_id
+        or not _identifier_ok(value["preview_id"])
+        or not _count(value["count"])
+        or not _bool(value["has_more"])
+        or not isinstance(notices, list)
+        or len(notices) > 25
+        or not all(_identifier_ok(item) for item in notices)
+    ):
+        raise _unknown()
+    return {key: value[key] for key in ("source_id", "preview_id", "count", "has_more", "notices")}
+
+
+def import_preview(
+    executable: CollectorExecutable,
+    *,
+    state: Path,
+    brain: Path,
+    guard_fd: int,
+    source_id: str,
+    preview_id: str,
+) -> dict[str, object]:
+    """Import exactly one confirmed pending page; exact replay returns the same receipt."""
+    value = _invoke(
+        executable,
+        "sources.import",
+        state=state,
+        brain=brain,
+        guard_fd=guard_fd,
+        arguments={"source_id": source_id, "preview_id": preview_id},
+    )
+    receipts = value.get("receipt_ids")
+    notices = value.get("notices")
+    if (
+        set(value) != _IMPORT_KEYS
+        or value["source_id"] != source_id
+        or value["preview_id"] != preview_id
+        or value["outcome"] != "completed"
+        or value["failure_code"] is not None
+        or not all(
+            _count(value[key]) for key in ("captured_count", "duplicate_count", "quarantined_count")
+        )
+        or not _epoch(value["finished_epoch"])
+        or not _bool(value["has_more"])
+        or not isinstance(receipts, list)
+        or len(receipts) > _MAX_PAGE_RECEIPTS
+        or not all(_identifier_ok(item) for item in receipts)
+        or len(set(cast(list[str], receipts))) != len(receipts)
+        or not isinstance(notices, list)
+        or len(notices) > 25
+        or not all(_identifier_ok(item) for item in notices)
+    ):
+        raise _unknown()
+    return value
 
 
 def list_accounts(
@@ -726,15 +922,30 @@ def _validate_health(value: dict[str, object]) -> dict[str, object]:
 
 
 def read_guide_metadata(
-    executable: CollectorExecutable, *, state: Path, brain: Path, source_id: str
+    executable: CollectorExecutable,
+    *,
+    state: Path,
+    brain: Path,
+    source_id: str | None = None,
+    selection_file: Path | None = None,
 ) -> dict[str, object]:
-    """Read collector-owned HealthV1 through the noncreating metadata entrypoint."""
+    """Read collector-owned HealthV1 through the noncreating metadata entrypoint.
+
+    Exactly one locator is required: a configured source ID, or before configure
+    a private file holding the exact returned Slack resource selection.
+    """
+    if (source_id is None) == (selection_file is None):
+        raise GuideAdapterError("invalid_request")
     value = _invoke(
         executable,
         "sources.guide_metadata",
         state=state,
         brain=brain,
-        arguments={"source_id": source_id},
+        arguments=(
+            {"source_id": source_id}
+            if source_id is not None
+            else {"selection_file": os.fspath(cast(Path, selection_file))}
+        ),
     )
     return _validate_health(value)
 

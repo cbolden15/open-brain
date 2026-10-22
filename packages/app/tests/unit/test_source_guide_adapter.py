@@ -689,3 +689,283 @@ def test_health_dto_violations_are_refused(path: tuple[str | int, ...], value: o
     with pytest.raises(GuideAdapterError) as error:
         adapter._validate_health(_set(path, value))
     _assert_code(error, "operation_failed")
+
+
+def _echo_script(result: object, *, code: int = 0) -> str:
+    """Record argv and any arguments-file body, then print one canned result."""
+    return (
+        "args = sys.argv[1:]\n"
+        "body = None\n"
+        "if '--arguments-file' in args:\n"
+        "    body = open(args[args.index('--arguments-file') + 1]).read()\n"
+        "if '--selection-file' in args:\n"
+        "    body = open(args[args.index('--selection-file') + 1]).read()\n"
+        "open(os.path.join(os.path.dirname(sys.argv[0]), 'argv.json'), 'w').write("
+        "json.dumps({'argv': args, 'body': body}))\n"
+        f"print(json.dumps(json.loads({_literal(result)})))\n"
+        f"sys.exit({code})"
+    )
+
+
+def _recorded(path: Path) -> dict[str, object]:
+    return cast(dict[str, object], json.loads((path.parent / "argv.json").read_text()))
+
+
+def _common_argv(tmp_path: Path, argv: list[str]) -> list[str]:
+    index = argv.index("--guide-guard-fd") + 1
+    assert argv[:index - 1] == [
+        "sources", "--state", str(tmp_path / "s.json"), "--brain-root", str(tmp_path / "b")
+    ]
+    assert argv[index + 1] == "--foreground"
+    return argv[index + 2:]
+
+
+CONFIGURED = {
+    "source_id": SOURCE_ID,
+    "selection": {
+        "connector_name": "slack",
+        "connection_id": ACCOUNT,
+        "resource_id": "channel:C0001",
+        "resource_type": "channel",
+    },
+    "options": {"date_floor": "2025-10-01T00:00:00Z", "privacy_tier": "work"},
+    "status": "disabled",
+    "interval_seconds": 14400,
+    "next_run_epoch": None,
+    "pause_ack_epoch": None,
+    "last_run": None,
+}
+
+
+def _arguments_file(tmp_path: Path, value: object) -> Path:
+    directory = tmp_path / "private"
+    directory.mkdir(mode=0o700, exist_ok=True)
+    path = directory / "configure.json"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.write(fd, json.dumps(value).encode())
+    os.close(fd)
+    return path
+
+
+def test_configure_passes_only_the_private_arguments_file_and_guard(tmp_path: Path) -> None:
+    path = _executable(tmp_path, _echo_script(CONFIGURED))
+    selected = resolve_collector_executable(path)
+    request = {"selection": CONFIGURED["selection"], "options": CONFIGURED["options"]}
+    arguments = _arguments_file(tmp_path, request)
+
+    result = adapter.configure_source(
+        selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0,
+        arguments_file=arguments,
+    )
+
+    assert result == CONFIGURED
+    recorded = _recorded(path)
+    argv = cast(list[str], recorded["argv"])
+    assert _common_argv(tmp_path, argv) == ["configure", "--arguments-file", str(arguments)]
+    assert json.loads(cast(str, recorded["body"])) == request
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {**CONFIGURED, "extra": 1},
+        {**CONFIGURED, "source_id": "slack.\n"},
+        {**CONFIGURED, "status": "running"},
+        {"source_id": SOURCE_ID},
+    ],
+)
+def test_configure_result_after_success_exit_is_unknown_outcome(
+    tmp_path: Path, result: dict[str, object]
+) -> None:
+    selected = resolve_collector_executable(_executable(tmp_path, _echo_script(result)))
+    with pytest.raises(GuideAdapterError) as error:
+        adapter.configure_source(
+            selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0,
+            arguments_file=_arguments_file(tmp_path, {}),
+        )
+    _assert_code(error, "operation_unknown")
+
+
+def test_configure_requires_a_private_arguments_file(tmp_path: Path) -> None:
+    selected = resolve_collector_executable(_executable(tmp_path, _echo_script(CONFIGURED)))
+    loose = tmp_path / "loose.json"
+    loose.write_text("{}")
+    with pytest.raises(GuideAdapterError) as error:
+        adapter.configure_source(
+            selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0,
+            arguments_file=loose,
+        )
+    _assert_code(error, "invalid_request")
+    assert not (selected.path.parent / "argv.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("native", "code"),
+    [
+        ("source_selection_reset_required", "source_reset_required"),
+        ("rate_limited", "retry_wait"),
+        ("collector_custody_quota_exceeded", "capacity_reached"),
+        ("source_stale_preview", "authority_refused"),
+        ("source_privacy_unresolved", "authority_refused"),
+        ("source_invalid_arguments", "invalid_request"),
+        ("provider said no", "operation_failed"),
+    ],
+)
+def test_native_refusals_map_to_closed_codes(tmp_path: Path, native: str, code: str) -> None:
+    script = _echo_script({"outcome": "failed", "failure_code": native}, code=78)
+    selected = resolve_collector_executable(_executable(tmp_path, script))
+    with pytest.raises(GuideAdapterError) as error:
+        adapter.preview_source(
+            selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0,
+            source_id=SOURCE_ID,
+        )
+    _assert_code(error, code)
+    assert error.value.native == native
+
+
+PREVIEW = {
+    "source_id": SOURCE_ID,
+    "preview_id": "preview:" + "a" * 64,
+    "count": 1,
+    "has_more": True,
+    "notices": ["partial_page"],
+    "records": [
+        {"title": "t", "source_reference": "https://example.slack.com/x", "trust": "unverified"}
+    ],
+}
+
+
+def test_preview_drops_source_references_and_keeps_counts(tmp_path: Path) -> None:
+    path = _executable(tmp_path, _echo_script(PREVIEW))
+    selected = resolve_collector_executable(path)
+    result = adapter.preview_source(
+        selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0, source_id=SOURCE_ID
+    )
+    assert result == {
+        "source_id": SOURCE_ID,
+        "preview_id": PREVIEW["preview_id"],
+        "count": 1,
+        "has_more": True,
+        "notices": ["partial_page"],
+    }
+    assert "slack.com" not in json.dumps(result)
+    argv = cast(list[str], _recorded(path)["argv"])
+    assert _common_argv(tmp_path, argv) == ["preview", "--source-id", SOURCE_ID]
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {**PREVIEW, "source_id": "slack.other"},
+        {**PREVIEW, "count": -1},
+        {**PREVIEW, "has_more": 1},
+        {**PREVIEW, "preview_id": "preview:\u001b"},
+    ],
+)
+def test_preview_mismatch_is_unknown_outcome(tmp_path: Path, result: dict[str, object]) -> None:
+    selected = resolve_collector_executable(_executable(tmp_path, _echo_script(result)))
+    with pytest.raises(GuideAdapterError) as error:
+        adapter.preview_source(
+            selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0,
+            source_id=SOURCE_ID,
+        )
+    _assert_code(error, "operation_unknown")
+
+
+IMPORTED = {
+    "source_id": SOURCE_ID,
+    "preview_id": PREVIEW["preview_id"],
+    "outcome": "completed",
+    "captured_count": 1,
+    "duplicate_count": 0,
+    "quarantined_count": 0,
+    "receipt_ids": ["custody:" + "1" * 64],
+    "finished_epoch": 1_760_000_000,
+    "has_more": False,
+    "notices": [],
+    "failure_code": None,
+}
+
+
+def test_import_returns_exact_receipts_for_the_exact_pair(tmp_path: Path) -> None:
+    path = _executable(tmp_path, _echo_script(IMPORTED))
+    selected = resolve_collector_executable(path)
+    result = adapter.import_preview(
+        selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0,
+        source_id=SOURCE_ID, preview_id=cast(str, PREVIEW["preview_id"]),
+    )
+    assert result == IMPORTED
+    argv = cast(list[str], _recorded(path)["argv"])
+    assert _common_argv(tmp_path, argv) == [
+        "import", "--source-id", SOURCE_ID, "--preview-id", PREVIEW["preview_id"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {**IMPORTED, "preview_id": "preview:" + "b" * 64},
+        {**IMPORTED, "outcome": "failed"},
+        {**IMPORTED, "receipt_ids": ["custody:x", "custody:x"]},
+        {**IMPORTED, "receipt_ids": ["custody:" + str(index) for index in range(26)]},
+        {**IMPORTED, "captured_count": True},
+        {key: value for key, value in IMPORTED.items() if key != "receipt_ids"},
+    ],
+)
+def test_import_mismatch_is_unknown_outcome(tmp_path: Path, result: dict[str, object]) -> None:
+    selected = resolve_collector_executable(_executable(tmp_path, _echo_script(result)))
+    with pytest.raises(GuideAdapterError) as error:
+        adapter.import_preview(
+            selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0,
+            source_id=SOURCE_ID, preview_id=cast(str, PREVIEW["preview_id"]),
+        )
+    _assert_code(error, "operation_unknown")
+
+
+def test_writes_require_the_lifetime_guard(tmp_path: Path) -> None:
+    selected = resolve_collector_executable(_executable(tmp_path, _echo_script(PREVIEW)))
+    with pytest.raises(GuideAdapterError) as error:
+        adapter._invoke(
+            selected, "sources.preview", state=tmp_path / "s.json", brain=tmp_path / "b",
+            arguments={"source_id": SOURCE_ID},
+        )
+    _assert_code(error, "invalid_request")
+    assert not (selected.path.parent / "argv.json").exists()
+
+
+def test_metadata_selection_locator_uses_a_private_selection_file(tmp_path: Path) -> None:
+    report = {"schema_version": 1}
+    path = _executable(tmp_path, _echo_script(report))
+    selected = resolve_collector_executable(path)
+    selection = _arguments_file(tmp_path, CONFIGURED["selection"])
+    with pytest.raises(GuideAdapterError):
+        read_guide_metadata(
+            selected, state=tmp_path / "s.json", brain=tmp_path / "b", selection_file=selection
+        )
+    argv = cast(list[str], _recorded(path)["argv"])
+    assert argv == [
+        "sources", "--state", str(tmp_path / "s.json"), "--brain-root", str(tmp_path / "b"),
+        "--foreground", "guide-metadata", "--selection-file", str(selection),
+    ]
+    with pytest.raises(GuideAdapterError) as error:
+        read_guide_metadata(selected, state=tmp_path / "s.json", brain=tmp_path / "b")
+    _assert_code(error, "invalid_request")
+    with pytest.raises(GuideAdapterError) as error:
+        read_guide_metadata(
+            selected, state=tmp_path / "s.json", brain=tmp_path / "b",
+            source_id=SOURCE_ID, selection_file=selection,
+        )
+    _assert_code(error, "invalid_request")
+
+
+def test_portable_coordinate_matches_catalog_and_collector() -> None:
+    from open_brain.services import catalog
+
+    source = Path(catalog.__file__).read_text()
+    assert f'"portable_metadata": {adapter.PORTABLE_METADATA},' in source
+    collector = pytest.importorskip("open_brain_collector.source_metadata")
+    assert collector.GUIDE_CAPABILITIES["compatibility"] == {
+        "schema": PHASE1_STATE_SCHEMA_VERSION,
+        "runtime": RUNTIME_SESSION_VERSION,
+        "portable": adapter.PORTABLE_METADATA,
+    }
