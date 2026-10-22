@@ -237,6 +237,7 @@ def _call_tool_response(
             "database_busy",
             "session_capture_limit",
             "session_search_limit",
+            "tier_not_permitted",
             "unknown_space",
             "unknown_route_target",
             "published_capture",

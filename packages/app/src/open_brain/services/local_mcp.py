@@ -276,6 +276,8 @@ class LocalMcpAdapter:
                     "description": (
                         "Store durable unverified text. "
                         "Version 0.1.0 cannot selectively delete it. "
+                        "Privacy tier selection is owner-only and is refused here "
+                        "with tier_not_permitted. "
                         "No publication, actions, or connector authority."
                     ),
                     "inputSchema": {
@@ -292,10 +294,6 @@ class LocalMcpAdapter:
                                 "type": "string",
                                 "minLength": 1,
                                 "maxLength": MAX_KEY_CHARACTERS,
-                            },
-                            "privacy_tier": {
-                                "type": "string",
-                                "enum": [tier.value for tier in PrivacyTier],
                             },
                         },
                     },
@@ -1212,7 +1210,7 @@ class LocalMcpAdapter:
         if tier is not None:
             # The MCP capture capability is the owner-injected non-owner sink;
             # the explicit tier is owner-only authority and is refused here.
-            raise McpCallError("capture privacy tier requires owner authority")
+            raise McpCallError("tier_not_permitted")
         try:
             size = len(text.encode("utf-8"))
             TextPayload(text)
