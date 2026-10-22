@@ -41,22 +41,27 @@ def approve(intent: dict[str, Any]) -> dict[str, object]:
 
 
 def inspected(guide: Guide, texts: list[str]) -> list[str]:
-    """Configure, preview, import one page and acknowledge every complete message."""
+    """Configure, then preview and import one-message pages and acknowledge every message."""
     guide.through_choose()
     assert guide.confirm("configure")[0] == 0
     support.queue(
         guide.fixture,
         "conversations.history",
-        [support.history_page([
-            support.message(f"17600000{index:02d}.000001", text)
-            for index, text in reversed(list(enumerate(texts)))
-        ])],
+        [
+            support.history_page(
+                [support.message(f"17600000{index:02d}.000001", text)],
+                f"page-{index + 1}" if index + 1 < len(texts) else "",
+            )
+            for index, text in enumerate(texts)
+        ],
     )
-    code, previewed = guide.confirm("preview")
-    assert code == 0, previewed
-    code, imported = guide.confirm("import", {"preview_id": previewed["data"]["preview_id"]})
-    assert code == 0, imported
-    receipts = list(imported["data"]["receipt_ids"])
+    receipts: list[str] = []
+    for _text in texts:
+        code, previewed = guide.confirm("preview")
+        assert code == 0, previewed
+        code, imported = guide.confirm("import", {"preview_id": previewed["data"]["preview_id"]})
+        assert code == 0, imported
+        receipts += imported["data"]["receipt_ids"]
     for receipt_id in receipts:
         acknowledge(guide, receipt_id)
     return receipts
@@ -181,3 +186,188 @@ def test_unacknowledged_receipt_never_routes(guide: Guide) -> None:
     code, refused = guide.advance("route", {"receipt_id": receipt})
     assert (code, refused["code"]) == (78, "inspection_required")
     assert stat.S_IMODE(os.lstat(guide.journal).st_mode) == 0o600
+
+
+def routed(guide: Guide, texts: list[str]) -> list[str]:
+    receipts = inspected(guide, texts)
+    destination(guide)
+    for receipt_id in receipts:
+        code, result = guide.confirm("route", {"receipt_id": receipt_id})
+        assert code == 0, result
+    return receipts
+
+
+def selected_and_consented(guide: Guide, texts: list[str]) -> tuple[list[str], str]:
+    receipts = routed(guide, texts)
+    code, selected = guide.confirm("select", {"member_receipt_ids": receipts})
+    assert code == 0, selected
+    code, consented = guide.confirm("consent", {"provider_id": "openai"})
+    assert code == 0, consented
+    return receipts, str(selected["data"]["selection_id"])
+
+
+def released(guide: Guide, receipt_id: str) -> dict[str, Any]:
+    code, preview = guide.confirm(
+        "release-preview", {"receipt_id": receipt_id, "provider_ids": ["openai"]}
+    )
+    assert (code, preview["outcome"]) == (0, "completed"), preview
+    return dict(preview["data"])
+
+
+def test_consent_selection_and_per_message_release_need_separate_owner_checkpoints(
+    guide: Guide,
+) -> None:
+    from open_brain.services.session_consent import DurableProviderConsentStore
+
+    texts = ["Decision: keep onboarding invite-only.", "Rationale: support capacity."]
+    receipts = routed(guide, texts)
+    code, refused = guide.advance(
+        "release-preview", {"receipt_id": receipts[0], "provider_ids": ["openai"]}
+    )
+    assert (code, refused["code"], refused["next_actions"]) == (
+        78, "inspection_required", ["select"]
+    )
+
+    code, proposed = guide.advance("select", {"member_receipt_ids": receipts})
+    assert code == 3, proposed
+    request = json.loads(proposed["intent"]["canonical_request_utf8"])
+    by_head = {row["head_capture_id"]: source for source, row in sources(guide).items()}
+    member_sources = request["member_source_ids"]
+    assert len(member_sources) == 2 and set(member_sources) <= set(by_head.values())
+    assert [item["kind"] for item in proposed["intent"]["expected_versions"]] == [
+        "source", "source"
+    ]
+    code, selected = guide.advance(
+        "select", {"member_receipt_ids": receipts}, confirmation=approve(proposed["intent"])
+    )
+    assert code == 0, selected
+    selection_id = selected["data"]["selection_id"]
+    assert selection_id.startswith("selection_") and selected["data"]["count"] == 2
+    # A selection is never silently replaced.
+    code, again = guide.advance("select", {"member_receipt_ids": receipts[:1]})
+    assert (code, again["code"]) == (2, "invalid_request")
+
+    # No implicit consent: release needs the separate provider checkpoint first.
+    code, refused = guide.advance(
+        "release-preview", {"receipt_id": receipts[0], "provider_ids": ["openai"]}
+    )
+    assert (code, refused["next_actions"]) == (78, ["consent"])
+    code, wrong = guide.advance("consent", {"provider_id": "anthropic"})
+    assert (code, wrong["code"]) == (2, "invalid_request")
+    code, proposed = guide.advance("consent", {"provider_id": "openai"})
+    assert code == 3
+    grant = json.loads(proposed["intent"]["canonical_request_utf8"])
+    assert grant["allowed_tiers"] == ["work"] and grant["decided_at"].endswith("Z")
+    assert not (guide.root / "consent" / "state.json").exists()
+    code, consented = guide.advance(
+        "consent", {"provider_id": "openai"}, confirmation=approve(proposed["intent"])
+    )
+    assert code == 0, consented
+    binding = journal(guide)["binding"]
+    state = DurableProviderConsentStore(
+        guide.root / "consent" / "state.json",
+        brain_id=binding["brain_id"], issuer_epoch=binding["issuer_epoch"],
+    ).load()
+    active = [record for record in state.records if record.active]
+    assert [(item.provider_id, sorted(item.allowed_tiers)) for item in active] == [
+        ("openai", ["work"])
+    ]
+    assert journal(guide)["operations"][-1]["evidence"]["consent_id"] == active[0].consent_id
+
+    # No bulk or multi-provider release.
+    code, bulk = guide.advance(
+        "release-preview", {"receipt_id": receipts[0], "provider_ids": ["anthropic", "openai"]}
+    )
+    assert (code, bulk["code"]) == (2, "invalid_request")
+    approved: list[str] = []
+    for index, receipt_id in enumerate(receipts):
+        preview = released(guide, receipt_id)
+        assert preview["kind"] == "owner_preview" and preview["subject"] == "sharing"
+        assert texts[index] in json.loads(preview["payload_utf8"])["text"]
+        code, proposed = guide.advance("approve", {"preview_id": preview["preview_id"]})
+        assert (code, proposed["outcome"]) == (3, "needs_confirmation")
+        # The full external projection is shown with the approval intent itself.
+        assert proposed["data"]["payload_utf8"] == preview["payload_utf8"]
+        decision = json.loads(proposed["intent"]["canonical_request_utf8"])
+        assert decision["decision"] == "approve" and decision["expected_decision_version"] == 0
+        code, done = guide.advance(
+            "approve", {"preview_id": preview["preview_id"]},
+            confirmation=approve(proposed["intent"]),
+        )
+        assert (code, done["outcome"]) == (0, "completed"), done
+        approved = done["data"]["approved_copy_ids"]
+        assert len(approved) == index + 1 and done["data"]["count"] == index + 1
+        assert done["data"]["selection_id"] == selection_id
+        code, twice = guide.advance("approve", {"preview_id": preview["preview_id"]})
+        assert (code, twice["code"]) == (2, "invalid_request")
+    assert all(copy.startswith("capture_") for copy in approved)
+    stored = guide.journal.read_bytes()
+    assert all(text.encode() not in stored for text in texts)
+
+
+def test_edited_message_needs_new_inspection_and_release_preview(guide: Guide) -> None:
+    receipts, _selection = selected_and_consented(guide, ["Status: draft plan"])
+    stale = released(guide, receipts[0])
+    support.queue(
+        guide.fixture,
+        "conversations.history",
+        [support.history_page([{
+            **support.message("1760000000.000001", "Status: final plan"),
+            "edited": {"ts": "1760000500.000001"},
+        }])],
+    )
+    _code, previewed = guide.confirm("preview")
+    code, imported = guide.confirm("import", {"preview_id": previewed["data"]["preview_id"]})
+    assert code == 0, imported
+    edited = imported["data"]["receipt_ids"]
+    assert len(edited) == 1 and edited[0] != receipts[0]
+
+    code, refused = guide.advance("approve", {"preview_id": stale["preview_id"]})
+    assert (code, refused["code"]) == (78, "revision_conflict"), refused
+    assert refused["next_actions"] == ["inspect", "release-preview"]
+    code, refused = guide.advance(
+        "release-preview", {"receipt_id": receipts[0], "provider_ids": ["openai"]}
+    )
+    assert code == 78 and refused["code"] in {"revision_conflict", "receipt_unresolved"}
+    code, refused = guide.advance(
+        "release-preview", {"receipt_id": edited[0], "provider_ids": ["openai"]}
+    )
+    assert (code, refused["code"]) == (78, "inspection_required")
+    assert "Status: final plan" in acknowledge(guide, edited[0])["body"]
+    # Repair only the edited member, inside the same selection.
+    fresh = released(guide, edited[0])
+    assert "Status: final plan" in json.loads(fresh["payload_utf8"])["text"]
+    code, done = guide.confirm("approve", {"preview_id": fresh["preview_id"]})
+    assert (code, done["data"]["count"]) == (0, 1), done
+    assert len(done["data"]["approved_copy_ids"]) == 1
+
+
+def test_stale_selection_member_refuses_release(guide: Guide) -> None:
+    from open_brain_engine.engine import open_local_engine
+    from open_brain_engine.engine.t03_contracts import SourceRouteRequest
+
+    from open_brain.services.t03_adapters import owner_authority
+
+    receipts, _selection = selected_and_consented(guide, ["Decision: ship Friday"])
+    tasks: Any = open_local_engine(compile_single_user_local(guide.brain))
+    elsewhere = tasks.inbox.create_space("Elsewhere", delivery_id="synthetic.elsewhere").space_id
+    (source_id, row), = sources(guide).items()
+    tasks.sources.route(
+        SourceRouteRequest(
+            source_id=source_id, space_id=elsewhere, expected_head=row["head_capture_id"],
+            expected_route_version=row["route_version"],
+            operation_id="operation_00000000-0000-4000-8000-0000000000aa",
+        ),
+        authority=owner_authority(tasks, session_id="other-owner"),
+    )
+    code, proposed = guide.advance(
+        "release-preview", {"receipt_id": receipts[0], "provider_ids": ["openai"]}
+    )
+    assert code == 3, proposed
+    code, refused = guide.advance(
+        "release-preview", {"receipt_id": receipts[0], "provider_ids": ["openai"]},
+        confirmation=approve(proposed["intent"]),
+    )
+    assert refused["outcome"] == "refused" and code == 78, refused
+    assert journal(guide)["operations"][-1]["state"] == "refused"
+    assert not any(item["action"] == "approve" for item in journal(guide)["operations"])
