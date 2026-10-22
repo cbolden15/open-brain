@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from open_brain_engine.engine import open_local_engine
@@ -14,7 +15,9 @@ from open_brain_connectors.runtime.agent_session_live import AgentSessionLiveSou
 
 
 @pytest.mark.parametrize("client", ["claude_code", "codex"])
-def test_offline_restart_replay_and_later_turn_are_searchable(tmp_path: Path, client: str) -> None:
+def test_offline_restart_replay_and_later_turn_are_searchable(
+    tmp_path: Path, client: Literal["claude_code", "codex"]
+) -> None:
     project = tmp_path / "project"
     project.mkdir()
     brain = tmp_path / "brain"
@@ -57,12 +60,12 @@ def test_offline_restart_replay_and_later_turn_are_searchable(tmp_path: Path, cl
     service = LiveCaptureService(
         tmp_path / "state", brain, runtime=PriorityRuntime(tmp_path / "live")
     )
-    replay = service.apply("sessions", service.preview("sessions")["preview_id"])
+    replay = service.apply("sessions", str(service.preview("sessions")["preview_id"]))
     assert replay["duplicate_count"] == 1
     assert replay["quarantined_count"] == 0
     append_turn("Secondturnneedle choose green.")
     stop()
-    second = service.apply("sessions", service.preview("sessions")["preview_id"])
+    second = service.apply("sessions", str(service.preview("sessions")["preview_id"]))
     assert second["captured_count"] == 1
     assert second["quarantined_count"] == 0
     assert len(open_local_engine(profile).retrieval.search("Secondturnneedle")) == 1
