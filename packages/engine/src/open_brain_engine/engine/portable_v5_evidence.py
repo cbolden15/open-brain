@@ -32,7 +32,6 @@ from .owner_egress_policy import active_egress_policy
 from .privacy_projection import (
     RepairedPrivacyEvidence,
     RetainedPrivacyEvidence,
-    apply_owner_egress_policy,
     apply_privacy_repair,
     effective_privacy_json,
     project_retained_privacy_evidence,
@@ -220,6 +219,7 @@ def _retained_and_bases(
     retained_rows: list[dict[str, object]] = []
     retained: dict[str, str | bytes | None] = {}
     bases: dict[tuple[str, str], RetainedPrivacyEvidence] = {}
+    base_values: dict[tuple[str, str], tuple[str | bytes | None, ...]] = {}
     for row in revisions:
         capture_id = row["capture_id"]
         source_digest = row["source_sha256"]
@@ -249,6 +249,7 @@ def _retained_and_bases(
             }
         )
         retained[capture_id] = value
+        base_values[("source_revision", capture_id)] = (value,)
         bases[("source_revision", capture_id)] = project_retained_privacy_evidence((value,))
 
     member_rows = connection.execute(
@@ -272,9 +273,9 @@ def _retained_and_bases(
         members.setdefault(revision_id, []).append(capture_id)
         expected_ordinal[revision_id] = ordinal + 1
     for revision_id, capture_ids in members.items():
-        bases[("canonical_revision", revision_id)] = project_retained_privacy_evidence(
-            tuple(retained[capture_id] for capture_id in capture_ids)
-        )
+        values = tuple(retained[capture_id] for capture_id in capture_ids)
+        base_values[("canonical_revision", revision_id)] = values
+        bases[("canonical_revision", revision_id)] = project_retained_privacy_evidence(values)
 
     stored_rows: dict[tuple[str, str], str] = {}
     for kind, table, column in (
@@ -299,7 +300,9 @@ def _retained_and_bases(
     for key, evidence in sorted(bases.items()):
         effective = _canonical_object(stored_rows[key], label="base privacy projection")
         expected = _effective_object(evidence)
-        overlaid = _effective_object(apply_owner_egress_policy(evidence, policy))
+        overlaid = _effective_object(
+            project_retained_privacy_evidence(base_values[key], egress_policy=policy)
+        )
         if effective not in (expected, overlaid):
             _fail("base privacy projection mismatch")
         base_rows.append(

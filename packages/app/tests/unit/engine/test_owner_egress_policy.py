@@ -34,7 +34,7 @@ from open_brain_engine.engine.owner_egress_policy_schema import (
 )
 from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
-from open_brain_engine.storage.migrations import NewerSchemaError, SchemaError
+from open_brain_engine.storage.migrations import SchemaError
 
 from open_brain.profile import compile_single_user_local
 from open_brain.services.t03_adapters import agent_authority, owner_authority
@@ -254,7 +254,7 @@ def test_schema21_engine_refuses_schema22_before_mutation(
             assert local_schema.classify_local_schema(connection) == local_schema.SchemaState(
                 "newer", 22
             )
-        with pytest.raises((NewerSchemaError, StateSchemaUnavailableError, SchemaError)):
+        with pytest.raises((SchemaError, StateSchemaUnavailableError), match="schema is newer"):
             if opener == "engine":
                 BrainEngine.open(profile)
             else:
@@ -448,6 +448,38 @@ def test_personal_overlay_decision_is_confirmed_and_local_tiers_are_refused() ->
     assert work.authority.cloud is False
     for tier in (PrivacyTier.PUBLIC, PrivacyTier.SECRET, PrivacyTier.UNKNOWN):
         assert overlay_decision(tier, policy) is None
+
+
+def test_mixed_member_overlay_requires_every_member_tier_to_be_shared(tmp_path: Path) -> None:
+    from open_brain_engine.engine.owner_egress_policy import OwnerEgressPolicy
+    from open_brain_engine.engine.privacy_projection import project_retained_privacy_evidence
+
+    engine = _engine(tmp_path)
+    captures = _captured(engine)
+    with _connect(engine.profile) as connection:
+        raw = {
+            tier: connection.execute(
+                "SELECT privacy_json FROM captures WHERE capture_id=?", (capture_id,)
+            ).fetchone()[0]
+            for tier, capture_id in captures.items()
+        }
+
+    def egress(members: tuple[PrivacyTier, ...], *shared: PrivacyTier) -> bool:
+        policy = OwnerEgressPolicy(1, frozenset(shared), "2026-10-22T00:00:00Z", "op")
+        evidence = project_retained_privacy_evidence(
+            tuple(raw[tier] for tier in members), egress_policy=policy
+        )
+        assert evidence.authority.cloud is False
+        return evidence.authority.external_egress
+
+    mixed = (PrivacyTier.WORK, PrivacyTier.PERSONAL)
+    assert not egress(mixed, PrivacyTier.PERSONAL)
+    assert not egress(mixed, PrivacyTier.WORK)
+    assert egress(mixed, PrivacyTier.WORK, PrivacyTier.PERSONAL)
+    assert not egress((PrivacyTier.PUBLIC, PrivacyTier.WORK), PrivacyTier.WORK)
+    assert egress((PrivacyTier.PUBLIC, PrivacyTier.WORK), PrivacyTier.PUBLIC, PrivacyTier.WORK)
+    assert not egress((PrivacyTier.WORK, PrivacyTier.UNKNOWN), *SHAREABLE)
+    assert not egress((PrivacyTier.PERSONAL, PrivacyTier.SECRET), *SHAREABLE)
 
 
 def test_overlay_never_applies_to_invalid_evidence() -> None:

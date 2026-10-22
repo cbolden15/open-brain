@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
@@ -33,7 +33,6 @@ __all__ = [
     "InvalidPrivacyEvidenceReason",
     "RepairedPrivacyEvidence",
     "RetainedPrivacyEvidence",
-    "apply_owner_egress_policy",
     "apply_privacy_repair",
     "effective_privacy_json",
     "narrow_retained_privacy_decision",
@@ -354,7 +353,7 @@ def project_retained_privacy_evidence(
         decisions.append(decision)
     if caller_declared_inconsistent:
         return _invalid_projection(InvalidPrivacyEvidenceReason.INCONSISTENT, values)
-    return _valid_projection(aggregate_privacy_decisions(decisions), egress_policy)
+    return _valid_projection(aggregate_privacy_decisions(decisions), decisions, egress_policy)
 
 
 def _invalid_projection(
@@ -401,6 +400,7 @@ def _invalid_evidence_preimage_value(value: object) -> object:
 
 def _valid_projection(
     aggregated: AggregatedPrivacyDecision,
+    members: Sequence[PrivacyDecision],
     egress_policy: OwnerEgressPolicy | None = None,
 ) -> RetainedPrivacyEvidence:
     projected = RetainedPrivacyEvidence(
@@ -411,23 +411,33 @@ def _valid_projection(
         invalid_reason=None,
         invalid_evidence_sha256=None,
     )
-    return apply_owner_egress_policy(projected, egress_policy)
+    return _apply_owner_egress_policy(projected, members, egress_policy)
 
 
-def apply_owner_egress_policy(
-    evidence: RetainedPrivacyEvidence, egress_policy: OwnerEgressPolicy | None
+def _apply_owner_egress_policy(
+    evidence: RetainedPrivacyEvidence,
+    members: Sequence[PrivacyDecision],
+    egress_policy: OwnerEgressPolicy | None,
 ) -> RetainedPrivacyEvidence:
-    """Overlay owner egress onto one valid projection whose tier the policy shares.
+    """Overlay owner egress onto one valid projection when every member is shared.
 
-    Invalid evidence, unshared tiers and evidence that already authorizes egress
-    are returned unchanged. The overlay grants external egress only, never cloud,
-    and keeps the retained decision digests; a personal overlay adds the policy's
-    confirmation reference. The overlay is idempotent.
+    The aggregate tier is the strictest member's, so it alone cannot show that a
+    less strict member (work beside personal) is shared too: each member must
+    already authorize egress or have a tier the policy shares. Invalid evidence,
+    unshared members and evidence that already authorizes egress are returned
+    unchanged. The overlay grants external egress only, never cloud, and keeps the
+    retained decision digests; a personal overlay adds the policy's confirmation
+    reference. The overlay is idempotent.
     """
     if egress_policy is None or not evidence.valid or evidence.authority.external_egress:
         return evidence
     from .owner_egress_policy import overlay_decision
 
+    if not members or not all(
+        member.authority.external_egress or overlay_decision(member.tier, egress_policy)
+        for member in members
+    ):
+        return evidence
     decision = overlay_decision(evidence.tier, egress_policy)
     if decision is None:
         return evidence
