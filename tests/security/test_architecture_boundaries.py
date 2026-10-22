@@ -94,6 +94,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
             "services/retraction.py",
             "services/review_publication.py",
             "services/saved_markdown_sharing.py",
+        "services/scoped_policy_authoring.py",
         "services/scoped_setup.py",
         "services/session_authority.py",
         "services/session_consent.py",
