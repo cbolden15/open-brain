@@ -562,6 +562,38 @@ def test_journal_completes_after_setup_apply_once_every_member_is_released(
     assert journal(guide)["status"] == "completed"
 
 
+def test_failed_completion_write_keeps_the_setup_result_and_is_retried_next_action(
+    guide: Guide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain.services.source_guide_journal import JournalError
+    from open_brain.services.source_guide_release import ReleaseFlow
+
+    approved_one(guide)
+    policy_applied(guide)
+    preview_id = setup_previewed(guide)["preview_id"]
+    original = ReleaseFlow._write
+
+    def write(self: ReleaseFlow, document: Any, **keywords: Any) -> Any:
+        if document["status"] == "completed":
+            raise JournalError("journal_busy")
+        return original(self, document, **keywords)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ReleaseFlow, "_write", write)
+        code, done = guide.confirm("setup-apply", {"preview_id": preview_id})
+    # The setup write succeeded; a failed completion-only write never reports refused.
+    assert (code, done["outcome"], done["code"]) == (0, "completed", None), done
+    assert done["data"]["count"] == 1
+    state = journal(guide)
+    assert state["status"] == "active"
+    assert state["operations"][-1]["action"] == "setup-apply"
+    assert state["operations"][-1]["state"] == "completed"
+    # The next action re-evaluates completion, records it and refuses.
+    code, refused = guide.advance("policy-preview")
+    assert (code, refused["code"]) == (2, "invalid_request"), refused
+    assert journal(guide)["status"] == "completed"
+
+
 def test_partial_release_stays_active_for_repair_until_every_member_is_current(
     guide: Guide,
 ) -> None:

@@ -478,6 +478,50 @@ def test_collector_state_swapped_in_at_the_same_path_is_a_binding_mismatch(guide
     assert (code, refused["code"]) == (78, "binding_mismatch")
 
 
+def test_cancel_still_works_after_the_state_root_is_restored_with_a_new_identity(
+    guide: Guide,
+) -> None:
+    import shutil
+
+    guide.through_choose()
+    guide.confirm("configure")
+    before = json.loads(guide.journal.read_bytes())
+    collector = guide.state.parent
+    collector.rename(guide.root / "collector-backup")
+    shutil.copytree(guide.root / "collector-backup", collector, symlinks=True)
+    for action in ("accounts", "preview"):
+        code, refused = guide.advance(action)
+        assert (code, refused["code"]) == (78, "binding_mismatch")
+    calls = len(support.calls(guide.fixture))
+    code, cancelled = guide.advance("cancel")
+    assert (code, cancelled["outcome"]) == (0, "cancelled"), cancelled
+    after = json.loads(guide.journal.read_bytes())
+    assert after["status"] == "cancelled"
+    assert after["binding"] == before["binding"]
+    assert after["retained_receipt_ids"] == before["retained_receipt_ids"]
+    assert after["operations"][: len(before["operations"])] == before["operations"]
+    assert len(support.calls(guide.fixture)) == calls
+
+
+def test_cancel_refuses_when_the_collector_state_path_differs(guide: Guide) -> None:
+    guide.through_choose()
+    other = guide.root / "other"
+    other.mkdir(mode=0o700)
+    common = guide.common()
+    common[3] = str(other / "state.json")
+    path = guide.root / "decisions" / "cancel-other.json"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.write(fd, json.dumps({
+        "schema_version": 1, "workflow_id": guide.workflow_id,
+        "expected_revision": guide.revision, "action": "cancel",
+        "confirmation": None, "arguments": {},
+    }).encode())
+    os.close(fd)
+    code, payload, _ = guide.run("advance", *common, "--decision-file", str(path), "--json")
+    assert code == 78 and payload is not None and payload["code"] == "binding_mismatch"
+    assert json.loads(guide.journal.read_bytes())["status"] == "active"
+
+
 def test_receipts_from_journal_only_and_journal_never_holds_inventory(guide: Guide) -> None:
     guide.through_choose()
     code, refused = guide.advance("inspect", {"receipt_id": "custody:" + "1" * 64})

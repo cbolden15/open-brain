@@ -36,7 +36,7 @@ from open_brain.services.source_guide_flow import (
     brain_identity,
     result_envelope,
 )
-from open_brain.services.source_guide_journal import canonical_json, sha256_text
+from open_brain.services.source_guide_journal import JournalError, canonical_json, sha256_text
 
 __all__ = ["RECALL_TASK", "ReleaseFlow"]
 
@@ -891,6 +891,9 @@ class ReleaseFlow(GuideFlow):
         journal stays `active` so a partial release or an edited member can be
         repaired in the same journal. `completed` is terminal and kept until the
         owner removes it; later repairs use the existing owner sharing commands.
+
+        This is a journal-only marker after a succeeded write. If it cannot be
+        written the journal stays `active` and the next action retries it.
         """
         selection = self._selection(document)
         if (
@@ -903,7 +906,19 @@ class ReleaseFlow(GuideFlow):
             return document
         finished = copy.deepcopy(document)
         finished["status"] = "completed"
-        return self._write(finished, reserve=0)
+        try:
+            return self._write(finished, reserve=0)
+        except (JournalError, OSError):
+            return document
+
+    def _before_action(self, document: dict[str, object], action: str) -> dict[str, object]:
+        """Retry a completion marker that an earlier succeeded write could not record."""
+        if action == "cancel" or not self._completed(document, "setup-apply"):
+            return document
+        finished = self._finish_if_released(document, self._summary(action, document))
+        if finished["status"] == "completed":
+            raise _Stop("invalid_request", document=finished)
+        return finished
 
     def _previewed_head(self, document: Mapping[str, object], preview_id: str) -> str | None:
         for item in self._completed(document, "release-preview"):

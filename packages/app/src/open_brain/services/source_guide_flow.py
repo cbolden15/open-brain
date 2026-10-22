@@ -516,7 +516,7 @@ class GuideFlow:
         document = self.journal.read()
         if document is None:
             raise _Stop("state_uninitialized")
-        self.bind(document, executable)
+        self.bind(document, executable, cancel=decision.action == "cancel")
         if decision.workflow_id != document["workflow_id"]:
             raise _Stop("binding_mismatch", document=document)
         if document["status"] == "halted" and decision.action != "cancel":
@@ -535,16 +535,34 @@ class GuideFlow:
             raise _Stop(
                 "operation_unknown", document=document, next_actions=("reconcile", "cancel")
             )
+        document = self._before_action(document, decision.action)
         handler = getattr(self, "_" + decision.action.replace("-", "_"))
         return cast(dict[str, object], handler(document, decision))
 
-    def bind(self, document: Mapping[str, object], executable: CollectorExecutable) -> None:
+    def _before_action(self, document: dict[str, object], action: str) -> dict[str, object]:
+        """Journal-only bookkeeping before a handler; the capture flow has none."""
+        return document
+
+    def bind(
+        self,
+        document: Mapping[str, object],
+        executable: CollectorExecutable,
+        *,
+        cancel: bool = False,
+    ) -> None:
+        """Refuse another Brain, collector state path, state root identity or executable.
+
+        With matching paths, a `collector_binding` difference can only come from
+        the state root's device/inode (a swap, restore, copy or remount). Only an
+        explicit journal-only owner `cancel` may proceed past that one mismatch.
+        """
         binding = cast(dict[str, object], document["binding"])
         if (
             binding["brain_root"] != os.fspath(self.paths.brain)
             or binding["collector_state"] != os.fspath(self.paths.state)
-            or binding["collector_binding"] != _collector_binding(self.paths)
         ):
+            raise _Stop("binding_mismatch", document=document)
+        if binding["collector_binding"] != _collector_binding(self.paths) and not cancel:
             raise _Stop("binding_mismatch", document=document)
         if binding["executable"] != _executable_binding(executable):
             raise _Stop("collector_changed", document=document)
