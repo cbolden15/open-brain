@@ -328,15 +328,9 @@ def _release(session: _Session) -> int:
     document = _journal(session)
     choices = cast(dict[str, object], document["choices"])
     if choices["destination_space_id"] is None:
-        name = session.ask(
-            "Name for a new dedicated Work release space (blank to use an existing empty "
-            "space ID): "
-        ).strip()
-        if name:
-            session.confirmed("create-destination", {"name": name})
-        else:
-            space = session.ask("Existing empty space ID: ").strip()
-            session.checked("destination", {"space_id": space})
+        # v1 releases only into a new space this workflow creates; existing spaces refuse.
+        name = session.ask("Name for a new dedicated Work release space: ").strip()
+        session.confirmed("create-destination", {"name": name})
     document = _journal(session)
     acknowledged = list(dict.fromkeys(
         cast(str, item["receipt_id"]) for item in _requests(document, "acknowledge-inspection")
@@ -357,9 +351,16 @@ def _release(session: _Session) -> int:
     if not _requests(_journal(session), "consent"):
         session.confirmed("consent", {"provider_id": provider})
     for receipt_id in members:
-        released = session.confirmed(
-            "release-preview", {"receipt_id": receipt_id, "provider_ids": [provider]}
-        )
+        arguments = {"receipt_id": receipt_id, "provider_ids": [provider]}
+        proposed = session.step("release-preview", arguments)
+        if (
+            proposed["outcome"] == "refused"
+            and proposed["code"] == "invalid_request"
+            and proposed["data"] is not None
+        ):
+            session.say(f"Message {receipt_id} already has a current approved copy; skipped.")
+            continue
+        released = session.approve(proposed, "release-preview", arguments)
         preview_id = cast(dict[str, object], released["data"])["preview_id"]
         session.say("Inspect the complete external payload below before approving it.")
         session.confirmed("approve", {"preview_id": preview_id})

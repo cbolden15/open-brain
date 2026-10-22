@@ -117,14 +117,24 @@ def test_existing_exact_scope_policy_is_reused_and_widened_policy_refuses(
     state: dict[str, Any],
 ) -> None:
     state["policy"].parent.mkdir(mode=0o700)
-    existing = {
-        **json.loads(
-            preview_scoped_policy(
-                state["policy"], state["inputs"], consent_path=state["consent"]
-            ).payload
-        ),
-        "principal_id": "owner-chosen-client",
-    }
+    existing = json.loads(
+        preview_scoped_policy(
+            state["policy"], state["inputs"], consent_path=state["consent"]
+        ).payload
+    )
+    # Reuse requires the generated guide IDs, a private file and a private parent.
+    for change, file_mode, parent_mode in (
+        ({"principal_id": "owner-chosen-client"}, 0o600, 0o700),
+        ({"session_id": "owner-chosen-session"}, 0o600, 0o700),
+        ({}, 0o644, 0o700),
+        ({}, 0o600, 0o750),
+    ):
+        state["policy"].write_text(json.dumps({**existing, **change}))
+        state["policy"].chmod(file_mode)
+        state["policy"].parent.chmod(parent_mode)
+        with pytest.raises(PolicyAuthoringError):
+            preview_scoped_policy(state["policy"], state["inputs"], consent_path=state["consent"])
+    state["policy"].parent.chmod(0o700)
     state["policy"].write_text(json.dumps(existing))
     state["policy"].chmod(0o600)
     preview = preview_scoped_policy(state["policy"], state["inputs"], consent_path=state["consent"])
@@ -155,3 +165,25 @@ def test_wider_or_missing_consent_is_never_used(tmp_path: Path) -> None:
     )
     with pytest.raises(PolicyAuthoringError, match="authority_refused"):
         current_work_consent(consent, provider_id="openai", brain_id=BRAIN, issuer_epoch=1)
+
+
+def test_short_writes_still_create_the_complete_policy(
+    state: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    preview = preview_scoped_policy(state["policy"], state["inputs"], consent_path=state["consent"])
+    original = os.write
+    monkeypatch.setattr("open_brain.services.scoped_policy_authoring.os.write",
+                        lambda fd, data: original(fd, bytes(data)[:7]))
+    apply_scoped_policy(state["policy"], state["inputs"], policy_sha256=preview.policy_sha256,
+                        expected_absent=True, consent_path=state["consent"])
+    monkeypatch.undo()
+    assert state["policy"].read_bytes() == preview.payload
+
+
+def test_grant_time_consent_store_failure_is_an_unknown_outcome() -> None:
+    from open_brain.services.session_consent import SessionConsentError
+    from open_brain.services.source_guide_release import _classify
+
+    for code in ("unsafe_consent_state", "invalid_consent_state", "consent_unavailable"):
+        failure = _classify(SessionConsentError(code), action="consent")
+        assert failure.code == "operation_unknown"

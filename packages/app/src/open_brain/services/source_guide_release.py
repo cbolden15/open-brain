@@ -93,7 +93,8 @@ def _classify(error: Exception, *, action: str) -> GuideAdapterError:
         if error.code in {"consent_state_conflict", "consent_state_mismatch"}:
             # File/root CAS or foreign state: halt, never retry automatically.
             return _HaltingRefusal("authority_refused")
-        return GuideAdapterError("authority_refused")
+        # The store can fail after its atomic replace; a same-ID replay is idempotent.
+        return GuideAdapterError("operation_unknown")
     if isinstance(error, ConsentContractError):
         return GuideAdapterError("authority_refused")
     if isinstance(error, PolicyAuthoringError):
@@ -276,49 +277,39 @@ class ReleaseFlow(GuideFlow):
 
     # -- destination ---------------------------------------------------------
 
-    def _space_empty(self, space_id: str) -> bool:
-        """Read-only: a dedicated destination holds no records before this workflow."""
-        from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
-        from open_brain_engine.storage.sqlite import connect_database_read_only
-
-        from open_brain.profile import open_existing_single_user_local
-
-        profile = open_existing_single_user_local(self.paths.brain)
-        connection = connect_database_read_only(
-            root=profile.root,
-            database_name=PHASE1_STATE_DATABASE,
-            expected_root_identity=profile.root_identity,
-        )
-        try:
-            row = connection.execute(
-                "SELECT 1 FROM captures WHERE space_id=? LIMIT 1", (space_id,)
-            ).fetchone()
-        finally:
-            connection.close()
-        return row is None
-
     def _destination(self, document: dict[str, object], decision: Decision) -> dict[str, object]:
-        if self._choices(document)["destination_space_id"] is not None:
-            # One dedicated destination per workflow; a different one is a new workflow.
-            raise _Stop("invalid_request", document=document)
-        space_id = cast(str, decision.arguments["space_id"])
-        self._identity(document)
-        with self._owner() as (tasks, _owner):
-            known = {item.space_id for item in tasks.inbox.spaces()}
-        if space_id not in known:
-            raise _Stop("authority_refused", document=document)
-        if not self._space_empty(space_id):
-            # A broad reused space would expose every eligible copy, not only this selection.
-            raise _Stop("authority_refused", document=document,
-                        next_actions=("create-destination",))
-        updated = self._record(
-            document, "destination", {"space_id": space_id},
-            choices={"destination_space_id": space_id},
-        )
-        return result_envelope(
-            "destination", "completed", document=updated, data=_progress("destination"),
-            next_actions=("route",),
-        )
+        # v1 refuses every existing space: a reused space can expose records outside this
+        # selection, so the only destination is one this workflow creates.
+        raise _Stop("authority_refused", document=document, next_actions=("create-destination",))
+
+    def _workflow_captures(self, document: Mapping[str, object]) -> set[str]:
+        """Captures this workflow placed or released: inspected/routed heads and its copies."""
+        known: set[str] = set()
+        for item in self._completed(document, "acknowledge-inspection"):
+            known.add(cast(str, cast(dict[str, object], item["evidence"])["revision_id"]))
+        for item in self._completed(document, "route"):
+            known.add(cast(str, cast(dict[str, object], item["evidence"])["head"]))
+        for item in self._completed(document, "release-preview"):
+            known.add(cast(str, _request(item)["expected_head"]))
+        for evidence in self._approved(document):
+            if evidence["copy_capture_id"] is not None:
+                known.add(cast(str, evidence["copy_capture_id"]))
+        return known
+
+    def _require_dedicated(self, document: Mapping[str, object], action: str) -> None:
+        """Refuse (journal-visible, no authority write) if the space holds foreign records."""
+        space_id = cast(str, self._choices(document)["destination_space_id"])
+        try:
+            with self._owner() as (tasks, _owner):
+                captures, truncated = tasks.inbox.space_capture_ids(space_id, limit=1000)
+        except Exception:
+            captures, truncated = (), True
+        if truncated or not set(captures) <= self._workflow_captures(document):
+            # Another approval or capture in this space would be readable by the client.
+            updated = self._record(
+                document, action, {"destination_space_id": space_id}, state="refused"
+            )
+            raise _Stop("authority_refused", document=updated)
 
     def _create_destination(
         self, document: dict[str, object], decision: Decision
@@ -693,6 +684,15 @@ class ReleaseFlow(GuideFlow):
         member = self._member(document, cast(str, decision.arguments["receipt_id"]))
         if member["source_id"] not in cast(list[str], selection["member_source_ids"]):
             raise _Stop("invalid_request", document=document)
+        if any(
+            item["state"] == "captured"
+            and self._previewed_head(document, cast(str, item["preview_id"])) == member["head"]
+            for item in self._approved(document)
+        ):
+            # Already released at this exact head: no second copy, show progress instead.
+            raise _Stop("invalid_request", document=document,
+                        data=self._summary("release-preview", document),
+                        next_actions=("policy-preview",))
         saved = self._saved(document, decision)
         request = {
             "brain_id": brain_id,
@@ -900,7 +900,9 @@ class ReleaseFlow(GuideFlow):
             issuer_epoch=cast(int, values["issuer_epoch"]),
         )
 
-    def _policy_request(self, document: Mapping[str, object]) -> tuple[dict[str, object], Any]:
+    def _policy_request(
+        self, document: Mapping[str, object], action: str
+    ) -> tuple[dict[str, object], Any]:
         """Current non-content policy inputs and the ephemeral full preview."""
         from open_brain.services.scoped_policy_authoring import (
             PolicyAuthoringError,
@@ -912,6 +914,7 @@ class ReleaseFlow(GuideFlow):
         if choices["destination_space_id"] is None or not self._completed(document, "consent"):
             raise _Stop("inspection_required", document=document,
                         next_actions=("create-destination", "consent"))
+        self._require_dedicated(document, action)
         brain_id, issuer_epoch = self._identity(document)
         consent_path = Path(cast(str, choices["consent_state"]))
         try:
@@ -941,7 +944,7 @@ class ReleaseFlow(GuideFlow):
     def _policy_preview(
         self, document: dict[str, object], decision: Decision
     ) -> dict[str, object]:
-        request, preview = self._policy_request(document)
+        request, preview = self._policy_request(document, "policy-preview")
         # Only non-content inputs and the SHA enter the journal; the body stays ephemeral.
         updated = self._record(
             document, "policy-preview", request,
@@ -962,7 +965,7 @@ class ReleaseFlow(GuideFlow):
         ] != wanted:
             raise _Stop("inspection_required", document=document,
                         next_actions=("policy-preview",))
-        current, preview = self._policy_request(document)
+        current, preview = self._policy_request(document, "policy-apply")
         # Regenerated from the confirmed inputs: any drift needs a new full inspection.
         if current != _request(previews[-1]) or preview.policy_sha256 != wanted:
             raise _Stop("revision_conflict", document=document, next_actions=("policy-preview",))
@@ -1120,6 +1123,7 @@ class ReleaseFlow(GuideFlow):
         ] != preview_id:
             raise _Stop("inspection_required", document=document, next_actions=("setup-preview",))
         self._identity(document)
+        self._require_dedicated(document, "setup-apply")
         base = self._setup_request(document)
         if base != _request(previews[-1]):
             raise _Stop("revision_conflict", document=document, next_actions=("setup-preview",))

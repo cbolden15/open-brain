@@ -315,7 +315,7 @@ def test_route_replay_after_owner_withdrawal_returns_the_committed_receipt(
     assert code == 78 and refused["outcome"] == "refused", refused
 
 
-def test_refused_consent_replay_halts_because_refusal_proves_nothing(
+def test_unsafe_consent_store_during_replay_stays_unknown_then_replays_once(
     guide: Guide, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     arguments = _stage(guide, "consent")
@@ -324,8 +324,39 @@ def test_refused_consent_replay_halts_because_refusal_proves_nothing(
         sequence = _crash(guide, "consent", arguments)
     _settled(guide, sequence)
     consent = guide.root / "consent" / "state.json"
-    committed = consent.read_bytes()
     consent.chmod(0o644)
+    code, replay = guide.confirm("reconcile", {"operation_sequence": sequence})
+    # The store may fail after its atomic replace: unknown, never a proof of non-commit.
+    assert (code, replay["outcome"], replay["code"]) == (78, "unknown_outcome", "operation_unknown")
+    assert journal(guide)["status"] == "active"
+    assert journal(guide)["operations"][sequence]["state"] == "unknown"
+    consent.chmod(0o600)
+    code, replayed = guide.confirm("reconcile", {"operation_sequence": sequence})
+    assert (code, replayed["outcome"]) == (0, "completed"), replayed
+    assert _counts(guide)["consent"] == 1
+
+
+def test_foreign_consent_state_on_replay_halts_because_refusal_proves_nothing(
+    guide: Guide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.core.models import PrivacyTier
+
+    from open_brain.services.session_consent import DurableProviderConsentStore
+
+    arguments = _stage(guide, "consent")
+    with monkeypatch.context() as patch:
+        _interrupt(patch, "after_commit_before_result")
+        sequence = _crash(guide, "consent", arguments)
+    _settled(guide, sequence)
+    consent = guide.root / "consent" / "state.json"
+    (guide.root / "foreign").mkdir(mode=0o700)
+    foreign = guide.root / "foreign" / "state.json"
+    DurableProviderConsentStore(foreign, brain_id="brn_" + "b" * 26, issuer_epoch=1).grant(
+        provider_id="openai", allowed_tiers=frozenset({PrivacyTier.WORK}),
+        operation_id="grant.foreign", decided_at="2026-10-22T12:00:00Z",
+    )
+    consent.write_bytes(foreign.read_bytes())
+    committed = consent.read_bytes()
     code, replay = guide.confirm("reconcile", {"operation_sequence": sequence})
     assert (code, replay["outcome"], replay["code"]) == (78, "refused", "authority_refused")
     state = journal(guide)

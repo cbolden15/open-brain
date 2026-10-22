@@ -162,21 +162,55 @@ def test_destination_and_route_each_need_inspection_and_their_own_confirmation(
     assert b"invite-only" not in stored
 
 
-def test_existing_destination_must_be_an_empty_dedicated_space(guide: Guide) -> None:
+def test_existing_spaces_are_refused_in_v1_and_create_destination_is_offered(
+    guide: Guide,
+) -> None:
     from open_brain_engine.engine import open_local_engine
 
     receipts = inspected(guide, ["Status: draft"])
     tasks: Any = open_local_engine(compile_single_user_local(guide.brain))
     empty = tasks.inbox.create_space("Dedicated", delivery_id="synthetic.empty").space_id
-    code, refused = guide.advance("destination", {"space_id": "space_" + "0" * 8})
-    assert (code, refused["code"]) == (78, "authority_refused")
-    code, chosen = guide.advance("destination", {"space_id": empty})
-    assert (code, chosen["outcome"]) == (0, "completed"), chosen
-    assert journal(guide)["choices"]["destination_space_id"] == empty
-    code, refused = guide.advance("create-destination", {"name": "Second"})
-    assert (code, refused["code"]) == (2, "invalid_request")
+    before = guide.journal.read_bytes()
+    for space_id in ("space_" + "0" * 8, empty):
+        code, refused = guide.advance("destination", {"space_id": space_id})
+        assert (code, refused["code"], refused["next_actions"]) == (
+            78, "authority_refused", ["create-destination"]
+        )
+    assert guide.journal.read_bytes() == before
+    destination(guide)
     code, proposed = guide.advance("route", {"receipt_id": receipts[0]})
     assert code == 3, proposed
+
+
+@pytest.mark.parametrize("point", ["policy-preview", "policy-apply", "setup-apply"])
+def test_foreign_record_in_destination_refuses_policy_and_setup(
+    guide: Guide, point: str
+) -> None:
+    from open_brain_engine.engine import TextPayload, open_local_engine
+
+    approved_one(guide)
+    arguments: dict[str, object] = {}
+    if point != "policy-preview":
+        code, preview = guide.advance("policy-preview")
+        assert code == 0, preview
+        arguments = {"policy_sha256": preview["data"]["payload_sha256"]}
+    if point == "setup-apply":
+        guide.confirm("policy-apply", arguments)
+        arguments = {"preview_id": setup_previewed(guide)["preview_id"]}
+    # A separate owner action places a record outside this workflow into the space.
+    tasks: Any = open_local_engine(compile_single_user_local(guide.brain))
+    tasks.capture.accept(
+        TextPayload("foreign synthetic record"), delivery_id="synthetic.foreign",
+        space_id=journal(guide)["choices"]["destination_space_id"],
+    )
+    policy_path = guide.root / "policy" / "policy.json"
+    policy_before = policy_path.read_bytes() if policy_path.exists() else None
+    code, refused = guide.advance(point, arguments)
+    assert (code, refused["outcome"], refused["code"]) == (78, "refused", "authority_refused")
+    last = journal(guide)["operations"][-1]
+    assert (last["action"], last["state"]) == (point, "refused")
+    assert (policy_path.read_bytes() if policy_path.exists() else None) == policy_before
+    assert not (guide.project / ".mcp.json").exists()
 
 
 def test_unacknowledged_receipt_never_routes(guide: Guide) -> None:
@@ -315,6 +349,8 @@ def test_consent_selection_and_per_message_release_need_separate_owner_checkpoin
 
 def test_edited_message_needs_new_inspection_and_release_preview(guide: Guide) -> None:
     receipts, _selection = selected_and_consented(guide, ["Status: draft plan", "Owner: Sam"])
+    # An extra, never-approved preview of the first message stays behind as the stale one.
+    stale = released(guide, receipts[0])
     first: list[str] = []
     for receipt_id in receipts:
         code, done = guide.confirm("approve", {"preview_id": released(guide, receipt_id)[
@@ -323,7 +359,6 @@ def test_edited_message_needs_new_inspection_and_release_preview(guide: Guide) -
         assert code == 0, done
         first = done["data"]["approved_copy_ids"]
     assert done["data"]["count"] == 2
-    stale = released(guide, receipts[0])
     # A full rescan: the first message was edited, the second is unchanged.
     support.queue(
         guide.fixture,
@@ -599,3 +634,40 @@ def test_interactive_flow_from_start_to_scoped_setup_with_each_owner_checkpoint(
     assert "\u001b" not in output and "‮" not in output and "\u0007" not in output
     assert (guide.project / ".mcp.json").exists()
     assert not (guide.root / "launched").exists()
+
+
+def test_current_captured_approval_is_not_released_again(guide: Guide) -> None:
+    copies = approved_one(guide)
+    receipt_id = [
+        json.loads(item["canonical_request_utf8"])["receipt_id"]
+        for item in journal(guide)["operations"]
+        if item["action"] == "acknowledge-inspection" and item["state"] == "completed"
+    ][0]
+    code, refused = guide.advance(
+        "release-preview", {"receipt_id": receipt_id, "provider_ids": ["openai"]}
+    )
+    assert (code, refused["code"]) == (2, "invalid_request"), refused
+    assert refused["data"]["approved_copy_ids"] == copies and refused["data"]["count"] == 1
+    assert refused["next_actions"] == ["policy-preview"]
+
+
+def test_resumed_interactive_repick_does_not_duplicate_an_approval(
+    guide: Guide, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import builtins
+    import sys
+
+    approved_one(guide)
+    policy_applied(guide)
+    answers = ["1", "approve", "approve", "approve"]  # re-pick; policy reuse, setup x2
+    monkeypatch.setattr(builtins, "input", lambda _prompt: answers.pop(0))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
+    code, _, output = guide.run("slack", *guide.common())
+    assert code == 0, output
+    assert answers == []
+    approvals = [item for item in journal(guide)["operations"]
+                 if item["action"] == "approve" and item["state"] == "completed"]
+    assert len(approvals) == 1
+    assert "already has a current approved copy" in output
+    assert "Selection completeness: 1 of 1" in output

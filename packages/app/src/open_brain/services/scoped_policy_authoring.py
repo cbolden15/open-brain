@@ -151,6 +151,7 @@ def _validate(payload: bytes, inputs: PolicyInputs, state: ProviderConsentState)
             or policy.egress_mode is not EgressMode.EXTERNAL_PROVIDER
             or policy.provider_id != inputs.provider_id
             or policy.consent_id != inputs.consent_id
+            or (policy.principal_id, policy.session_id) != guide_principal(inputs.workflow_id)
         ):
             raise PolicyAuthoringError("authority_refused")
         validate_startup_policy(
@@ -165,12 +166,16 @@ def _validate(payload: bytes, inputs: PolicyInputs, state: ProviderConsentState)
 
 
 def read_existing_policy(path: Path) -> bytes | None:
+    """An existing policy is usable only as an owned 0600 file under an owned 0700 parent."""
     try:
-        os.lstat(path)
+        info = os.lstat(path)
+        parent = os.lstat(path.parent)
     except FileNotFoundError:
         return None
     except OSError:
         raise PolicyAuthoringError("unsafe_path") from None
+    if stat.S_IMODE(info.st_mode) != 0o600 or stat.S_IMODE(parent.st_mode) != 0o700:
+        raise PolicyAuthoringError("unsafe_path")
     try:
         return _read_policy(path)
     except LauncherPolicyError:
@@ -237,7 +242,9 @@ def apply_scoped_policy(
             temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent
         )
         try:
-            os.write(fd, payload)
+            written = 0
+            while written < len(payload):
+                written += os.write(fd, payload[written:])
             os.fsync(fd)
         finally:
             os.close(fd)

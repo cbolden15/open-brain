@@ -424,6 +424,30 @@ class InboxSpaceTasks:
             _project_space(space) for space in self._engine._list_spaces(limit=limit, offset=offset)
         )
 
+    def space_capture_ids(self, space_id: str, *, limit: int) -> tuple[tuple[str, ...], bool]:
+        """Owner-only: every capture assigned to one space, any stage or visibility.
+
+        Bounded read for proving a destination is dedicated; `truncated` means
+        more captures exist than `limit`, so the caller must not treat the
+        returned IDs as complete.
+        """
+        if self._authority is not None and not self._authority.owner:
+            raise T03Error("unsupported_capability")
+        if type(limit) is not int or not 1 <= limit <= 10_000:
+            raise T03Error("invalid_arguments")
+        connection = self._engine._store.connect()
+        try:
+            if _space_row(connection, space_id) is None:
+                raise T03Error("not_found")
+            rows = connection.execute(
+                "SELECT capture_id FROM captures WHERE space_id=? ORDER BY capture_id LIMIT ?",
+                (space_id, limit + 1),
+            ).fetchall()
+        finally:
+            connection.close()
+        ids = tuple(cast(str, row["capture_id"]) for row in rows)
+        return ids[:limit], len(ids) > limit
+
     def create_space(self, name: str, *, delivery_id: str) -> SpaceRecord:
         with self._engine._writer_lease.acquire_shared_writer():
             return _project_space(self._engine._space_operation("create", None, name, delivery_id))
