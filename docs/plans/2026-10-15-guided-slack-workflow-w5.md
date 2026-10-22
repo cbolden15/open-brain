@@ -2,7 +2,7 @@
 
 Date: 2026-10-15. Status: implemented on branch `feat/w5-guided-slack-workflow`, pending final gates (P1–P4 code head `67fad50`, 2026-10-22). Operator guide: [guided Slack workflow](../integrations/slack-guided-workflow.md).
 
-P0 specification is complete in the [five-artifact contract packet](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/ACCEPTANCE.md). P1 remains unimplemented and requires separate authorization. The packet freezes per-store health with global consistency unknown, exact replay-or-halt rules and an inherited operation-lifetime guard. It also discloses a narrow create-only owner helper for the existing launcher-policy.v1 format; no existing persisted format or engine authority changes.
+P0 specification is complete in the [five-artifact contract packet](2026-10-15-guided-slack-workflow-w5-p0/ACCEPTANCE.md). P1–P4 are implemented on the branch above; re-anchoring decisions and deviations are recorded in the packet's `REANCHOR-P1.md`, `REANCHOR-P2.md` and `REANCHOR-P3.md`. The packet freezes per-store health with global consistency unknown, exact replay-or-halt rules and an inherited operation-lifetime guard. It also discloses a narrow create-only owner helper for the existing launcher-policy.v1 format; no existing persisted format or engine authority changes.
 
 ## 1. Summary
 
