@@ -54,7 +54,9 @@ def test_offline_restart_replay_and_later_turn_are_searchable(tmp_path: Path, cl
     assert service.sync_due()[0]["captured_count"] == 1
     assert not queued_events(queue)
     stop()
-    service = LiveCaptureService(tmp_path / "state", brain, runtime=PriorityRuntime(tmp_path / "live"))
+    service = LiveCaptureService(
+        tmp_path / "state", brain, runtime=PriorityRuntime(tmp_path / "live")
+    )
     replay = service.apply("sessions", service.preview("sessions")["preview_id"])
     assert replay["duplicate_count"] == 1
     assert replay["quarantined_count"] == 0

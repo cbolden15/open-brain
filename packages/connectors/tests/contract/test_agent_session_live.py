@@ -116,14 +116,18 @@ def test_claude_session_uses_extract_only_and_preserves_adapter_identity(tmp_pat
     assert len(captured_ids) == 1
 
 
-def test_long_history_keeps_recent_window_and_distinguishes_identical_later_turn(tmp_path: Path) -> None:
+def test_long_history_keeps_recent_window_and_distinguishes_identical_later_turn(
+    tmp_path: Path,
+) -> None:
     project = tmp_path / "project"
     project.mkdir()
     transcript = tmp_path / "long.jsonl"
     records = [json.loads(line) for line in _claude_transcript(project, "session-123").splitlines()]
     # Tool-heavy history exceeds the former 512 KiB limit; tool bodies are excluded.
     records.extend({"type": "tool", "data": "x" * 4096} for _ in range(150))
-    repeated = [json.loads(line) for line in _claude_transcript(project, "session-123").splitlines()]
+    repeated = [
+        json.loads(line) for line in _claude_transcript(project, "session-123").splitlines()
+    ]
     records.extend(repeated * 40)
     transcript.write_text("".join(json.dumps(record) + "\n" for record in records))
     root = tmp_path / "queue"

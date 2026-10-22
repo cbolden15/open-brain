@@ -378,7 +378,10 @@ def _read_messages(
             messages.append(message)
             if len(message.text) > _MAX_TEXT:
                 raise _SessionFormatError("session_transcript_too_large")
-            while len(messages) > _MAX_MESSAGES or sum(len(item.text) for item in messages) > _MAX_TEXT:
+            while (
+                len(messages) > _MAX_MESSAGES
+                or sum(len(item.text) for item in messages) > _MAX_TEXT
+            ):
                 messages.pop(0)
     if not messages or (event.client == "codex" and not codex_meta_seen):
         raise _SessionFormatError("session_unsupported_format")
