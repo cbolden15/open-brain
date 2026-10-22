@@ -155,16 +155,23 @@ class Guide:
         }
 
 
-@pytest.fixture
-def guide(
+def new_guide(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> Guide:
+    """A synthetic home, initialized Brain, connected account and launcher per test."""
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     for key in ("CLAUDE_CONFIG_DIR", "CODEX_HOME"):
         monkeypatch.delenv(key, raising=False)
     return Guide(tmp_path, capsys)
+
+
+@pytest.fixture
+def guide(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> Guide:
+    return new_guide(tmp_path, capsys, monkeypatch)
 
 
 def test_one_phase_json_flow_from_start_to_acknowledged_inspection(guide: Guide) -> None:
