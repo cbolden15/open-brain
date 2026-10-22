@@ -30,7 +30,7 @@ from open_brain.services.launcher_policy import (
     parse_launcher_policy,
     validate_startup_policy,
 )
-from open_brain.services.session_authority import _read_policy
+from open_brain.services.session_authority import read_policy
 from open_brain.services.session_consent import DurableProviderConsentStore, SessionConsentError
 
 __all__ = [
@@ -177,7 +177,7 @@ def read_existing_policy(path: Path) -> bytes | None:
     if stat.S_IMODE(info.st_mode) != 0o600 or stat.S_IMODE(parent.st_mode) != 0o700:
         raise PolicyAuthoringError("unsafe_path")
     try:
-        return _read_policy(path)
+        return read_policy(path)
     except LauncherPolicyError:
         raise PolicyAuthoringError("unsafe_path") from None
 

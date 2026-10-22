@@ -187,3 +187,12 @@ def test_grant_time_consent_store_failure_is_an_unknown_outcome() -> None:
     for code in ("unsafe_consent_state", "invalid_consent_state", "consent_unavailable"):
         failure = _classify(SessionConsentError(code), action="consent")
         assert failure.code == "operation_unknown"
+
+
+def test_policy_reader_has_a_public_name_and_keeps_the_private_alias() -> None:
+    import open_brain.services.scoped_policy_authoring as authoring
+    import open_brain.services.session_authority as authority
+
+    assert authority._read_policy is authority.read_policy
+    assert vars(authoring)["read_policy"] is authority.read_policy
+    assert not hasattr(authoring, "_read_policy")
