@@ -34,6 +34,12 @@ __all__ = ["main", "run_cli"]
 
 def main(argv: Sequence[str] | None = None) -> int:
     selected_argv = list(sys.argv[1:] if argv is None else argv)
+    if selected_argv == ["--guide-capabilities-json"]:
+        # Inert guide handshake: no state, Brain, credential or network access.
+        from open_brain_collector.source_metadata import GUIDE_CAPABILITIES
+
+        print(json.dumps(GUIDE_CAPABILITIES, sort_keys=True))
+        return 0
     if selected_argv and selected_argv[0] == "sources":
         from open_brain_collector.sources_cli import main as sources_main
 
