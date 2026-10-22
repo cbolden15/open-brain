@@ -74,7 +74,7 @@ def test_classifier_builds_only_requested_schema(
     with sqlite3.connect(profile.root / local_schema.PHASE1_STATE_DATABASE) as connection:
         state = local_schema.classify_local_schema(connection)
     assert state == local_schema.SchemaState(
-        "current" if version == 21 else "supported_old", version
+        "current" if version == 22 else "supported_old", version
     )
     assert requested == [(version + 2, False, True)]
 

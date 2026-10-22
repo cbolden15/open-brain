@@ -28,9 +28,11 @@ from open_brain_engine.portable.v5 import (
 )
 
 from .issuer_state import validate_issuer_digest, verify_issuer_evidence
+from .owner_egress_policy import active_egress_policy
 from .privacy_projection import (
     RepairedPrivacyEvidence,
     RetainedPrivacyEvidence,
+    apply_owner_egress_policy,
     apply_privacy_repair,
     effective_privacy_json,
     project_retained_privacy_evidence,
@@ -290,13 +292,18 @@ def _retained_and_bases(
     if set(stored_rows) != set(bases):
         _fail("base privacy projection coverage mismatch")
 
+    # A stored projection equals its evidence or that evidence under the active owner
+    # egress policy; Portable evidence always carries the policy-independent base.
+    policy = active_egress_policy(connection)
     base_rows: list[dict[str, object]] = []
     for key, evidence in sorted(bases.items()):
         effective = _canonical_object(stored_rows[key], label="base privacy projection")
-        if effective != _effective_object(evidence):
+        expected = _effective_object(evidence)
+        overlaid = _effective_object(apply_owner_egress_policy(evidence, policy))
+        if effective not in (expected, overlaid):
             _fail("base privacy projection mismatch")
         base_rows.append(
-            {"target_kind": key[0], "target_id": key[1], "effective_privacy": effective}
+            {"target_kind": key[0], "target_id": key[1], "effective_privacy": expected}
         )
     return retained_rows, base_rows, retained, bases
 
@@ -401,6 +408,7 @@ def _resolved_revisions(
                 result_id=target_id,
                 capture_id=target_id,
                 record_type="source",
+                apply_egress_policy=False,
             )
         else:
             evidence, active = resolve_canonical_revision_privacy(connection, revision_id=target_id)
@@ -541,6 +549,13 @@ def normalized_authoritative_search_rows(
             result_id=result_id,
             capture_id=capture_id,
             record_type=record_type,
+            apply_egress_policy=False,
+        )
+        overlaid, _overlay_applied = resolve_search_privacy(
+            connection,
+            result_id=result_id,
+            capture_id=capture_id,
+            record_type=record_type,
         )
         if evidence.invalid_reason is not None:
             marker = connection.execute(
@@ -560,16 +575,19 @@ def normalized_authoritative_search_rows(
             row["applied_repair_id"],
             row["applied_repair_sequence"],
         )
-        expected_privacy = (
-            evidence.tier.value,
-            int(evidence.authority.cloud),
-            int(evidence.authority.external_egress),
-            None if evidence.invalid_reason is None else evidence.invalid_reason.value,
-            evidence.invalid_evidence_sha256,
-            None if applied is None else applied[0],
-            None if applied is None else applied[1],
-        )
-        if stored_privacy != expected_privacy:
+        # The owner egress overlay changes authority only; the rest stays exact.
+        if stored_privacy not in {
+            (
+                candidate.tier.value,
+                int(candidate.authority.cloud),
+                int(candidate.authority.external_egress),
+                None if candidate.invalid_reason is None else candidate.invalid_reason.value,
+                candidate.invalid_evidence_sha256,
+                None if applied is None else applied[0],
+                None if applied is None else applied[1],
+            )
+            for candidate in (evidence, overlaid)
+        }:
             _fail("repair-aware search privacy mismatch")
         rows.append(
             {
@@ -624,7 +642,11 @@ def _base_search_privacy(connection: sqlite3.Connection) -> list[dict[str, objec
         connection, lifecycle=False
     ):
         evidence, applied = resolve_search_privacy(
-            connection, result_id=result_id, capture_id=capture_id, record_type=record_type
+            connection,
+            result_id=result_id,
+            capture_id=capture_id,
+            record_type=record_type,
+            apply_egress_policy=False,
         )
         rows.append(
             {

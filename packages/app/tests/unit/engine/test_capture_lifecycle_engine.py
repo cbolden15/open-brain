@@ -178,7 +178,7 @@ def test_session_retraction_and_replay_survive_real_portable_roundtrip(tmp_path:
     assert "zircon" in _history(engine, capture)
     archive, destination = tmp_path / "archive", tmp_path / "restored"
     assert (
-        engine.portability.export(archive, export_id="export_" + str(uuid4())).schema_version == 16
+        engine.portability.export(archive, export_id="export_" + str(uuid4())).schema_version == 17
     )
     engine.portability.import_clean(archive, destination, import_id="import_" + str(uuid4()))
     restored = BrainEngine.open(open_existing_single_user_local(destination))

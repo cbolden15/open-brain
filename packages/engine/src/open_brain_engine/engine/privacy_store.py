@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable
 
+from .owner_egress_policy import active_egress_policy
 from .privacy_projection import (
     RepairedPrivacyEvidence,
     RetainedPrivacyEvidence,
@@ -83,7 +84,9 @@ def write_source_revision_privacy(
     privacy_json: RetainedPrivacyValue,
 ) -> None:
     """Persist one immutable source revision's effective privacy from its capture evidence."""
-    evidence = project_retained_privacy_evidence([privacy_json])
+    evidence = project_retained_privacy_evidence(
+        [privacy_json], egress_policy=active_egress_policy(connection)
+    )
     connection.execute(
         "INSERT INTO source_revision_privacy VALUES (?,?)",
         (capture_id, effective_privacy_json(evidence)),
@@ -104,7 +107,9 @@ def write_canonical_revision_privacy(
     ``values`` must be the retained member evidence in ordinal order so invalid
     digests stay byte-identical between migration backfill and live writes.
     """
-    evidence = project_retained_privacy_evidence(tuple(values))
+    evidence = project_retained_privacy_evidence(
+        tuple(values), egress_policy=active_egress_policy(connection)
+    )
     connection.execute(
         "INSERT INTO canonical_revision_privacy VALUES (?,?)",
         (revision_id, effective_privacy_json(evidence)),

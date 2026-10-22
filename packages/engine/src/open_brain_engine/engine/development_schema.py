@@ -77,7 +77,7 @@ def migrate_developments(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state in {"current", "supported_old"} and state.version in set(range(16, 22)):
+        if state.state in {"current", "supported_old"} and state.version in set(range(16, 23)):
             return
         if state.state != "supported_old" or state.version != 15:
             raise T03Error("operation_pending")

@@ -176,7 +176,7 @@ def test_exact_replay_scope_and_portable_restore(tmp_path: Path) -> None:
         engine.developments.bind(derived, (raw,), operation_id="changed", authority=_authority())
     exported = tmp_path / "exported"
     engine.portability.export(exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4")
-    assert validate_portable_root(exported)["schema_version"] == 16
+    assert validate_portable_root(exported)["schema_version"] == 17
     restored = tmp_path / "restored"
     engine.portability.import_clean(
         exported, restored, import_id="import_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4"
@@ -344,7 +344,7 @@ def test_schema15_explicit_migration_old_archive_and_forward_refusal(
     coordinate_local_migration(profile)
     upgraded = BrainEngine.open(profile)
     with local_schema.open_local_database_read_only(profile) as connection:
-        assert local_schema.classify_local_schema(connection).version == 21
+        assert local_schema.classify_local_schema(connection).version == 22
         assert connection.execute("SELECT COUNT(*) FROM development_evidence").fetchone()[0] == 0
     restored = tmp_path / "restored"
     upgraded.portability.import_clean(
@@ -626,4 +626,4 @@ def test_transitive_absent_receipt_cannot_be_bound_after_confirmation(
     engine.portability.export(
         exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4"
     )
-    assert validate_portable_root(exported)["schema_version"] == 16
+    assert validate_portable_root(exported)["schema_version"] == 17
