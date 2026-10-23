@@ -4,25 +4,31 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from hashlib import sha256
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import TextPayload, local_schema
+from open_brain_engine.engine import TextPayload, local_schema, paging
 from open_brain_engine.engine.followup_contracts import (
+    DecideRequest,
+    DecisionAction,
     EvidenceRef,
     EvidenceRole,
     FollowupItem,
     FollowupKind,
+    ListFilter,
     OwnerKind,
     ProposeRequest,
 )
 from open_brain_engine.engine.followup_schema import FOLLOWUP_MIGRATION
 from open_brain_engine.engine.local import BrainEngine
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.records import RecordProjector
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.portable.followups_v18 import FOLLOWUPS_CONTRACT, FOLLOWUPS_PATH
@@ -187,3 +193,154 @@ def test_retracted_item_exports_flagged_with_summary_omitted(tmp_path: Path) -> 
     assert exported["summary"] is None
     assert len(payload["evidence"]) == 2
     assert "PRIVATE_SYNTHETIC" not in files[FOLLOWUPS_PATH].decode("utf-8")
+
+
+def _followup_counts(engine: BrainEngine) -> tuple[int, int, int]:
+    with _connect(engine) as connection:
+        return tuple(
+            connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for table in ("followup_items", "followup_evidence", "followup_decisions")
+        )
+
+
+def test_round_trip_restores_items_and_withheld_summary_stays_withheld(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    origin = _capture(engine, QUOTE_TEXT)
+    gone = _capture(engine, "PRIVATE_SYNTHETIC_GONE evidence text for another promise")
+    live = _propose(engine, _ref(engine, origin))
+    retracted = _propose(engine, _ref(engine, gone), summary="PRIVATE_SYNTHETIC_SUMMARY")
+    owner = _owner(engine)
+    preview = engine.lifecycle.preview_retraction(capture_id=gone, authority=owner)
+    engine.lifecycle.commit_retraction(str(preview["preview_id"]), str(uuid4()), authority=owner)
+    files = _export(engine, tmp_path / "archive")
+    restored = _restore(engine, tmp_path / "archive", tmp_path / "restored")
+    with _connect(restored) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+    assert _followup_counts(restored) == _followup_counts(engine)
+    items, _cursor = restored.followups.list(ListFilter(), authority=_owner(restored))
+    by_id = {item.item_id: item for item in items}
+    assert by_id[live.item_id].summary == "Synthetic summary"
+    assert by_id[live.item_id].evidence_retracted is False
+    assert by_id[retracted.item_id].summary is None
+    assert by_id[retracted.item_id].evidence_retracted is True
+    shown, evidence, _decisions = restored.followups.show(live.item_id, authority=_owner(restored))
+    assert shown.item_id == live.item_id
+    assert evidence[0].quote == QUOTE_TEXT[:23]
+    assert _export(restored, tmp_path / "again") == files
+    with _connect(restored) as connection:
+        stored = connection.execute(
+            "SELECT summary FROM followup_items WHERE item_id=?", (retracted.item_id,)
+        ).fetchone()[0]
+    assert stored is None
+
+
+def test_superseded_item_restores_before_or_after_its_successor(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    first = _propose(engine, _ref(engine, _capture(engine, "Synthetic first promise text body")))
+    second = _propose(engine, _ref(engine, _capture(engine, "Synthetic second promise text")))
+    # Supersede the item whose id sorts first, so the export lists it before its successor
+    # and restore must insert the successor first (foreign keys are on).
+    older, newer = sorted((first, second), key=lambda item: item.item_id)
+    engine.followups.decide(
+        DecideRequest(
+            "op-" + str(uuid4()),
+            older.item_id,
+            older.version,
+            DecisionAction.SUPERSEDE,
+            superseded_by=newer.item_id,
+        ),
+        authority=_owner(engine),
+    )
+    files = _export(engine, tmp_path / "archive")
+    restored = _restore(engine, tmp_path / "archive", tmp_path / "restored")
+    shown, _evidence, history = restored.followups.show(older.item_id, authority=_owner(restored))
+    assert shown.superseded_by == newer.item_id
+    assert [entry.sequence for entry in history] == [1, 2]
+    assert _export(restored, tmp_path / "again") == files
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload | {"contract": "ob.followups.v2"},
+        lambda payload: payload | {"items": payload["items"][:-1]},
+        lambda payload: payload | {"evidence": []},
+        lambda payload: (
+            payload
+            | {"items": [payload["items"][0] | {"summary": "x" * 281}] + payload["items"][1:]}
+        ),
+        lambda payload: (
+            payload
+            | {"items": [payload["items"][0] | {"evidence_retracted": True}] + payload["items"][1:]}
+        ),
+        lambda payload: (
+            payload
+            | {
+                "evidence": [payload["evidence"][0] | {"quote_sha256": "zz"}]
+                + payload["evidence"][1:]
+            }
+        ),
+        lambda payload: (
+            payload
+            | {"decisions": [payload["decisions"][0] | {"sequence": 7}] + payload["decisions"][1:]}
+        ),
+        # v1 evidence cites source captures only: revision_id must equal capture_id.
+        lambda payload: (
+            payload
+            | {
+                "evidence": [payload["evidence"][0] | {"revision_id": "capture_other"}]
+                + payload["evidence"][1:]
+            }
+        ),
+    ],
+)
+def test_tampered_followups_refuse_before_destination_mutation(
+    tmp_path: Path, mutate: Callable[[dict[str, Any]], dict[str, Any]]
+) -> None:
+    engine = _engine(tmp_path / "brain")
+    _propose(engine, _ref(engine, _capture(engine, QUOTE_TEXT)))
+    _export(engine, tmp_path / "archive")
+    target = tmp_path / "archive" / FOLLOWUPS_PATH
+    target.write_bytes(canonical(mutate(json.loads(target.read_bytes()))))
+    _rehash(tmp_path / "archive")
+    with pytest.raises(PortableValidationError):
+        validated_portable_snapshot(tmp_path / "archive")
+    with pytest.raises((PortableValidationError, ValueError)):
+        engine.tasks.portability.import_clean(
+            tmp_path / "archive", tmp_path / "restored", import_id="import_" + str(uuid4())
+        )
+    assert not (tmp_path / "restored").exists()
+
+
+def test_non_canonical_or_missing_family_refuses(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    _export(engine, tmp_path / "archive")
+    target = tmp_path / "archive" / FOLLOWUPS_PATH
+    target.write_bytes(json.dumps(json.loads(target.read_bytes()), indent=2).encode("utf-8"))
+    _rehash(tmp_path / "archive")
+    with pytest.raises(PortableValidationError):
+        validated_portable_snapshot(tmp_path / "archive")
+    target.unlink()
+    _rehash(tmp_path / "archive")
+    with pytest.raises(PortableValidationError):
+        validated_portable_snapshot(tmp_path / "archive")
+
+
+def test_portable17_input_restores_with_empty_followups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with monkeypatch.context() as predecessor:
+        predecessor.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 22)
+        predecessor.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:22])
+        predecessor.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 22)
+        old = _engine(tmp_path / "brain")
+        _capture(old, "Synthetic predecessor work record")
+        files = _export(old, tmp_path / "archive", version=17)
+    assert FOLLOWUPS_PATH not in files
+    current = _engine(tmp_path / "current")
+    restored = _restore(current, tmp_path / "archive", tmp_path / "restored")
+    with _connect(restored) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+    assert _followup_counts(restored) == (0, 0, 0)
+    again = _export(restored, tmp_path / "again")
+    assert json.loads(again[FOLLOWUPS_PATH])["items"] == []

@@ -146,7 +146,7 @@ Preview IDs bind configuration preimages and grants; only owned fragments may
 be changed. Review CLI/MCP operations share `services/review_publication.py`; the engine owns
 source-bound proposals and stable page revisions. See `docs/review-publication.md` and
 `docs/records-and-history.md` and `docs/portable-brain-v7.md`. Use synthetic client profiles for tests.
-Sharing was introduced at schema/runtime/Portable12/7/7. The current local embedding policy candidate requires21/16/16; see `docs/portable-brain-v16.md`. The engine consumer-intake predecessor used20/15/15; see `docs/consumer-intake.md` and `docs/portable-brain-v15.md`. Both external parser profiles remain inactive. Owner retraction approval bytes retain their19/14/14 predecessor meaning; see `docs/owner-retraction.md` and `docs/portable-brain-v14.md`.
+Sharing was introduced at schema/runtime/Portable12/7/7. The current follow-up store candidate requires 23/16/18; see `docs/portable-brain-v18.md`. The owner egress policy predecessor used 22/16/17. The local embedding policy predecessor used 21/16/16; see `docs/portable-brain-v16.md`. The engine consumer-intake predecessor used20/15/15; see `docs/consumer-intake.md` and `docs/portable-brain-v15.md`. Both external parser profiles remain inactive. Owner retraction approval bytes retain their19/14/14 predecessor meaning; see `docs/owner-retraction.md` and `docs/portable-brain-v14.md`.
 The capture lifecycle predecessor requires18/13/13; see `docs/portable-brain-v13.md`.
 The Slack approved-evidence predecessor used17/12/12; see `docs/portable-brain-v12.md`.
 The Slack capture predecessor used16/11/11; see `docs/portable-brain-v11.md`.

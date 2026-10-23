@@ -44,7 +44,7 @@ Start with the [README](../README.md) for install and the MCP client examples, t
 
 ## Portable Brain formats
 
-Portable 16 is current (local schema 21, runtime session 16). Earlier formats stay documented as
+Portable 18 is current (local schema 23, runtime session 16). Earlier formats stay documented as
 predecessors.
 
 | Format | Document |
@@ -53,5 +53,6 @@ predecessors.
 | 5 to 8 | [v5](portable-brain-v5.md), [v6](portable-brain-v6.md), [v7](portable-brain-v7.md), [v8](portable-brain-v8.md) |
 | 9 to 12 | [v9](portable-brain-v9.md), [v10](portable-brain-v10.md), [v11](portable-brain-v11.md), [v12](portable-brain-v12.md) |
 | 13 to 16 | [v13](portable-brain-v13.md), [v14](portable-brain-v14.md), [v15](portable-brain-v15.md), [v16](portable-brain-v16.md) |
+| 17 to 18 | 17 (owner egress policy history; see [core features](core-v01-features.md)), [v18](portable-brain-v18.md) |
 
-Standalone clean restore accepts Portable 5 through 16; see [the CLI reference](cli.md).
+Standalone clean restore accepts Portable 5 through 18; see [the CLI reference](cli.md).

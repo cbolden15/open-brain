@@ -300,9 +300,24 @@ def validate_followups_payload(value: object) -> dict[str, list[dict[str, object
     if len(items) > MAX_ITEMS or item_ids != sorted(set(item_ids)):
         raise _invalid("items")
     known_items = set(item_ids)
-    for row in items:
-        if row["superseded_by"] is not None and row["superseded_by"] not in known_items:
+    successor = {
+        str(row["item_id"]): str(row["superseded_by"])
+        for row in items
+        if row["superseded_by"] is not None
+    }
+    # Every supersede chain ends at a known item; a cycle could never be restored.
+    acyclic: set[str] = set()
+    for start in successor:
+        chain: set[str] = set()
+        current = start
+        while current in successor and current not in acyclic:
+            if current in chain:
+                raise _invalid("superseded reference")
+            chain.add(current)
+            current = successor[current]
+        if current not in known_items:
             raise _invalid("superseded reference")
+        acyclic.update(chain)
     evidence_ids = [str(row["evidence_id"]) for row in evidence]
     if evidence_ids != sorted(set(evidence_ids)):
         raise _invalid("evidence identities")

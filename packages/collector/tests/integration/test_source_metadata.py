@@ -818,6 +818,6 @@ def test_guide_capabilities_are_inert_and_exact(monkeypatch: pytest.MonkeyPatch)
         "compatibility": {
             "schema": PHASE1_STATE_SCHEMA_VERSION,
             "runtime": RUNTIME_SESSION_VERSION,
-            "portable": 17,
+            "portable": 18,
         },
     }
