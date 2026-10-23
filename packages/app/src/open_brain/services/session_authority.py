@@ -27,7 +27,7 @@ from open_brain.services.session_consent import (
     SessionConsentError,
 )
 
-__all__ = ["TrustedSessionAuthority"]
+__all__ = ["TrustedSessionAuthority", "read_policy"]
 
 _MAX_POLICY_BYTES = 65_536
 
@@ -93,7 +93,8 @@ class TrustedSessionAuthority:
         return expected
 
 
-def _read_policy(path: Path) -> bytes:
+def read_policy(path: Path) -> bytes:
+    """Read one owner launcher policy file under the confined, no-follow file rules."""
     try:
         parent = path.parent.stat(follow_symlinks=False)
         if (
@@ -123,3 +124,7 @@ def _read_policy(path: Path) -> bytes:
         raise
     except OSError, StorageError:
         raise LauncherPolicyError("invalid_policy") from None
+
+
+# Private alias kept for existing callers.
+_read_policy = read_policy

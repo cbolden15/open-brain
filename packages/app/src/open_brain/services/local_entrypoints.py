@@ -229,6 +229,11 @@ def run_cli(
 ) -> int:
     """Run one daemonless local command without loading Secure Node composition."""
     arguments = tuple(sys.argv[1:] if argv is None else argv)
+    if arguments[:2] == ("source", "guide"):
+        # The owner guide refuses or reads explicit paths before root selection/bootstrap.
+        from open_brain.services.source_guide import run_source_guide
+
+        return run_source_guide(arguments[2:])
     json_output = "--json" in arguments
     try:
         parsed = _parser().parse_args(arguments)

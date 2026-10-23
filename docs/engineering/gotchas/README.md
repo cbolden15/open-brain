@@ -4,6 +4,57 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-015: Ancestor trust checks pass on macOS and fail under Linux `/tmp`
+
+Category: Testing / Platform.
+
+Symptom: PR #100 passed the full suite on macOS, but Linux CI failed 154 W5
+guide tests with `unsafe_path`. The guide's collector ancestor check rejected
+every group- or world-writable directory. On Linux, pytest's `tmp_path` sits
+under `/tmp`, which is `1777` and root-owned. On macOS it sits under
+`/var/folders`, which is not world-writable, so local runs never reached the
+case. An earlier local run with `--basetemp` under `/private/tmp` showed the same
+failures and was misread as a test-setup mistake.
+
+Action: path-trust walks must accept a root-owned sticky ancestor, as
+`agent_settings_observation.py` does, and test that case directly. Before
+pushing, run new path-trust tests on macOS with `--basetemp` under
+`/private/tmp`. That reproduces the Linux layout.
+
+### TESTING-014: Plugin `t07-ui` `vi.waitFor` default timeout flakes under load
+
+Category: Testing / Host.
+
+Symptom: during a coordinator `make verify` on the W5 branch, one assertion in
+`packages/obsidian-plugin/tests/t07-ui.test.ts` failed because `vi.waitFor` hit
+its default 1000 ms timeout at 1008 ms. Python tests were running concurrently
+on the same machine. Three isolated reruns passed 702/702. W5 does not touch the
+plugin.
+
+Action: when this is the only failure, rerun the plugin suite alone with
+`make plugin-test` before treating it as a regression, and record both results.
+Do not raise the timeout or change the test to hide it; a repeat in an isolated
+run is a real failure.
+
+Discovered: 2026-10-22, W5 guided Slack final verify.
+
+### TESTING-013: Any checkout write during `make verify` fails harness acceptance
+
+Category: Testing / Verification.
+
+Symptom: the W5 guided Slack baseline `make verify` reported 8745 passed and 26
+errors, all in `tests/release/test_harness_acceptance.py` with
+`source_changed_during_run`. The coordinator had written workstream notes into
+the checkout while the run was in progress. The same file passed 32/32 on a clean
+checkout of the same commit.
+
+Action: treat these errors as a tree-changed signal, not a code failure (see
+BUILD-018). Commit or move every file first, including untracked workstream
+notes and gotcha edits. Then run the gate on a frozen tree with no other writer
+in that checkout and keep logs and receipts outside it.
+
+Discovered: 2026-10-22, W5 guided Slack workflow baseline.
+
 ### BUILD-019: Native fallback modules consume the fixed archive audit budget
 
 Category: Dependencies; Build Pipeline.

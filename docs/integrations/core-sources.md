@@ -31,6 +31,8 @@ custody receipts, immutable captures and engine logical sources. The
 scoped stdio retrieval at `17/12/12`. Its synthetic protocol/citation acceptance does
 not establish live Slack, model reasoning or injection resistance. Its installed-binary
 backup/restore and restricted-client evidence gates precede any private pilot.
+The [guided Slack workflow](slack-guided-workflow.md) drives both from one
+owner command; it has synthetic acceptance only.
 
 The optional collector owns scheduling and recovery. Core capture/import/search is foreground-only
 and does not install, enable or require it. Installing an optional package would not prove that its

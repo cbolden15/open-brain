@@ -6,6 +6,8 @@ The owner performs capture, routing, consent and sharing locally. The client rec
 
 Before any candidate opens a retained real Brain, complete the [owner-run backup and pilot checklist](#owner-run-private-pilot-checklist). All commands below remain templates for separately authorized operations.
 
+The [guided Slack workflow](slack-guided-workflow.md) runs this journey from one command with a checkpoint per write. This page remains the reference for each underlying command and for repairs after a guided workflow is completed.
+
 ## 1. Close unscoped access before importing
 
 Before the first Work Slack import, stop network-backed client sessions and remove or confirm the absence of every unscoped Open Brain MCP setup available to them. Inspect both supported clients' user and selected-project configurations, plus other clients, projects and wrappers you use. Setup's finite inventory does not cover those other locations. Never launch a network-backed model as `owner_local` to bypass refusal.
