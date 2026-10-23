@@ -21,13 +21,13 @@ Give the owner a small, reviewable list of possible commitments and unresolved q
 | Schema (Tasks 2 and 4) | `engine/followup_schema.py` | `FOLLOWUP_MIGRATION` (23rd entry of `LOCAL_MIGRATIONS`), DDL with CHECKs and triggers, `migrate_followups(profile, *, admission, clock, checkpoint)`, `followup_store_is_consistent` |
 | Contracts (Task 3) | `engine/followup_contracts.py` | Pure enums, frozen request/record dataclasses, `FollowupError(code, *, current_version=None, existing_item_id=None)`, limits |
 | Engine tasks (Tasks 5–9) | `engine/followups.py` | `FollowupTasks(engine)`: `propose`, `add_evidence`, `decide`, `list`, `show`; compare-and-swap on `version`; one decision-log row per write; `operation_id` replay |
-| Scope (Tasks 5, 10, 11) | `engine/followup_visibility.py` | The only place scope rules live: `rebuild_quote`, `revision_text`, `evidence_ref`, `evidence_retracted`, `visible_to`, `project_item` |
+| Scope (Tasks 5, 10, 11) | `engine/followup_visibility.py` | The only place scope rules live: `rebuild_quote`, `locate_quote`, `head_record`, `head_tier`, `revision_text`, `internal_projector`, `evidence_ref`, `evidence_retracted`, `visible_to`, `project_evidence`, `project_item` |
 | Portable 18 (Tasks 12–13) | `portable/followups_v18.py`, `portable/v18_catalog.py`, `portable/v18.py`, `engine/portable_v18_evidence.py`, `engine/portable_v18_restore.py` | Sidecar `history/followups/followups-v1.json`, export, clean restore, `docs/portable-brain-v18.md` |
 | App service (Task 14) | `services/followups.py` | Closed wire shapes, `followup_list/show/propose/add_evidence/decide`, `bind_followup_operations`, `followup_session_authority` |
 | CLI (Task 15) | `services/local_entrypoints.py` | `open-brain followup {list,show,propose,add-evidence,decide}` with owner authority |
 | MCP (Tasks 16–17) | `services/local_mcp.py`, `services/mcp_protocol.py`, `services/local_entrypoints.py` | `brain_followup_*` tools gated by callback presence, per-session quotas, `--allow-followup-*` flags |
 | Grants (Task 18) | `services/agent_setup.py`, `services/plugin_bridge.py` | `--allow-followup-read/-propose/-decide`, off by default, preview-bound |
-| Acceptance and docs (Tasks 19–22) | `packages/app/tests/integration/services/test_followups_acceptance.py`, `docs/followups.md`, reference docs | Evaluation acceptance, user guide, documentation gate, final frozen-tree gate |
+| Acceptance and docs (Tasks 19–22) | `tests/acceptance/`, `docs/followups.md`, reference docs | Evaluation acceptance, user guide, documentation gate, final frozen-tree gate |
 
 **Reconciled data model (the one every task uses).** The Task 2 DDL is authoritative; the engine SQL (Tasks 5–8), the Portable export and restore (Tasks 12–13) and the wire dicts (Task 14) use exactly these columns.
 
@@ -50,7 +50,7 @@ followup_decisions(decision_id PK, item_id, sequence (per item, from 1), operati
 - `evidence_ids_json` is `json.dumps(sorted(ids), separators=(",", ":"))` everywhere, so a re-export after restore is byte-identical.
 - IDs: `followup_<uuid4>`, `evidence_<uuid4>`, `decision_<uuid4>`.
 
-**Quote model (one rule everywhere).** `quote_start` and `quote_end` are Python string (code-point) offsets into `ProjectedRecord.text`, the body `RecordProjector.source(capture_id, expected=revision_id, history=...)` returns and the same text `record.read` / `brain_read` hand a client in `content.text`. `quote_sha256 = sha256(text[quote_start:quote_end].encode("utf-8")).hexdigest()`. The quote text itself is never stored. Write time (Task 5) checks `RecordProjector.read(capture_id, expected=revision_id)` succeeds with `history=False` (the revision is current and readable) and `rebuild_quote(text, ref) is not None`; read time (Tasks 10–11) rebuilds through `revision_text(projector, ref)` with `history=True` and hides the item from any session for which any evidence revision does not read. v1 evidence cites source captures only: `capture_id` starts with `capture_` and `revision_id == capture_id`.
+**Quote model (one rule everywhere).** `quote_start` and `quote_end` are Python string (code-point) offsets into `ProjectedRecord.text`, the body `RecordProjector.source(capture_id, expected=revision_id, history=...)` returns and the same text `record.read` / `brain_read` hand a client in `content.text`. `quote_sha256 = sha256(text[quote_start:quote_end].encode("utf-8")).hexdigest()`. The quote text itself is never stored. Write time (Task 5) checks `RecordProjector.read(capture_id, expected=revision_id)` succeeds with `history=False` (the revision is current and readable) and `rebuild_quote(text, ref) is not None`. Read time (Tasks 10–11) judges every evidence row against the cited source's **current head** (`head_record`): the session must read the head under its tier, space and egress rules and the head must keep the item's tier, else the item is hidden. If the cited revision is still the head, the quote is sliced as stored (`status: current`). If the source gained a revision, the engine reads the cited older revision through `internal_projector` (owner-scoped, text never leaves the engine), verifies the slice hash, and looks for that exact text in the head: found once → `status: moved` with the head's code-point positions (`head_revision_id`, `head_quote_start`, `head_quote_end`); absent or ambiguous → `status: source_changed` with `quote=None` for clients (the owner CLI may still show the original). Retraction still yields `status: retracted`, `evidence_retracted` and a withheld summary. Status and head positions are derived on every read and never stored or exported. v1 evidence cites source captures only: `capture_id` starts with `capture_` and `revision_id == capture_id`.
 
 **Scope (spec "Scope and visibility").** `followup_visibility.visible_to` reuses `RecordProjector.source`, so tier, space, lifecycle and external-egress rules are never restated. Follow-up tools are **Work-only by default in every MCP session**: `services/followups.followup_session_authority` (Task 14) binds the MCP callbacks to a non-owner authority with `allowed_read_tiers = {WORK}` unless the session has a launcher policy, whose explicit `allowed_read_tiers` then governs. This is stricter than review and search, where an unscoped `open-brain mcp` session runs with owner authority; the follow-up grants are therefore **not** added to `owner_grants` (Task 17). The owner CLI is unaffected and sees everything.
 
@@ -65,7 +65,7 @@ Python 3.14, uv workspace (`uv run --frozen ...`), SQLite (DDL with CHECK constr
 ## Global Constraints
 
 1. **Coordinates 23/16/18.** State schema 23, runtime session 16, Portable 18. Task 1 pins runtime at 16; Task 4 bumps every state-schema pin (code and `docs/core-v01-features.md:14`); Task 12 bumps every Portable code pin (`catalog.py`, `source_metadata.py`, `base_native.py`, `documentation_examples.py`, `local_entrypoints.py`, release smoke, `docs/core-v01-features.md:19,22,24`); Task 13 is the single owner of the prose coordinate sentences (`docs/cli.md:49`, `docs/README.md:47`, root `CLAUDE.md:149`, `packages/app/CLAUDE.md:20-21`). No other task edits a coordinate number. Never weaken a compatibility check to admit an older client.
-2. **Synthetic fixtures only.** Every test builds Brains with `compile_single_user_local(tmp_path / "brain", starter_spaces=())` and `TextPayload("Synthetic ...")`. No real captures, hostnames, credentials or private notes anywhere in code, tests, docs or commit messages.
+2. **Synthetic fixtures only.** Every test builds Brains with `compile_single_user_local(tmp_path / "brain", starter_spaces=())` and `TextPayload("Synthetic ...")`; a source that must gain a second revision is created through `engine.sources.submit_revision` (`_new_source` / `_revise_source` in Task 5's test module). No real captures, hostnames, credentials or private notes anywhere in code, tests, docs or commit messages.
 3. **No network egress.** Nothing in this plan opens a socket, calls a provider, or adds an egress task. Detection is the client's job.
 4. **No ticket or message writes.** `link` records an opaque key and URL only. No code path sends anything anywhere; the Task 19 acceptance test asserts no tool schema carries a destination or send parameter.
 5. **Foreground only.** No daemon, listener, scheduler, launchd/systemd unit, container or background service. The MCP server is the existing stdio process; the CLI exits when the command ends.
@@ -95,7 +95,7 @@ Python 3.14, uv workspace (`uv run --frozen ...`), SQLite (DDL with CHECK constr
 | `packages/app/src/open_brain/services/followups.py` | 14 | Shared CLI/MCP service, `followup_session_authority` |
 | `docs/followups.md` | 20 | User guide |
 | `tests/release/test_followups_docs.py` | 20 | Guide binding test |
-| `packages/app/tests/integration/services/test_followups_acceptance.py` | 19 | Evaluation acceptance against the real CLI, MCP composition and engine |
+| `tests/acceptance/test_followups_evaluation.py` | 19 | Evaluation acceptance (name as written in Task 19) |
 | Tests: `packages/app/tests/unit/engine/test_followup_schema.py` (1, 2, 4), `test_followup_contracts.py` (3), `test_followups.py` (5–9), `test_followup_visibility.py` (10), `test_followup_retraction.py` (11); `packages/engine/tests/contract/test_portable_brain_v18.py` (12–13); `packages/app/tests/unit/test_followups_service.py` (14) | | |
 
 **Modified**
@@ -1275,11 +1275,23 @@ class FollowupItem:
 
 @dataclass(frozen=True, slots=True)
 class FollowupEvidenceView:
+    """One evidence row as a session sees it now; ``status`` and head positions are read-time only."""
+
     evidence_id: str
     role: EvidenceRole
     capture_id: str
     revision_id: str
     quote: str | None
+    # "current": cited revision is the head and the quote still hashes.
+    # "moved": the source gained a revision; the exact quote appears once in the head, and
+    #          head_quote_start/end give its position there.
+    # "source_changed": the source gained a revision and the quote is absent or ambiguous in the
+    #          head; quote is None for client sessions (the owner may still see the original).
+    # "retracted": owner retraction withheld the cited capture; quote is None for everyone.
+    status: Literal["current", "moved", "source_changed", "retracted"] = "current"
+    head_revision_id: str | None = None
+    head_quote_start: int | None = None
+    head_quote_end: int | None = None
 
 @dataclass(frozen=True, slots=True)
 class FollowupDecisionRow:
@@ -1798,7 +1810,7 @@ Portable stays 17 in every file this part touches; only `22 → 23` changes.
 - Produces:
   - `class FollowupTasks` with `__init__(self, engine: BrainEngine)` and `propose(request: ProposeRequest, *, authority: EffectiveAuthority) -> FollowupItem`.
   - Module helpers (contract additions): `item_from_row(row) -> FollowupItem`, `effective_item(item, today: date) -> FollowupItem`, `evidence_views(connection, profile, authority, item_id) -> tuple[FollowupEvidenceView, ...]`.
-  - `followup_visibility.rebuild_quote(revision_text, ref) -> str | None`, `revision_text(projector, ref) -> str | None`, `evidence_retracted(connection, refs) -> bool`, `visible_to(item, refs: Sequence[EvidenceRef], *, authority, projector) -> bool` and `evidence_ref(row) -> EvidenceRef`. This module is the only place scope rules live: tier, space, lifecycle and external-egress rules are applied by reading each cited revision through `RecordProjector.source(..., history=True)`, never restated. Quote offsets are code-point offsets into `ProjectedRecord.text`, the body `record.read` returns to clients; `quote_sha256 = sha256(text[start:end].encode("utf-8")).hexdigest()`.
+  - `followup_visibility.rebuild_quote(revision_text, ref) -> str | None`, `locate_quote(head_text, quote) -> tuple[int, int] | None`, `head_record(projector, ref) -> ProjectedRecord | None`, `head_tier(connection, record) -> PrivacyTier | None`, `revision_text(projector, ref) -> str | None`, `internal_projector(projector) -> RecordProjector`, `evidence_retracted(connection, refs) -> bool`, `visible_to(item, refs: Sequence[EvidenceRef], *, authority, projector) -> bool`, `evidence_ref(row) -> EvidenceRef` and the `EvidenceStatus` literal. This module is the only place scope rules live: tier, space, lifecycle and external-egress rules are applied by reading each cited source's **current head** through `RecordProjector.source(capture_id, history=False)`, never restated; a client stays able to see an item after the source is edited as long as it can read the head and the head keeps the item's tier (spec "Scope and visibility"). Older revision text is read only through `internal_projector` and never returned to a non-owner session. Quote offsets are code-point offsets into `ProjectedRecord.text`, the body `record.read` returns to clients; `quote_sha256 = sha256(text[start:end].encode("utf-8")).hexdigest()`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1809,12 +1821,14 @@ Portable stays 17 in every file this part touches; only `22 → 23` changes.
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
-from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.core.models import Authority, PrivacyDecision, PrivacyReason, PrivacyTier
 from open_brain_engine.engine import BrainEngine, TextPayload, local_schema
 from open_brain_engine.engine.followup_contracts import (
     EvidenceRef,
@@ -1828,12 +1842,79 @@ from open_brain_engine.engine.followup_contracts import (
 from open_brain_engine.engine.followups import FollowupTasks
 from open_brain_engine.engine.paging import read_snapshot
 from open_brain_engine.engine.records import RecordProjector
+from open_brain_engine.engine.source_intake import SourceRevisionSubmission
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 
 from open_brain.profile import compile_single_user_local
 from open_brain.services.t03_adapters import agent_authority, owner_authority
+from packages.app.tests.unit.engine.test_foundation_contracts import _public_submission
 
 FROZEN = datetime(2026, 10, 23, 9, 0, tzinfo=UTC)
+
+@dataclass
+class SyntheticSource:
+    """One logical source created through the source intake so its head can move."""
+
+    namespace: dict[str, str]
+    head: str
+    revisions: int
+
+def _privacy(tier: PrivacyTier) -> PrivacyDecision:
+    reason = {
+        PrivacyTier.PUBLIC: PrivacyReason.POLICY_PUBLIC,
+        PrivacyTier.WORK: PrivacyReason.POLICY_WORK,
+        PrivacyTier.PERSONAL: PrivacyReason.PERSONAL_LOCAL_ONLY,
+    }[tier]
+    return PrivacyDecision.create(
+        tier=tier,
+        reason=reason,
+        policy_version="privacy-v1",
+        authority=Authority(cloud=False, external_egress=False),
+    )
+
+def _new_source(
+    engine: BrainEngine, text: str, *, tier: PrivacyTier = PrivacyTier.WORK
+) -> SyntheticSource:
+    """Create a logical source whose first revision is ``text`` (synthetic public-job intake)."""
+    namespace = dict(
+        connector_name="synthetic",
+        connection_id="followup",
+        resource_id=str(uuid4()),
+        external_id="one",
+    )
+    source = SyntheticSource(namespace=namespace, head="", revisions=0)
+    _revise_source(engine, source, text, tier=tier)
+    return source
+
+def _revise_source(
+    engine: BrainEngine, source: SyntheticSource, text: str, *, tier: PrivacyTier = PrivacyTier.WORK
+) -> str:
+    """Advance ``source`` to a new head revision with ``text``; returns the new head capture id.
+
+    This is the real mechanism the engine offers (`engine.sources.submit_revision` with
+    `expected_head` and a `predecessor` ordering), as `test_source_tasks.py:430-500` uses it.
+    """
+    base = _public_submission(engine.tasks, delivery_id="followup.rev." + str(uuid4()))
+    submission = replace(base, payload=TextPayload(text), privacy=_privacy(tier))
+    receipt = engine.sources.submit_revision(
+        SourceRevisionSubmission(
+            capture=submission,
+            namespace=source.namespace,
+            revision_key=f"rev-{source.revisions}",
+            canonical_sha256=submission.request_sha256(),
+            expected_head=source.head or None,
+            ordering=(
+                {"kind": "unordered"}
+                if source.revisions == 0
+                else {"kind": "predecessor", "revision_key": f"rev-{source.revisions - 1}"}
+            ),
+            expected_control_epoch=0,
+        )
+    )
+    assert receipt.capture_id is not None, receipt
+    source.head = receipt.capture_id
+    source.revisions += 1
+    return receipt.capture_id
 
 class Clock:
     def __init__(self, now: datetime = FROZEN) -> None:
@@ -1980,25 +2061,17 @@ def test_propose_refuses_quotes_that_do_not_match_the_revision(
 def test_propose_refuses_a_superseded_source_revision(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
     tasks = FollowupTasks(engine)
-    first = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
-    ref = _ref(engine, first, "Ship the report")
-    # A second accepted revision of the same logical source moves the head.
-    engine.capture.accept(
-        TextPayload("Ship the report on Tuesday"),
-        delivery_id="d2",
-        privacy_tier=PrivacyTier.WORK,
-        source_id=_source_id(engine, first),
-    )
+    source = _new_source(engine, "Ship the report on Monday")
+    ref = _ref(engine, source.head, "Ship the report")
+    # A second accepted revision of the same logical source moves the head; a new proposal
+    # must cite the current head (read-time projection of existing items is Task 10's job).
+    _revise_source(engine, source, "Ship the report on Tuesday")
     with pytest.raises(FollowupError, match="evidence_mismatch"):
         tasks.propose(_propose(ref), authority=_owner(engine))
-
-def _source_id(engine: BrainEngine, capture_id: str) -> str:
-    with _connect(engine) as connection:
-        return str(
-            connection.execute(
-                "SELECT source_id FROM source_revisions WHERE capture_id=?", (capture_id,)
-            ).fetchone()[0]
-        )
+    assert tasks.propose(
+        _propose(_ref(engine, source.head, "Ship the report"), operation_id="op-head"),
+        authority=_owner(engine),
+    ).version == 1
 
 def test_propose_refuses_unreadable_evidence_as_not_found(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
@@ -2092,7 +2165,7 @@ def test_propose_enforces_item_capacity(tmp_path: Path, monkeypatch: pytest.Monk
         )
 ```
 
-Note on `test_propose_refuses_a_superseded_source_revision`: `CaptureTasks.accept` is confirmed at `capture.py:1069-1080` to take `payload`, `delivery_id`, `action`, `space_id`, `intent`, `capture_why`, `privacy_tier`. Whether it accepts `source_id` to extend an existing logical source is **not confirmed** by this section. The implementer must check `rg -n 'source_id' packages/engine/src/open_brain_engine/engine/capture.py` and, if no such keyword exists, replace that test body with the documented way the engine advances a logical source head (look at `packages/app/tests/unit/engine/test_historical_link.py` for an existing "second revision" fixture). The assertion (`evidence_mismatch` when the cited capture is no longer head) stays.
+Note on `_new_source` / `_revise_source`: `CaptureTasks.accept` has no `source_id` keyword; the mechanism that advances a logical source head is `engine.sources.submit_revision(SourceRevisionSubmission(...))` with `expected_head` and `ordering={"kind": "predecessor", "revision_key": ...}` (`packages/app/tests/unit/engine/test_source_tasks.py:430-500`). The helpers build the submission from `_public_submission` (`test_foundation_contracts.py:76`) with a `TextPayload` and a `PrivacyDecision` for the requested tier, so a Work and a Personal revision of one source are both possible. Tasks 9, 10 and 19 import these two helpers from this module.
 
 - [ ] **Step 2: Run the tests and confirm they fail on import**
 
@@ -2106,25 +2179,32 @@ Expected: `ModuleNotFoundError: No module named 'open_brain_engine.engine.follow
 
 ```python
 # packages/engine/src/open_brain_engine/engine/followup_visibility.py
-"""Follow-up scope: a session sees an item only when it can read every cited revision now.
+"""Follow-up scope: a session sees an item only when it can read every cited source's head now.
 
 This is the only place follow-up scope rules live. Tier, space, lifecycle and
 external-egress rules are not restated here; they are applied by reading each cited
-revision through ``RecordProjector.source`` exactly as record reads do.
+source through ``RecordProjector.source`` exactly as record reads do. When a cited source
+has gained a new revision, visibility and quotes are judged against the current head; the
+cited older revision is read internally only and its text never reaches a client session.
 """
 
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
+from dataclasses import replace
 from hashlib import sha256
+from typing import Literal
 
 from open_brain_engine.core.models import PrivacyTier
 
 from .capture_lifecycle_policy import lifecycle_permits_capture
 from .followup_contracts import EvidenceRef, EvidenceRole, FollowupItem
-from .records import RecordProjector
+from .privacy_projection import parse_effective_privacy_json
+from .records import ProjectedRecord, RecordProjector
 from .t03_contracts import EffectiveAuthority, T03Error
+
+EvidenceStatus = Literal["current", "moved", "source_changed", "retracted"]
 
 def rebuild_quote(revision_text: str, ref: EvidenceRef) -> str | None:
     """Return the cited slice while its position and hash still match the revision text."""
@@ -2135,12 +2215,51 @@ def rebuild_quote(revision_text: str, ref: EvidenceRef) -> str | None:
         return None
     return quote
 
+def locate_quote(head_text: str, quote: str) -> tuple[int, int] | None:
+    """Code-point positions of ``quote`` in ``head_text`` when it occurs exactly once."""
+    if not quote:
+        return None
+    first = head_text.find(quote)
+    if first < 0 or head_text.find(quote, first + 1) >= 0:
+        return None
+    return first, first + len(quote)
+
+def head_record(projector: RecordProjector, ref: EvidenceRef) -> ProjectedRecord | None:
+    """The cited source's current head through the session's own read path; None if unreadable."""
+    try:
+        return projector.source(ref.capture_id, history=False)
+    except T03Error:
+        return None
+
+def head_tier(connection: sqlite3.Connection, record: ProjectedRecord) -> PrivacyTier | None:
+    """Effective privacy tier of the head revision ``record`` describes."""
+    row = connection.execute(
+        "SELECT effective_privacy_json FROM source_revision_privacy WHERE capture_id=?",
+        (record.summary["revision_id"],),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return parse_effective_privacy_json(row["effective_privacy_json"]).tier
+    except ValueError:
+        return None
+
 def revision_text(projector: RecordProjector, ref: EvidenceRef) -> str | None:
-    """Read the cited revision through the ordinary record read path; None when unreadable."""
+    """Read the cited revision itself (head or retained history); None when unreadable."""
     try:
         return projector.source(ref.capture_id, expected=ref.revision_id, history=True).text
     except T03Error:
         return None
+
+def internal_projector(projector: RecordProjector) -> RecordProjector:
+    """Owner-scoped reader for the engine's own comparison of an older revision.
+
+    Text read through it is compared and sliced inside this module and is never returned
+    to a non-owner session.
+    """
+    return RecordProjector(
+        projector.profile, projector.connection, replace(projector.authority, owner=True)
+    )
 
 def evidence_ref(row: sqlite3.Row) -> EvidenceRef:
     """One stored ``followup_evidence`` row as the value type the scope rules consume."""
@@ -2166,7 +2285,8 @@ def visible_to(
     authority: EffectiveAuthority,
     projector: RecordProjector,
 ) -> bool:
-    """The owner sees every item; a client sees one only if every revision reads now."""
+    """The owner sees every item; a client sees one only if every cited source's head reads now
+    under the session's tier, space and egress rules and that head keeps the item's tier."""
     if not evidence_rows:
         return False
     if authority.owner:
@@ -2177,9 +2297,24 @@ def visible_to(
         return False
     if not authority.permits_read_tier(tier):
         return False
-    return all(revision_text(projector, ref) is not None for ref in evidence_rows)
+    for ref in evidence_rows:
+        head = head_record(projector, ref)
+        if head is None or head_tier(projector.connection, head) is not tier:
+            return False
+    return True
 
-__all__ = ["evidence_ref", "evidence_retracted", "rebuild_quote", "revision_text", "visible_to"]
+__all__ = [
+    "EvidenceStatus",
+    "evidence_ref",
+    "evidence_retracted",
+    "head_record",
+    "head_tier",
+    "internal_projector",
+    "locate_quote",
+    "rebuild_quote",
+    "revision_text",
+    "visible_to",
+]
 ```
 
 - [ ] **Step 4: Write `followups.py` with `propose`**
@@ -3664,7 +3799,7 @@ git commit -F /tmp/ob-commit-10.txt
 
 ---
 
-## Task 10: scope tests for `followup_visibility.py` (Work vs Personal, space, retraction, external egress)
+## Task 10: scope tests for `followup_visibility.py` (Work vs Personal, space, retraction, external egress, edited sources)
 
 Prerequisites: Tasks 2–9. The module itself landed in Task 5 (its body is reproduced below as the reference); this task pins its scope rules with tests that create items through `engine.followups.propose` with owner authority and then call `visible_to` directly. No product code changes are expected.
 
@@ -3683,10 +3818,11 @@ Consumes:
 - `T03Error` from `engine/t03_contracts.py`
 
 Produces (module `open_brain_engine.engine.followup_visibility`):
-- `rebuild_quote(revision_text: str, ref: EvidenceRef) -> str | None` — the slice `revision_text[ref.quote_start:ref.quote_end]` when `0 <= quote_start < quote_end <= len(revision_text)` and `sha256(slice.encode("utf-8")).hexdigest() == ref.quote_sha256`; otherwise None. Offsets are code-point offsets into `ProjectedRecord.text`.
+- `rebuild_quote(revision_text: str, ref: EvidenceRef) -> str | None` — the slice `revision_text[ref.quote_start:ref.quote_end]` when `0 <= quote_start < quote_end <= len(revision_text)` and `sha256(slice.encode("utf-8")).hexdigest() == ref.quote_sha256`; otherwise None. Offsets are code-point offsets into `ProjectedRecord.text` of the cited revision; when the source has moved on, `locate_quote` re-finds the verified slice in the head.
 - `revision_text(projector: RecordProjector, ref: EvidenceRef) -> str | None` — `projector.source(ref.capture_id, expected=ref.revision_id, history=True).text`; None on `T03Error`.
 - `evidence_retracted(connection: sqlite3.Connection, evidence_rows: Sequence[EvidenceRef]) -> bool` — True when `lifecycle_permits_capture(connection, ref.capture_id)` is False for any row.
-- `visible_to(item: FollowupItem, evidence_rows: Sequence[EvidenceRef], *, authority: EffectiveAuthority, projector: RecordProjector) -> bool` — False with no evidence; True for `authority.owner`; otherwise requires `permits_read_tier(PrivacyTier(item.privacy_tier))` and `revision_text(projector, ref) is not None` for every row.
+- `visible_to(item: FollowupItem, evidence_rows: Sequence[EvidenceRef], *, authority: EffectiveAuthority, projector: RecordProjector) -> bool` — False with no evidence; True for `authority.owner`; otherwise requires `permits_read_tier(PrivacyTier(item.privacy_tier))` and, for every row, that `head_record(projector, ref)` reads and `head_tier(...)` equals the item's tier (the cited source's current head, not the cited revision: an edited source keeps the item visible).
+- `locate_quote(head_text, quote) -> tuple[int, int] | None`, `head_record`, `head_tier`, `internal_projector` — the pieces `project_item` (Task 11) uses to show a quote from the head or mark it `source_changed`.
 
 - [ ] **Step 1: write the scope tests**
 
@@ -3716,6 +3852,8 @@ from open_brain_engine.engine.followup_contracts import (
 )
 from open_brain_engine.engine.followup_visibility import (
     evidence_retracted,
+    head_record,
+    locate_quote,
     rebuild_quote,
     revision_text,
     visible_to,
@@ -3726,6 +3864,7 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain.profile import compile_single_user_local
 from open_brain.services.t03_adapters import owner_authority
+from packages.app.tests.unit.engine.test_followups import _new_source, _revise_source
 
 def _engine(tmp_path: Path, *spaces: str) -> BrainEngine:
     return BrainEngine.open(compile_single_user_local(tmp_path / "brain", starter_spaces=spaces))
@@ -3886,7 +4025,70 @@ def test_external_provider_session_sees_only_egress_eligible_items(tmp_path: Pat
     assert not _visible(engine, work_item, (work_ref,), _external(engine, PrivacyTier.PERSONAL))
     items, _cursor = engine.followups.list(ListFilter(), authority=_owner(engine))
     assert {item.item_id for item in items} >= {work_item.item_id, personal_item.item_id}
+
+def _head_text(engine: BrainEngine, capture_id: str) -> str:
+    with closing(engine._store.connect()) as connection:
+        projector = RecordProjector(engine.profile, connection, _owner(engine))
+        record = head_record(projector, EvidenceRef(capture_id, capture_id, 0, 1, "0" * 64, EvidenceRole.ORIGIN))
+        assert record is not None
+        return record.text
+
+def test_edited_source_with_quote_still_present_stays_visible(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    source = _new_source(engine, "Synthetic promise: send the deck by Friday")
+    ref = _ref(engine, source.head)  # cites the first revision while it is the head
+    item = _propose(engine, ref)
+    original = _head_text(engine, source.head)[ref.quote_start : ref.quote_end]
+    _revise_source(engine, source, "Edited intro added. Synthetic promise: send the deck by Friday")
+    session = _session(PrivacyTier.WORK)
+    assert _visible(engine, item, (ref,), session)
+    head = _head_text(engine, source.head)
+    assert locate_quote(head, original) == (head.index(original), head.index(original) + len(original))
+    assert locate_quote(head, original) != (ref.quote_start, ref.quote_end)
+
+def test_edited_source_without_the_quote_stays_visible_as_source_changed(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    source = _new_source(engine, "Synthetic promise: send the deck by Friday")
+    ref = _ref(engine, source.head)
+    item = _propose(engine, ref)
+    original = _head_text(engine, source.head)[ref.quote_start : ref.quote_end]
+    _revise_source(engine, source, "Edited: the deck goes out on Monday instead")
+    assert _visible(engine, item, (ref,), _session(PrivacyTier.WORK))
+    assert locate_quote(_head_text(engine, source.head), original) is None
+    # An ambiguous quote (present twice) is also source_changed, never a guess.
+    _revise_source(engine, source, "Synthetic twice. Synthetic twice.")
+    assert locate_quote(_head_text(engine, source.head), "Synthetic") is None
+
+def test_edited_source_head_in_an_unreadable_space_hides_the_item(tmp_path: Path) -> None:
+    engine = _engine(tmp_path, "Notes", "Archive")
+    notes, archive = engine.inbox.spaces()
+    source = _new_source(engine, "Synthetic promise: send the deck by Friday")
+    engine.inbox.route(source.head, notes.space_id, delivery_id="route.edited.first")
+    ref = _ref(engine, source.head)
+    item = _propose(engine, ref)
+    scoped = _session(PrivacyTier.WORK, space_ids=frozenset({notes.space_id}))
+    assert _visible(engine, item, (ref,), scoped)
+    head = _revise_source(engine, source, "Edited intro added. Synthetic promise: send the deck by Friday")
+    engine.inbox.route(head, archive.space_id, delivery_id="route.edited.second")
+    assert not _visible(engine, item, (ref,), scoped)
+    assert _visible(engine, item, (ref,), _session(PrivacyTier.WORK))
+    assert _visible(engine, item, (ref,), _owner(engine))
+
+def test_edited_source_head_that_changes_tier_hides_the_item(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    source = _new_source(engine, "Synthetic promise: send the deck by Friday")
+    ref = _ref(engine, source.head)
+    item = _propose(engine, ref)
+    assert _visible(engine, item, (ref,), _session(PrivacyTier.WORK))
+    _revise_source(engine, source, "Synthetic promise, now personal", tier=PrivacyTier.PERSONAL)
+    # The head must keep the item's tier: a Work item never leaks through a Personal head,
+    # and a Personal-only session never sees a Work item through it either.
+    assert not _visible(engine, item, (ref,), _session(PrivacyTier.WORK))
+    assert not _visible(engine, item, (ref,), _session(PrivacyTier.PERSONAL))
+    assert _visible(engine, item, (ref,), _owner(engine))
 ```
+
+If `engine.inbox.route(head, ...)` refuses to route a non-first revision, route the source through its first capture instead (`source.head` before the revision); routing applies to the logical source, which is what `RecordProjector.source` checks with `permits_space`.
 
 - [ ] **Step 2: run the tests**
 
@@ -3894,31 +4096,38 @@ def test_external_provider_session_sees_only_egress_eligible_items(tmp_path: Pat
 uv run --frozen pytest -q -p no:cacheprovider packages/app/tests/unit/engine/test_followup_visibility.py
 ```
 
-Expected: `5 passed`. These are guard tests over a module that already exists; a failure means the Task 5 module drifted from the reference body in Step 3, which is authoritative.
+Expected: `9 passed`. These are guard tests over a module that already exists; a failure means the Task 5 module drifted from the reference body in Step 3, which is authoritative.
 
 - [ ] **Step 3: confirm the module equals this reference body**
 
 ```python
 # packages/engine/src/open_brain_engine/engine/followup_visibility.py
-"""Follow-up scope: a session sees an item only when it can read every cited revision now.
+"""Follow-up scope: a session sees an item only when it can read every cited source's head now.
 
 This is the only place follow-up scope rules live. Tier, space, lifecycle and
 external-egress rules are not restated here; they are applied by reading each cited
-revision through ``RecordProjector.source`` exactly as record reads do.
+source through ``RecordProjector.source`` exactly as record reads do. When a cited source
+has gained a new revision, visibility and quotes are judged against the current head; the
+cited older revision is read internally only and its text never reaches a client session.
 """
 
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
+from dataclasses import replace
 from hashlib import sha256
+from typing import Literal
 
 from open_brain_engine.core.models import PrivacyTier
 
 from .capture_lifecycle_policy import lifecycle_permits_capture
 from .followup_contracts import EvidenceRef, EvidenceRole, FollowupItem
-from .records import RecordProjector
+from .privacy_projection import parse_effective_privacy_json
+from .records import ProjectedRecord, RecordProjector
 from .t03_contracts import EffectiveAuthority, T03Error
+
+EvidenceStatus = Literal["current", "moved", "source_changed", "retracted"]
 
 def rebuild_quote(revision_text: str, ref: EvidenceRef) -> str | None:
     """Return the cited slice while its position and hash still match the revision text."""
@@ -3929,12 +4138,51 @@ def rebuild_quote(revision_text: str, ref: EvidenceRef) -> str | None:
         return None
     return quote
 
+def locate_quote(head_text: str, quote: str) -> tuple[int, int] | None:
+    """Code-point positions of ``quote`` in ``head_text`` when it occurs exactly once."""
+    if not quote:
+        return None
+    first = head_text.find(quote)
+    if first < 0 or head_text.find(quote, first + 1) >= 0:
+        return None
+    return first, first + len(quote)
+
+def head_record(projector: RecordProjector, ref: EvidenceRef) -> ProjectedRecord | None:
+    """The cited source's current head through the session's own read path; None if unreadable."""
+    try:
+        return projector.source(ref.capture_id, history=False)
+    except T03Error:
+        return None
+
+def head_tier(connection: sqlite3.Connection, record: ProjectedRecord) -> PrivacyTier | None:
+    """Effective privacy tier of the head revision ``record`` describes."""
+    row = connection.execute(
+        "SELECT effective_privacy_json FROM source_revision_privacy WHERE capture_id=?",
+        (record.summary["revision_id"],),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return parse_effective_privacy_json(row["effective_privacy_json"]).tier
+    except ValueError:
+        return None
+
 def revision_text(projector: RecordProjector, ref: EvidenceRef) -> str | None:
-    """Read the cited revision through the ordinary record read path; None when unreadable."""
+    """Read the cited revision itself (head or retained history); None when unreadable."""
     try:
         return projector.source(ref.capture_id, expected=ref.revision_id, history=True).text
     except T03Error:
         return None
+
+def internal_projector(projector: RecordProjector) -> RecordProjector:
+    """Owner-scoped reader for the engine's own comparison of an older revision.
+
+    Text read through it is compared and sliced inside this module and is never returned
+    to a non-owner session.
+    """
+    return RecordProjector(
+        projector.profile, projector.connection, replace(projector.authority, owner=True)
+    )
 
 def evidence_ref(row: sqlite3.Row) -> EvidenceRef:
     """One stored ``followup_evidence`` row as the value type the scope rules consume."""
@@ -3960,7 +4208,8 @@ def visible_to(
     authority: EffectiveAuthority,
     projector: RecordProjector,
 ) -> bool:
-    """The owner sees every item; a client sees one only if every revision reads now."""
+    """The owner sees every item; a client sees one only if every cited source's head reads now
+    under the session's tier, space and egress rules and that head keeps the item's tier."""
     if not evidence_rows:
         return False
     if authority.owner:
@@ -3971,9 +4220,24 @@ def visible_to(
         return False
     if not authority.permits_read_tier(tier):
         return False
-    return all(revision_text(projector, ref) is not None for ref in evidence_rows)
+    for ref in evidence_rows:
+        head = head_record(projector, ref)
+        if head is None or head_tier(projector.connection, head) is not tier:
+            return False
+    return True
 
-__all__ = ["evidence_ref", "evidence_retracted", "rebuild_quote", "revision_text", "visible_to"]
+__all__ = [
+    "EvidenceStatus",
+    "evidence_ref",
+    "evidence_retracted",
+    "head_record",
+    "head_tier",
+    "internal_projector",
+    "locate_quote",
+    "rebuild_quote",
+    "revision_text",
+    "visible_to",
+]
 ```
 
 - [ ] **Step 4: rerun the tests after any reconciliation**
@@ -3982,7 +4246,7 @@ __all__ = ["evidence_ref", "evidence_retracted", "rebuild_quote", "revision_text
 uv run --frozen pytest -q -p no:cacheprovider packages/app/tests/unit/engine/test_followup_visibility.py
 ```
 
-Expected: `5 passed`. If `test_item_hidden_once_any_evidence_becomes_unreadable` fails on the second `route` call, the inbox refuses re-routing an already routed capture; replace the re-route with a third capture that is never routed (`permits_space(None)` is False for a space-scoped session, `t03_contracts.py:176-177`) and cite it as supporting evidence after the first assertion by proposing a second item. Record which variant was used in the commit body.
+Expected: `9 passed`. If `test_item_hidden_once_any_evidence_becomes_unreadable` fails on the second `route` call, the inbox refuses re-routing an already routed capture; replace the re-route with a third capture that is never routed (`permits_space(None)` is False for a space-scoped session, `t03_contracts.py:176-177`) and cite it as supporting evidence after the first assertion by proposing a second item. Record which variant was used in the commit body.
 
 - [ ] **Step 5: lint, typecheck, commit**
 
@@ -3993,7 +4257,8 @@ printf '%s\n' \
   'test(engine): pin follow-up scope rules' \
   '' \
   'Scope tests over followup_visibility: Work vs Personal, space-scoped sessions,' \
-  'retraction and external-provider egress eligibility, all through' \
+  'retraction, external-provider egress eligibility and edited sources (head' \
+  'readable, head tier kept, quote re-found or source_changed), all through' \
   'RecordProjector.source so no rule is restated.' \
   '' \
   'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' \
@@ -4006,9 +4271,9 @@ git commit -F "$(git rev-parse --git-dir)/S3-commit.msg"
 
 ---
 
-## Task 11: retraction behavior on `list` and `show`
+## Task 11: retraction and edited-source behavior on `list` and `show`
 
-Wires the scope module into the Task 8 read paths through one helper, so the summary is withheld, quotes are rebuilt per read, and client sessions stop seeing an item once any evidence is retracted. The owner still sees the item as a state row with `evidence_retracted=True`, `summary=None` and `quote=None` for the retracted row.
+Wires the scope module into the Task 8 read paths through one helper, so the summary is withheld, quotes are rebuilt per read against the cited source's current head (`current`, `moved`, `source_changed`, `retracted`), and client sessions stop seeing an item once any evidence is retracted. The owner still sees the item as a state row with `evidence_retracted=True`, `summary=None` and `quote=None` for the retracted row.
 
 **Files**
 
@@ -4024,7 +4289,8 @@ Consumes:
 - `dataclasses.replace`
 
 Produces:
-- `project_item(item: FollowupItem, evidence_ids: Sequence[str], evidence_rows: Sequence[EvidenceRef], *, connection: sqlite3.Connection, authority: EffectiveAuthority, projector: RecordProjector) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...]] | None`. `evidence_ids[i]` is the stored `evidence_id` for `evidence_rows[i]`. Returns None when `visible_to` is False. Otherwise returns the item with `evidence_retracted` recomputed and `summary=None` when retracted, plus one view per row whose `quote` is None when that capture fails `lifecycle_permits_capture` or when `rebuild_quote` fails.
+- `project_item(item: FollowupItem, evidence_ids: Sequence[str], evidence_rows: Sequence[EvidenceRef], *, connection: sqlite3.Connection, authority: EffectiveAuthority, projector: RecordProjector) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...]] | None`. `evidence_ids[i]` is the stored `evidence_id` for `evidence_rows[i]`. Returns None when `visible_to` is False. Otherwise returns the item with `evidence_retracted` recomputed and `summary=None` when retracted, plus one `FollowupEvidenceView` per row from `project_evidence`: `retracted` (quote None) when the capture fails `lifecycle_permits_capture`; `current` when the cited revision is the head and the quote hashes; `moved` when the source gained a revision and the verified original quote occurs exactly once in the head (quote shown from the head with `head_revision_id`, `head_quote_start`, `head_quote_end`); `source_changed` otherwise (quote None for client sessions; the owner still sees the original). The older revision is read through `internal_projector` only.
+- `project_evidence(evidence_id, ref, *, connection, authority, projector) -> FollowupEvidenceView` — the per-row rule above.
 
 Call sites (both already iterate items and their evidence rows):
 - `FollowupTasks.list`: for each candidate item, `projected = project_item(item, ids, refs, connection=connection, authority=authority, projector=projector)`; skip when None, else append `projected[0]`. The page `limit` applies after filtering so hidden items never consume page slots.
@@ -4055,11 +4321,13 @@ from open_brain_engine.engine.records import RecordProjector
 from packages.app.tests.unit.engine.test_followup_visibility import (
     _capture,
     _engine,
+    _head_text,
     _owner,
     _propose,
     _ref,
     _session,
 )
+from packages.app.tests.unit.engine.test_followups import _new_source, _revise_source
 
 def test_retraction_withholds_summary_and_quote_and_hides_from_clients(tmp_path: Path) -> None:
     engine = _engine(tmp_path)
@@ -4130,7 +4398,60 @@ def test_project_item_returns_none_when_hidden_and_views_otherwise(tmp_path: Pat
         personal,
         "Synthetic",
     )
+    assert views[0].status == "current"
+
+def test_show_moves_the_quote_to_the_head_after_an_edit(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    source = _new_source(engine, "Synthetic promise: send the deck by Friday")
+    ref = _ref(engine, source.head)
+    item = _propose(engine, ref)
+    original = _head_text(engine, source.head)[ref.quote_start : ref.quote_end]
+    head = _revise_source(engine, source, "Edited intro added. Synthetic promise: send the deck by Friday")
+    head_text = _head_text(engine, head)
+    for authority in (_session(PrivacyTier.WORK), _owner(engine)):
+        shown, views, _history = engine.followups.show(item.item_id, authority=authority)
+        assert shown.evidence_retracted is False and shown.summary == item.summary
+        (view,) = views
+        assert (view.status, view.quote, view.head_revision_id) == ("moved", original, head)
+        assert head_text[view.head_quote_start : view.head_quote_end] == original
+        assert (view.revision_id, view.capture_id) == (ref.revision_id, ref.capture_id)
+    items, _cursor = engine.followups.list(ListFilter(), authority=_session(PrivacyTier.WORK))
+    assert [entry.item_id for entry in items] == [item.item_id]
+
+def test_show_marks_source_changed_without_text_for_clients(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    source = _new_source(engine, "Synthetic promise: send the deck by Friday")
+    ref = _ref(engine, source.head)
+    item = _propose(engine, ref)
+    original = _head_text(engine, source.head)[ref.quote_start : ref.quote_end]
+    _revise_source(engine, source, "Edited: the deck goes out on Monday instead")
+    _item, (client_view,), _history = engine.followups.show(
+        item.item_id, authority=_session(PrivacyTier.WORK)
+    )
+    assert (client_view.status, client_view.quote, client_view.head_revision_id) == (
+        "source_changed",
+        None,
+        None,
+    )
+    owner_item, (owner_view,), _history = engine.followups.show(
+        item.item_id, authority=_owner(engine)
+    )
+    assert (owner_view.status, owner_view.quote) == ("source_changed", original)
+    assert owner_item.evidence_retracted is False and owner_item.summary == item.summary
+    # Retraction of the edited source still wins: both sessions lose the quote, the client
+    # loses the item, the owner keeps a state row.
+    preview = engine.lifecycle.preview_retraction(capture_id=source.head, authority=_owner(engine))
+    engine.lifecycle.commit_retraction(str(preview["preview_id"]), str(uuid4()), authority=_owner(engine))
+    with pytest.raises(FollowupError, match="not_found"):
+        engine.followups.show(item.item_id, authority=_session(PrivacyTier.WORK))
+    state_row, (retracted_view,), _history = engine.followups.show(
+        item.item_id, authority=_owner(engine)
+    )
+    assert (retracted_view.status, retracted_view.quote) == ("retracted", None)
+    assert state_row.evidence_retracted is True and state_row.summary is None
 ```
+
+If retracting the head revision does not make `lifecycle_permits_capture(connection, ref.capture_id)` False for the cited (older) capture, retract the cited capture itself (`capture_id=ref.capture_id`) in the last block; the assertion that matters is the client `not_found` plus the owner state row.
 
 - [ ] **Step 2: run the test and watch it fail**
 
@@ -4145,6 +4466,65 @@ Expected: `ImportError: cannot import name 'project_item' from 'open_brain_engin
 Append to `packages/engine/src/open_brain_engine/engine/followup_visibility.py` (add `from dataclasses import replace` to the imports and `FollowupEvidenceView` to the `followup_contracts` import):
 
 ```python
+def project_evidence(
+    evidence_id: str,
+    ref: EvidenceRef,
+    *,
+    connection: sqlite3.Connection,
+    authority: EffectiveAuthority,
+    projector: RecordProjector,
+) -> FollowupEvidenceView:
+    """One evidence row as this session sees it now (status, quote, head positions)."""
+    if not lifecycle_permits_capture(connection, ref.capture_id):
+        return FollowupEvidenceView(
+            evidence_id, ref.role, ref.capture_id, ref.revision_id, None, "retracted"
+        )
+    head = head_record(projector, ref)
+    if head is not None and head.summary["revision_id"] == ref.revision_id:
+        quote = rebuild_quote(head.text, ref)
+        if quote is None:
+            return FollowupEvidenceView(
+                evidence_id, ref.role, ref.capture_id, ref.revision_id, None, "source_changed"
+            )
+        return FollowupEvidenceView(
+            evidence_id,
+            ref.role,
+            ref.capture_id,
+            ref.revision_id,
+            quote,
+            "current",
+            ref.revision_id,
+            ref.quote_start,
+            ref.quote_end,
+        )
+    # The source moved on. Compare against the cited revision internally; never hand its text
+    # to a client session.
+    cited = revision_text(internal_projector(projector), ref)
+    original = None if cited is None else rebuild_quote(cited, ref)
+    located = (
+        None if head is None or original is None else locate_quote(head.text, original)
+    )
+    if located is not None:
+        return FollowupEvidenceView(
+            evidence_id,
+            ref.role,
+            ref.capture_id,
+            ref.revision_id,
+            original,
+            "moved",
+            head.summary["revision_id"],
+            located[0],
+            located[1],
+        )
+    return FollowupEvidenceView(
+        evidence_id,
+        ref.role,
+        ref.capture_id,
+        ref.revision_id,
+        original if authority.owner else None,
+        "source_changed",
+    )
+
 def project_item(
     item: FollowupItem,
     evidence_ids: Sequence[str],
@@ -4154,30 +4534,27 @@ def project_item(
     authority: EffectiveAuthority,
     projector: RecordProjector,
 ) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...]] | None:
-    """One item for one session: None when hidden, else recomputed flags and rebuilt quotes."""
+    """One item for one session: None when hidden, else recomputed flags and per-read quotes."""
     if len(evidence_ids) != len(evidence_rows):
         raise ValueError("evidence ids and rows differ in length")
     if not visible_to(item, evidence_rows, authority=authority, projector=projector):
         return None
-    retracted = evidence_retracted(connection, evidence_rows)
-    views: list[FollowupEvidenceView] = []
-    for evidence_id, ref in zip(evidence_ids, evidence_rows, strict=True):
-        quote: str | None = None
-        if lifecycle_permits_capture(connection, ref.capture_id):
-            text = revision_text(projector, ref)
-            quote = None if text is None else rebuild_quote(text, ref)
-        views.append(
-            FollowupEvidenceView(evidence_id, ref.role, ref.capture_id, ref.revision_id, quote)
+    views = tuple(
+        project_evidence(
+            evidence_id, ref, connection=connection, authority=authority, projector=projector
         )
+        for evidence_id, ref in zip(evidence_ids, evidence_rows, strict=True)
+    )
+    retracted = any(view.status == "retracted" for view in views)
     projected = replace(
         item,
         evidence_retracted=retracted,
         summary=None if retracted else item.summary,
     )
-    return projected, tuple(views)
+    return projected, views
 ```
 
-Extend `__all__` with `"project_item"`.
+Extend `__all__` with `"project_evidence"` and `"project_item"`. Status and head positions are computed on every read and are never stored or exported (Task 12 confirms the sidecar carries only the cited revision's positions and hash).
 
 - [ ] **Step 4: call `project_item` from `list` and `show`**
 
@@ -4270,7 +4647,7 @@ In `packages/engine/src/open_brain_engine/engine/followups.py`: delete `Followup
 uv run --frozen pytest -q -p no:cacheprovider packages/app/tests/unit/engine/test_followup_retraction.py packages/app/tests/unit/engine/test_followup_visibility.py
 ```
 
-Expected: `7 passed`. If the first assertion on quotes fails because the projected body does not start with the payload text, the test's expected quotes must be computed from `_ref` (`text[:9]`) instead of literals; the hash check in `rebuild_quote` is what matters.
+Expected: `13 passed` (4 in `test_followup_retraction.py`, 9 in `test_followup_visibility.py`). If the first assertion on quotes fails because the projected body does not start with the payload text, the test's expected quotes must be computed from `_ref` (`text[:9]`) instead of literals; the hash check in `rebuild_quote` is what matters.
 
 - [ ] **Step 6: run the engine follow-up suite, lint, typecheck, commit**
 
@@ -4282,9 +4659,9 @@ printf '%s\n' \
   'feat(engine): withhold retracted follow-up evidence on every read' \
   '' \
   'project_item applies visible_to, recomputes evidence_retracted from the lifecycle' \
-  'predicate, withholds the summary and rebuilds quotes per read. FollowupTasks.list' \
-  'and show project through it, so clients lose a retracted item and the owner keeps' \
-  'a state row without the quote.' \
+  'predicate, withholds the summary and rebuilds quotes per read against the source' \
+  'head: current, moved (quote re-found in the head with new positions), source_changed' \
+  '(no text for clients) or retracted. FollowupTasks.list and show project through it.' \
   '' \
   'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' \
   > "$(git rev-parse --git-dir)/S3-commit.msg"
@@ -4341,7 +4718,7 @@ Sidecar shape (one canonical JSON object, `portable_canonical_json_bytes`):
 }
 ```
 
-`summary` is `null` exactly when `evidence_retracted` is true. Quote text never appears, and neither does `receipt_json` (it would carry a withheld summary; restored rows get NULL and replay returns the current item). Items sort by `item_id`, evidence by `evidence_id`, decisions by (`item_id`, `sequence`) with `sequence` contiguous from 1 within each item.
+`summary` is `null` exactly when `evidence_retracted` is true. Evidence carries only the cited revision's `quote_start`, `quote_end` and `quote_sha256`; the read-time `status`, `head_revision_id` and head positions from `project_evidence` are derived on every read and are **not** exported (a restored Brain recomputes them from its own sources). Quote text never appears, and neither does `receipt_json` (it would carry a withheld summary; restored rows get NULL and replay returns the current item). Items sort by `item_id`, evidence by `evidence_id`, decisions by (`item_id`, `sequence`) with `sequence` contiguous from 1 within each item.
 
 - [ ] **Step 1: write the failing contract test**
 
@@ -5516,7 +5893,8 @@ for a replayed `operation_id`) does not travel; after restore, replaying a pre-e
 `operation_id` with the same request returns the item's current state.
 
 Quote text never travels. Evidence carries the position and SHA-256 of the quote inside the
-cited revision, and readers rebuild the quote from the revision each time. When owner
+cited revision, and readers rebuild the quote on each read against the source's current head
+(`current`, `moved`, `source_changed` or `retracted` are read-time states, not archive fields). When owner
 retraction has withheld a cited capture, the item is exported with `evidence_retracted`
 true and `summary` null, so nothing the retracted revision said remains in the archive.
 Every item has at least one `origin` evidence row and at most 50 rows; a Brain holds at
@@ -5642,6 +6020,8 @@ def followup_add_evidence(...)
 def followup_decide(...)
 def bind_followup_operations(tasks: FollowupTasks, *, authority: EffectiveAuthority) -> dict[str, FollowupOperation]
 ```
+Evidence views serialize through `asdict`, so each `evidence` entry of `brain_followup_show` carries `evidence_id`, `role`, `capture_id`, `revision_id`, `quote`, `status` (`current`, `moved`, `source_changed`, `retracted`), `head_revision_id`, `head_quote_start` and `head_quote_end`; no serializer change is needed when Task 4 adds those fields.
+
 Wire dict: `{"outcome": "ok", "data": {...}, "code": None}` or
 `{"outcome": "refused", "data": <None | {"current_version": int} | {"existing_item_id": str}>, "code": "<one of FOLLOWUP_ERROR_CODES or unsupported_capability>"}`.
 
@@ -8147,9 +8527,11 @@ Consumes:
   (`open_brain.services.local_operations`).
 - Engine error codes `duplicate_item`, `version_conflict` (Task 3) and item fields
   `state`, `version`, `owner`, `owner_name`, `due`, `ticket_key`, `ticket_url`,
-  `new_evidence_since_decision` (the `FollowupItem` dataclass fields, serialized by `asdict`).
+  `new_evidence_since_decision` (the `FollowupItem` dataclass fields, serialized by `asdict`);
+  evidence view fields `quote`, `status`, `head_revision_id`.
+- `_new_source` / `_revise_source` from `packages/app/tests/unit/engine/test_followups.py` (Task 5) for the edited-message case.
 - Engine modules `open_brain_engine.engine.followups`, `followup_visibility`, app module
-  `open_brain.services.followups` (Tasks 5, 11, 14) as files for the no-egress scan.
+  `open_brain.services.followups` (Task 5, Task 11, Task 14) as files for the no-egress scan.
 
 Produces:
 - Seven tests proving the five evaluation acceptance cases plus grant isolation and the
@@ -8184,6 +8566,7 @@ from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.local_mcp import MCP_REGISTERED_TOOLS
 from open_brain.services.local_operations import capture_text
 from open_brain.services.mcp_protocol import McpCallError
+from packages.app.tests.unit.engine.test_followups import _new_source, _revise_source
 
 pytestmark = pytest.mark.integration
 
@@ -8680,6 +9063,73 @@ def test_each_followup_grant_is_enforced_independently(brain: Brain) -> None:
 
     assert brain.cli("followup", "list")["items"] == []
 
+def test_edited_message_keeps_the_item_and_marks_changed_quotes(brain: Brain) -> None:
+    """An edited source keeps the item; the quote follows the head or becomes source_changed."""
+    source = _new_source(brain.engine, "Synthetic promise: I will send the forecast by Friday")
+    spaces = sorted(_space_ids(brain.cli("space", "list")))
+    if spaces:
+        brain.engine.inbox.route(source.head, spaces[0], delivery_id="route.edited.acceptance")
+    text = brain.cli("read", source.head, "--expected-revision-id", source.head)["content"]["text"]
+    quote = Capture(source.head, text).quote("send the forecast by Friday", "origin")
+    item_ids: list[str] = []
+
+    def propose(adapter: Any) -> None:
+        item_ids.append(
+            _ok(
+                adapter.call_tool(
+                    "brain_followup_propose",
+                    {
+                        "operation_id": "op-edited-propose",
+                        "kind": "commitment",
+                        "summary": "Send the forecast by Friday",
+                        "project": None,
+                        "owner": "self",
+                        "owner_name": None,
+                        "due": None,
+                        "due_evidence_index": None,
+                        "evidence": [quote],
+                    },
+                )
+            )["item"]["item_id"]
+        )
+
+    brain.mcp(propose)
+    (item_id,) = item_ids
+
+    moved_head = _revise_source(
+        brain.engine, source, "Edited: I will send the forecast by Friday, after the review"
+    )
+
+    def still_visible_with_moved_quote(adapter: Any) -> None:
+        listed = _ok(adapter.call_tool("brain_followup_list", {}))["items"]
+        assert item_id in {entry["item_id"] for entry in listed}
+        (evidence,) = _ok(adapter.call_tool("brain_followup_show", {"item_id": item_id}))["evidence"]
+        assert evidence["status"] == "moved"
+        assert evidence["quote"] == "send the forecast by Friday"
+        assert evidence["head_revision_id"] == moved_head
+        assert evidence["head_quote_start"] != quote["quote_start"]
+
+    brain.mcp(still_visible_with_moved_quote)
+
+    _revise_source(brain.engine, source, "Edited again: the forecast is cancelled")
+
+    def visible_but_source_changed(adapter: Any) -> None:
+        listed = _ok(adapter.call_tool("brain_followup_list", {}))["items"]
+        assert item_id in {entry["item_id"] for entry in listed}
+        (evidence,) = _ok(adapter.call_tool("brain_followup_show", {"item_id": item_id}))["evidence"]
+        assert (evidence["status"], evidence["quote"], evidence["head_revision_id"]) == (
+            "source_changed",
+            None,
+            None,
+        )
+
+    brain.mcp(visible_but_source_changed)
+
+    # The owner CLI may still show the original quote; the client never received older text.
+    (owner_evidence,) = brain.cli("followup", "show", item_id)["evidence"]
+    assert owner_evidence["status"] == "source_changed"
+    assert owner_evidence["quote"] == "send the forecast by Friday"
+
 def test_drafts_are_never_sent_no_ticket_or_message_egress_path(brain: Brain) -> None:
     root = Path(__file__).resolve().parents[5]
     sources = (
@@ -8911,6 +9361,265 @@ is sent anywhere. See the [feature matrix](core-v01-features.md) for the release
 
 In code, commands, tools, grants and tables this feature is called `followup`, because
 `commitment` already means a hash commitment inside the engine.
+
+## The two kinds
+
+| Kind | Meaning | Example quote |
+|---|---|---|
+| `commitment` | A statement that someone will do something | "I will send the Q3 forecast to Dana by Friday" |
+| `question` | A question nobody has answered in the evidence | "who owns the vendor renewal?" |
+
+A request, a hypothetical, or a ticket assignee is not a commitment by the person it names. Items
+start as suggestions. `owner_confirmed` becomes true only after you decide so.
+
+## What an item holds
+
+- `summary`: one line, written by the proposing client, at most 280 characters. It is always shown
+  beside the quotes, never on its own.
+- `project`: free text, or empty.
+- `owner`: `self`, `other` with a name, or `unknown`. The CLI shows `unknown` as "no owner
+  identified". That is a valid result, not an error.
+- `due`: a date only when a quote states one. Otherwise the CLI shows "no date stated". Proposing a
+  due date without pointing at the quote that states it is refused.
+- `ticket`: an optional key and URL you record. Open Brain never writes to the ticket system.
+- `privacy_tier`: taken from the first (origin) quote and fixed for the life of the item.
+- `version`: increases on every change. Decisions must send the version they saw.
+- `new_evidence_since_decision`: set when evidence arrives on an item you already dismissed or
+  resolved.
+
+Evidence rows are immutable. Each one names a capture, its revision, the start and end of the
+quote and the SHA-256 of the quoted text. The quote text itself is not stored; it is rebuilt from
+the revision every time you read the item. Roles are `origin`, `supporting`, `correction` and
+`resolution`.
+
+## States
+
+| State | Meaning | In the default list |
+|---|---|---|
+| `suggested` | Proposed by a client, not yet reviewed | yes |
+| `confirmed` | You agreed it is real | yes |
+| `snoozed` | Hidden until `snoozed_until`, then back to its earlier state | no, until the date |
+| `dismissed` | Not a real commitment or question | no |
+| `resolved` | Done or answered, with resolution evidence or your statement | no |
+| `superseded` | Replaced by another item | no |
+
+A dismissed or resolved item comes back into the default list only when new evidence is added to
+it; the item then shows `new_evidence_since_decision`. `--include-closed` lists everything.
+
+## Grants
+
+Three grants, all off by default, matching the review grants:
+
+| Grant | Allows | MCP tools |
+|---|---|---|
+| `followup-read` | list and show | `brain_followup_list`, `brain_followup_show` |
+| `followup-propose` | propose an item, add evidence | `brain_followup_propose`, `brain_followup_add_evidence` |
+| `followup-decide` | record a decision | `brain_followup_decide` |
+
+Configure them with `agent setup`:
+
+```sh
+open-brain agent setup --client claude-code --scope project --project-dir /absolute/project \
+  --allow-followup-read --allow-followup-propose --allow-followup-decide
+```
+
+Add `--apply --preview-id ID` to apply the previewed fragment, as in [agent setup](agent-setup.md).
+A client that should only suggest gets `--allow-followup-read --allow-followup-propose` and
+leaves decisions to you. The owner CLI needs no grants.
+
+Follow-up tools are Work-only by default in every MCP session. This includes an unscoped
+`open-brain mcp --allow-followup-read` session, which runs search and review with owner authority
+but reads and writes only Work follow-ups. A session sees or creates Personal or Public items only
+when its launcher policy (`--session-policy`) explicitly lists that tier in `allowed_read_tiers`.
+Personal items therefore exist only if a session allowed to read Personal proposes them, or you
+propose them in the CLI.
+
+## Owner CLI
+
+```sh
+open-brain followup list                      # open items: suggested, confirmed, due snoozes
+open-brain followup list --include-closed     # everything
+open-brain followup list --kind question --project "Q3 forecast" --due-before 2026-11-01
+open-brain followup show ITEM_ID              # item, rebuilt quotes, full decision history
+open-brain followup propose --kind commitment --summary "Send the Q3 forecast to Dana" \
+  --owner self --due 2026-10-31 --due-evidence-index 0 \
+  --evidence '{"capture_id": "capture_...", "revision_id": "capture_...", "quote_start": 15, "quote_end": 71, "quote_sha256": "...", "role": "origin"}' \
+  --operation-id OP
+open-brain followup add-evidence ITEM_ID \
+  --evidence '{"capture_id": "capture_...", "revision_id": "capture_...", "quote_start": 0, "quote_end": 40, "quote_sha256": "...", "role": "supporting"}' \
+  --operation-id OP
+open-brain followup decide ITEM_ID --action confirm --expected-version 1 --operation-id OP
+open-brain followup decide ITEM_ID --action snooze --until 2026-11-03 --expected-version 2 --operation-id OP
+open-brain followup decide ITEM_ID --action correct --set owner=other --set owner_name=Dana --expected-version 3 --operation-id OP
+open-brain followup decide ITEM_ID --action link --ticket-key SYN-123 --ticket-url https://tickets.example.test/browse/SYN-123 --expected-version 4 --operation-id OP
+open-brain followup decide ITEM_ID --action resolve --resolution owner_statement --expected-version 5 --operation-id OP
+open-brain followup decide ITEM_ID --action reopen --expected-version 6 --operation-id OP
+open-brain followup decide ITEM_ID --action supersede --by OTHER_ITEM_ID --expected-version 7 --operation-id OP
+```
+
+Each `--evidence` is one JSON object with `capture_id`, `revision_id`, `quote_start`, `quote_end`, `quote_sha256` and `role`; repeat the flag for several quotes. `--set FIELD=VALUE` corrects `owner`, `owner_name`, `project`, `summary` or `due` (a `due` correction also needs `--set due_evidence_id=EVIDENCE_ID`, the evidence row whose quote states the date; an empty value clears a field).
+
+Add `--json` for structured output. `--expected-version` is the `version` you last saw; if someone
+else changed the item first you get `version_conflict` with the current version and nothing is
+written. `--operation-id` makes a retried command safe: the same ID with the same request returns
+the original result, and the same ID with a different request is refused.
+
+`resolve` either cites `resolution` evidence already added to the item or is recorded as
+"resolved by owner statement". Both keep every earlier quote and decision.
+
+## MCP
+
+The five tools take and return JSON. Every write carries an `operation_id`. Results are
+`{"outcome": "ok", "data": {...}, "code": null}` or `{"outcome": "refused", "data": ..., "code": "..."}`;
+a refusal writes nothing, and `data` then carries only `current_version` (for `version_conflict`)
+or `existing_item_id` (for `duplicate_item`). `brain_followup_list` returns `items`, `next_cursor`
+and `truncated`; the owner CLI `--json` prints the same wire object.
+
+| Tool | Grant | Arguments |
+|---|---|---|
+| `brain_followup_list` | `followup-read` | `include_closed`, `kinds`, `states`, `owner`, `project`, `due_before`, `limit`, `cursor` |
+| `brain_followup_show` | `followup-read` | `item_id` |
+| `brain_followup_propose` | `followup-propose` | `operation_id`, `kind`, `summary`, `project`, `owner`, `owner_name`, `due`, `due_evidence_index`, `evidence[]` |
+| `brain_followup_add_evidence` | `followup-propose` | `operation_id`, `item_id`, `evidence` |
+| `brain_followup_decide` | `followup-decide` | `operation_id`, `item_id`, `expected_version`, `action`, then `snoozed_until`, `corrections`, `ticket_key`, `ticket_url`, `superseded_by` or `resolution` as the action needs |
+
+An evidence object is `{"capture_id", "revision_id", "quote_start", "quote_end", "quote_sha256",
+"role"}`. Positions are character offsets into the revision text as `brain_read` returns it, and
+the hash is SHA-256 of the UTF-8 bytes of exactly that slice. `brain_followup_show` returns each
+evidence row with `quote`, `status` (`current`, `moved`, `source_changed`, `retracted`),
+`head_revision_id`, `head_quote_start` and `head_quote_end`; see "Scope rules" below.
+
+### How a client should propose an item
+
+1. Read the capture with `brain_read` and keep the exact `revision_id` and text it returns.
+2. Pick the shortest span that states the commitment or question. Do not paraphrase; the engine
+   rejects a quote whose bytes do not match the revision.
+3. Compute `quote_start`, `quote_end` and `quote_sha256` from that text.
+4. Call `brain_followup_list` first. If an item already covers the same promise, call
+   `brain_followup_add_evidence` with role `supporting` instead of proposing again. The engine also
+   refuses a second item whose origin quote matches an existing one and returns `duplicate_item`
+   with that `item_id`.
+5. Propose with a one-line summary, the owner you can justify from the quotes, and a `due` only
+   if a quote states a date; point `due_evidence_index` at that quote.
+
+A worked proposal, given a Work capture whose text contains
+`I will send the Q3 forecast to Dana by Friday 2026-10-31` starting at character 15:
+
+```json
+{
+  "operation_id": "6f1d9f4e-6a1e-4a0c-9d60-8f0c6a1d2e31",
+  "kind": "commitment",
+  "summary": "Send the Q3 forecast to Dana",
+  "project": "Q3 forecast",
+  "owner": "self",
+  "owner_name": null,
+  "due": "2026-10-31",
+  "due_evidence_index": 0,
+  "evidence": [
+    {
+      "capture_id": "capture_3e6e8e2c-e638-47c6-8195-4bd6f306d67b",
+      "revision_id": "capture_3e6e8e2c-e638-47c6-8195-4bd6f306d67b",
+      "quote_start": 15,
+      "quote_end": 71,
+      "quote_sha256": "<sha256 of the 56 quoted characters as UTF-8>",
+      "role": "origin"
+    }
+  ]
+}
+```
+
+When the client later sees a message that completes or corrects the item, it adds evidence with
+role `resolution` or `correction`, and leaves the decision to a session that holds
+`followup-decide`, or to you in the CLI.
+
+## Scope rules
+
+- An item's tier comes from its origin quote. Added evidence must have the same tier. A Work item
+  never gains Personal evidence (`tier_mismatch`).
+- A session sees an item only if it can read every quoted revision under the current rules: tier,
+  space, and for external-provider sessions, egress eligibility. The check runs on every list and
+  show, not only at write time.
+- If a session cannot read any one quoted revision, the whole item is hidden from it. Citing a
+  capture the session cannot read is refused as `not_found`, which does not reveal whether the
+  capture exists.
+- When a quoted message or note is edited later, the item stays. Visibility is judged against the
+  source's current version: you must be able to read it and it must keep the item's tier. Each
+  quote then carries a `status`: `current` (unchanged), `moved` (the same words still appear once
+  in the new version, shown with their new position), `source_changed` (the words are gone or
+  ambiguous; no text is shown, so re-check the source and add new evidence) or `retracted`. A
+  client session never receives text from an older version; the owner CLI may still show the
+  original quote on a `source_changed` row.
+- MCP sessions are Work-only by default, including unscoped `open-brain mcp` sessions that run
+  everything else with owner authority. Only a launcher policy that explicitly allows Personal or
+  Public opens those tiers to a session. The owner CLI sees everything and can filter by tier
+  and project.
+
+## Retraction
+
+Quotes are rebuilt from revisions on every read. If you retract a capture (see
+[owner retraction](owner-retraction.md)), its quotes disappear with it. The item is marked
+`evidence_retracted`, its summary is withheld, client sessions stop seeing it, and the owner CLI
+shows it as a state row you can dismiss. Portable exports carry positions and hashes, never quote
+text, so a retracted revision leaves no quote behind in an export either.
+
+## Errors
+
+| Code | When |
+|---|---|
+| `evidence_mismatch` | The position or hash does not match the revision, or the revision is not current |
+| `not_found` | The session cannot read the cited capture or item |
+| `tier_mismatch` | Evidence tier differs from the item's tier |
+| `version_conflict` | `expected_version` is stale; the current version is returned |
+| `operation_conflict` | The same `operation_id` arrived with a different request |
+| `duplicate_item` | The origin quote already belongs to an item; that `item_id` is returned |
+| `invalid_request` | Snooze date in the past, summary too long, due date with no stating quote, unknown action |
+| `capacity_reached` | The Brain already holds 10,000 items, or the item has 50 evidence rows |
+
+## Limits
+
+- Summary: 280 characters.
+- Items per Brain: 10,000 items.
+- Evidence per item: 50 evidence rows.
+- Per MCP session, follow-up reads, proposals and decisions have separate counters like the review
+  tools; exceeding one returns a session limit code and the process keeps running.
+
+## What is not in version 1
+
+- Detection inside Open Brain, by a managed model or by local rules. Your client detects.
+- Feeding the existing Slack regex developments in as automatic candidates.
+- Any write to a ticket system or any outgoing message. Draft ticket updates and follow-up
+  messages stay in your client conversation until you act on them yourself.
+- The daily brief, which will read this store later.
+- A packaged client workflow or prompt for detection. The example above is the whole guidance.
+```
+
+- [ ] **Step 4: Run the binding test**
+
+```sh
+uv run --frozen pytest -q tests/release/test_followups_docs.py
+```
+
+Expected: `1 passed`. If the heading check trips on a proper noun not in its allow list, add the
+noun to the test's tuple; do not title-case the heading.
+
+- [ ] **Step 5: Commit**
+
+```sh
+cat > /private/tmp/followups-commit-21.txt <<'EOF'
+docs: commitments and open questions guide
+
+Plain-language guide to follow-up items: the two kinds, states, grants, owner CLI, MCP tools,
+how a client proposes with exact quotes, scope and retraction rules, errors, limits, and what
+version 1 leaves out. A release test binds the guide to the registered tool names, grants,
+error codes and limits.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+EOF
+git add docs/followups.md tests/release/test_followups_docs.py
+git commit -F /private/tmp/followups-commit-21.txt
+```
+
+---
 
 ---
 
@@ -9316,6 +10025,7 @@ owner-authorized actions.
 | Scope: tier from origin evidence; added evidence same tier (`tier_mismatch`) | 5, 6, 10 |
 | Scope: visible only if every evidence revision is readable (tier, space, egress), checked on every list and show | 5 (`visible_to`), 10 (scope tests incl. external provider), 11 (`project_item` on every read) |
 | Scope: any unreadable evidence hides the whole item | 10, 11 |
+| Scope: an edited source keeps the item visible, judged against the head (readable, same tier); quote shown from the head when it still appears once, else `source_changed` without text; older text never returned to clients | 3 (`FollowupEvidenceView.status`), 5 (`head_record`, `locate_quote`, `internal_projector`, `visible_to`), 10 (four edited-source scope tests), 11 (`project_evidence`, show tests, retraction interplay), 12–13 (status not exported), 14 (wire fields), 19 (edited-message acceptance), 20 (docs) |
 | Scope: quotes rebuilt on every read; retraction marks `evidence_retracted`, withholds summary; owner CLI shows state row | 5 (`rebuild_quote`), 11, 12 (export marks retracted, omits summary), 15 (`(summary withheld)`) |
 | Scope: Work-only by default in every MCP session, including unscoped `open-brain mcp`; Personal/Public only when the launcher policy allows; owner CLI sees everything | 14 (`followup_session_authority` + unit tests), 17 (no `owner_grants` extension; stdio Work-vs-Personal test), 19 (scoped policy with `allowed_read_tiers: ["work"]`), 20, 21 (docs) |
 | Operations: one shared service backs CLI and MCP | 14 |
@@ -9338,8 +10048,8 @@ owner-authorized actions.
 
 ## Open risks
 
-1. **Second-revision fixture.** `test_propose_refuses_a_superseded_source_revision` (Task 5) assumes a way to advance a logical source head; `CaptureTasks.accept` has no `source_id` keyword at 9f50bd0. The implementer must find the real mechanism (see `test_historical_link.py`) or the assertion cannot be exercised.
-2. **Non-head revisions for client sessions.** `visible_to` reads with `history=True` through `RecordProjector.source`; `capture_visible(history=history and authority.owner)` means a client may lose an item whose cited revision is no longer the head. The spec accepts fail-closed hiding, but Task 10 should record which variant the engine actually exhibits.
+1. **Public-job intake for the second-revision fixture.** `_new_source` / `_revise_source` build their captures from `_public_submission` (public-job path, `space_id=None`). If `RecordProjector.source` or a space-scoped launcher policy treats such sources differently from owner captures (space `None`), Task 10's re-route test and Task 19's edited-message case must route the source into a listed space first, as both already attempt.
+2. **Tier of a revised head.** The rule "the head must keep the item's tier" reads `source_revision_privacy` for the head capture. If intake normalizes a revision's privacy to the source's first decision, `test_edited_source_head_that_changes_tier_hides_the_item` cannot produce a Personal head and must be rewritten to assert the normalized behavior instead.
 3. **Projection drift retires follow-ups silently.** Quote positions index `ProjectedRecord.text`, a scrubbed projection. A later change to projection scrubbing makes stored hashes fail, so items present as `evidence_retracted` (owner) or hidden (clients). Fail-closed, but note it in gotchas if `make verify` ever shows it.
 4. **List cost.** `list` reads every evidence revision through the projector before filtering (spec requires read-time checks). Worst case is O(items × evidence) projector reads per call. If Task 19 timing shows it, apply SQL-side kind/state/owner/project filters before visibility; ordering and cursor contract stay.
 5. **Acceptance fixture spaces.** Task 19's scoped policy grants every `space_id` from `space list`; if owner captures land outside any listed space, visibility hides them and every MCP test answers `not_found`. Fallback is documented in Task 19 (route captures into a created space).
@@ -9348,7 +10058,5 @@ owner-authorized actions.
 8. **`validate_reference_docs` under pytest for the first time.** Task 21 runs it on the real tree; unrelated pre-existing drift (a missing doctor token) would surface there and must be fixed or scoped.
 9. **Preview ID churn.** Adding three `permissions` keys in Task 18 changes every `agent setup` preview ID; older previews become `setup_preview_stale`. Same as when the review grants landed; mention in release notes.
 10. **Stale `docs/schema-migrations.md`** (says schema 15 / runtime 10, untouched by #96). Out of scope here; decide separately whether to refresh or mark historical.
-11. **Desktop Rust test command** (`cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml validate_handshake`) is inferred from the layout, not run during planning; confirm the manifest path in Task 4.
-12. **Gate wall-clock and strict umask.** Task 22's `make verify` plus native audit and Homebrew smoke take roughly 25–40 minutes plus two `--basetemp` reruns; no checkout writes during the run (TESTING-013). A product path that refuses a `0700` temp directory it created itself is a real defect, not a test artifact.
-13. **mypy and `Literal` resolution.** Task 14 passes a validated `str | None` into `DecideRequest.resolution` with a `# type: ignore[arg-type]`; if `warn_unused_ignores` flags it, switch to `cast(Literal["evidence", "owner_statement"] | None, ...)`.
-14. **Export window between Tasks 4 and 12.** From Task 4 a schema-23 Brain exports Portable 17. That is lossless only while no follow-up rows exist; once Tasks 5–9 can create them, a Portable 17 export would omit them. The branch merges as one unit, so this state never ships, but do not cut a release or export a real Brain from an intermediate commit.
+11. **Gate wall-clock and strict umask.** Task 22's `make verify` plus native audit and Homebrew smoke take roughly 25–40 minutes plus two `--basetemp` reruns; no checkout writes during the run (TESTING-013). A product path that refuses a `0700` temp directory it created itself is a real defect, not a test artifact.
+12. **mypy and `Literal` resolution.** Task 14 passes a validated `str | None` into `DecideRequest.resolution` with a `# type: ignore[arg-type]`; if `warn_unused_ignores` flags it, switch to `cast(Literal["evidence", "owner_statement"] | None, ...)`.
