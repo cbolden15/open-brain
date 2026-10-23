@@ -11,8 +11,7 @@ Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU M
 On Linux, install Homebrew's build prerequisites (a C/C++ toolchain, curl, file, Git, and Make)
 using your distribution's package manager. Put Homebrew on `PATH` using the `brew shellenv`
 command printed by its installer. The workspace uses Python 3.14; uv downloads it if needed.
-Install [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/) for the desktop
-checks, including WebKitGTK on Linux. CI uses Node.js 24.
+CI uses Node.js 24.
 
 From the repository root in a fresh clone:
 
@@ -21,22 +20,18 @@ uv sync --frozen --group dev --group native-build
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify`, `make native-integration-smoke`, and `make desktop-native`.
-The verification includes desktop frontend, local control fixture, and Rust bridge checks. Expect Ruff's
+`make contributor-check` runs `make verify` and `make native-integration-smoke`. Expect Ruff's
 `All checks passed!`, MyPy's `Success: no issues found`, a passing pytest summary (some filesystem
 checks can skip on unsupported hosts), passing Obsidian plugin type/build/test checks, successful
 wheel/source builds, native smoke JSON, and
 `existing_product: preserved` or `existing_product: absent`. A nonzero exit means the check failed.
-Both CI jobs run this same target. No credentials or private access are required.
+CI runs the same checks, with the Python suite split across parallel shards (`make test-shard`).
+No credentials or private access are required.
 
 While iterating on Python changes, `make test-fast` runs the fast test tier (about two minutes
 with two workers) and `make test-integration` runs the rest. Neither replaces `make verify`.
 Tier rules, profiling, and measured budgets are in
 [the test performance guide](docs/engineering/test-performance.md).
-
-On macOS, `make desktop-native-proof` runs the packaged synthetic capture/search/helper check.
-Open the resulting app to verify the native interface separately. Desktop build commands and the
-remaining Linux release gate are in [the desktop guide](packages/desktop/README.md).
 
 The native integration check builds the base and Graphify executables, audits their dependency
 inventories, stages the compiled plugin assets, runs the local command-line product journey, and

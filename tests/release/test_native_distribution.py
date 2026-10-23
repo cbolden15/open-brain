@@ -385,7 +385,6 @@ def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:
     assert target.splitlines() == [
         "\t$(MAKE) verify",
         "\t$(MAKE) native-integration-smoke",
-        "\t$(MAKE) desktop-native",
     ]
     native_smoke = makefile.split("native-integration-smoke:", 1)[1].split("\n\n", 1)[0]
     assert native_smoke == " homebrew-smoke"
@@ -393,13 +392,12 @@ def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:
     assert without_tests.splitlines() == [
         "\t$(MAKE) verify-without-tests",
         "\t$(MAKE) native-integration-smoke",
-        "\t$(MAKE) desktop-native",
     ]
     verify = makefile.split("\nverify:", 1)[1].split("\n\n", 1)[0]
     assert verify == " lint typecheck test verify-without-tests"
     verify_without_tests = makefile.split("\nverify-without-tests:", 1)[1].split("\n\n", 1)[0]
     assert "plugin-test" in verify_without_tests
-    assert "desktop-test" in verify_without_tests
+    assert "desktop" not in makefile
     assert "contributor-check" in makefile.splitlines()[0]
 
 

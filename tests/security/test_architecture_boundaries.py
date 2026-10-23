@@ -132,6 +132,17 @@ def test_secure_node_and_legacy_sources_are_quarantined_outside_packages() -> No
     ).read_text()
 
 
+def test_desktop_companion_is_quarantined_outside_packages() -> None:
+    desktop_archive = REPOSITORY_ROOT / "archive/open-brain-desktop"
+
+    assert (desktop_archive / "README.md").is_file()
+    assert (desktop_archive / "src-tauri/Cargo.toml").is_file()
+    assert not (REPOSITORY_ROOT / "packages/desktop").exists()
+    for path in ("Makefile", ".github/workflows/ci.yml", "pyproject.toml"):
+        text = (REPOSITORY_ROOT / path).read_text(encoding="utf-8")
+        assert "desktop" not in text.lower(), path
+
+
 def test_privacy_repair_symbol_is_confined_to_owner_cli_and_engine() -> None:
     files = (
         APP_SOURCE_ROOT / "services/local_mcp.py",

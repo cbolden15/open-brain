@@ -1,8 +1,8 @@
 # Architecture
 
-The core architecture is an unprivileged foreground process over local SQLite and files. The
-optional desktop companion has a separate native host and package boundary. Historical appliance architecture is quarantined under
-`archive/open-brain-secure-node` and is not part of this design.
+The core architecture is an unprivileged foreground process over local SQLite and files. Historical
+appliance architecture is quarantined under `archive/open-brain-secure-node`, and the retired Tauri
+desktop companion under `archive/open-brain-desktop`. Neither is part of this design.
 
 ## Active package graph
 
@@ -12,10 +12,6 @@ open-brain
 
 open-brain-connectors
   -> open-brain-engine
-
-packages/desktop (separate Tauri build)
-  -> bounded inherited stdio -> bundled open-brain
-  -> matched bundled Graphify resource
 ```
 
 `open-brain` does not depend on the connector distribution. Neither active distribution depends on
@@ -77,14 +73,7 @@ no network listener, installs no service, and acquires no appliance lifecycle ro
 adapter runs a bounded helper for structural projection; foreground desktop clients own their
 stdio children. Those process lifetimes do not create a persistent core service.
 
-## Desktop and concurrent clients
-
-`packages/desktop` contains packaged interface assets and a Rust host. The renderer invokes named
-native commands and cannot open SQLite or select an arbitrary executable. D0 uses only a synthetic
-Brain; normal existing-Brain use belongs to D1. The runtime pair is selected by component digest
-and protocol compatibility, independently of any CLI installed on PATH. Inside the app resources,
-the pair keeps the installed prefix shape at `runtime/libexec/open-brain/open-brain` (a copy of the one-folder base with its links flattened) and
-`runtime/libexec/open-brain-graphify`, so core helper discovery exercises the packaged layout.
+## Concurrent clients
 
 `local_runtime_session.py` coordinates participating client lifetimes through private lock-held
 markers. Admission is serialized with abandoned-session recovery so another healthy opener does
@@ -94,8 +83,7 @@ before mixed-release use with an existing Brain.
 
 The optional independent collector remains planned. Its source network access, private control IPC,
 credential references, and per-user lifecycle belong outside the core dependency closure.
-[ADR 0017](architecture/decisions/0017-desktop-companion-boundary.md) defines these boundaries and
-the separate desktop distribution gates.
+[ADR 0017](architecture/decisions/0017-desktop-companion-boundary.md) defines these boundaries.
 
 ## Optional connectors
 

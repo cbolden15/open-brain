@@ -154,30 +154,13 @@ catches either type without rebinding their names, as specified by
 [PEP 758](https://peps.python.org/pep-0758/). Use the supported runtime instead of rewriting the
 handlers or overriding the package's Python requirement.
 
-### Dedicated desktop companion
+### Agent setup and sources
 
-The optional desktop companion in `packages/desktop` is a contributor build with local capture,
-search, and agent setup. Homebrew installs the core and Obsidian assets separately. Source
-connections and collection exist in optional source packages, but Core v0.1 does not certify their
-public onboarding, continued source updates, services or desktop release. See the
-[source guide](integrations/core-sources.md).
-
-Claude Code and Codex can also be configured through the [headless CLI](agent-setup.md).
-
-On macOS arm64, build the `.app` and run its isolated proof from the repository root:
-
-```sh
-make desktop-native
-make desktop-native-proof
-```
-
-The application is written to
-`packages/desktop/src-tauri/target/release/bundle/macos/Open Brain Desktop.app`.
-
-Desktop contributors need the Rust and platform webview prerequisites in addition to the core
-toolchain. The desktop package and [ADR 0017](architecture/decisions/0017-desktop-companion-boundary.md)
-define the native build and acceptance boundary. Local macOS app compilation is not a public
-desktop release, and Linux desktop support still requires its own clean-host native proof.
+Claude Code and Codex are configured through the [headless CLI](agent-setup.md). Source connections
+and collection exist in optional source packages, but Core v0.1 does not certify their public
+onboarding, continued source updates or services. See the
+[source guide](integrations/core-sources.md). The earlier Tauri desktop companion is archived under
+`archive/open-brain-desktop` and is not built or released.
 
 ### Core contributor checks
 
