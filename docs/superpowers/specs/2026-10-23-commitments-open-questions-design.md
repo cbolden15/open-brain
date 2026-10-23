@@ -71,7 +71,7 @@ A client that finds an existing item adds evidence to it instead of proposing a 
 - An item is visible to a session only if the session can read every evidence revision under the current rules: tier, space, and for external-provider sessions, egress eligibility. This check runs on every list and show, not only at write time.
 - If any evidence revision is unreadable to a session, the whole item is hidden from it. The summary could otherwise reveal what that evidence says.
 - Quotes are rebuilt from the revision on every read. If owner retraction removes an evidence revision, its quote disappears with it. The item is then marked `evidence_retracted` and its summary is withheld. Client sessions no longer see it under the rule above; the owner CLI shows it as a state row the owner can dismiss.
-- Work client sessions see only Work items because their existing tier constraints exclude the rest. Personal items exist only if a session allowed to read Personal proposes them. The owner CLI sees everything and filters by tier and project.
+- Follow-up tools are Work-only by default in every MCP session. A session reads or writes Personal or Public items only when its launcher policy explicitly allows that tier. This is stricter than review and search, where an unscoped `open-brain mcp` session runs with owner authority over every tier. Personal items exist only if a session allowed to read Personal proposes them. The owner CLI sees everything and filters by tier and project.
 
 ## Operations
 
