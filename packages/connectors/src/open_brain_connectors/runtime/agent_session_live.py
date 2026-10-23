@@ -360,6 +360,7 @@ def _parse_messages(
     content_hash = hashlib.sha256()
     contains_secret = False
     codex_meta_seen = False
+    session_root: Path | None = None
     remaining = _MAX_TRANSCRIPT_BYTES
     for raw_line in handle:
         # An appending client can grow the file after stat; the bound still holds.
@@ -379,7 +380,7 @@ def _parse_messages(
                 break
             raise _SessionFormatError("session_unsupported_format") from None
         if event.client == "claude_code":
-            _validate_claude_envelope(value, event)
+            session_root = _validate_claude_envelope(value, event, session_root)
             message = _claude_message(value)
         else:
             codex_meta_seen = _validate_codex_meta(value, event) or codex_meta_seen
@@ -403,11 +404,36 @@ def _parse_messages(
     return tuple(messages)
 
 
-def _validate_claude_envelope(value: object, event: QueuedSessionEvent) -> None:
+def _validate_claude_envelope(
+    value: object, event: QueuedSessionEvent, root: Path | None
+) -> Path | None:
+    """Bind every record to one session and one directory tree; return the tree root.
+
+    Claude records the shell's current directory, which moves into worktrees and
+    subdirectories. The first record anchors the tree; the hook may run anywhere in it.
+    """
     if not isinstance(value, dict) or value.get("type") not in {"user", "assistant"}:
-        return
-    if value.get("sessionId") != event.session_id or not _matches_project(value.get("cwd"), event):
+        return root
+    cwd = _resolved_directory(value.get("cwd"))
+    if value.get("sessionId") != event.session_id or cwd is None:
         raise _SessionFormatError("session_identity_mismatch")
+    if root is None:
+        if not Path(event.project_path).is_relative_to(cwd):
+            raise _SessionFormatError("session_identity_mismatch")
+        return cwd
+    if not cwd.is_relative_to(root):
+        raise _SessionFormatError("session_identity_mismatch")
+    return root
+
+
+def _resolved_directory(value: object) -> Path | None:
+    # A worktree removed before the turn ends no longer exists but stays inside its tree.
+    if type(value) is not str or "\x00" in value or not Path(value).is_absolute():
+        return None
+    try:
+        return Path(value).resolve()
+    except OSError:
+        return None
 
 
 def _validate_codex_meta(value: object, event: QueuedSessionEvent) -> bool:

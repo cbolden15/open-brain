@@ -479,6 +479,50 @@ def test_newest_stop_suppresses_older_event_and_acknowledges_superseded_events(
     assert source.fetch(selection, _options("claude_code", project), first.checkpoint).intakes == ()
 
 
+@pytest.mark.parametrize("hook_in_worktree", [False, True])
+def test_session_that_moves_into_a_project_worktree_is_captured(
+    tmp_path: Path, hook_in_worktree: bool
+) -> None:
+    project = tmp_path / "project"
+    worktree = project / ".worktrees" / "feature"
+    worktree.mkdir(parents=True)
+    transcript = tmp_path / "moved.jsonl"
+    transcript.write_text(
+        _claude_transcript(project, "session-123") + _claude_transcript(worktree, "session-123")
+    )
+    target = worktree if hook_in_worktree else project
+    batch = _fetch_claude(tmp_path, target, transcript)
+    assert batch.notices == ()
+    assert batch.intakes
+
+
+def test_session_that_moves_outside_its_starting_tree_is_rejected(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    other = tmp_path / "other"
+    project.mkdir()
+    other.mkdir()
+    transcript = tmp_path / "escaped.jsonl"
+    transcript.write_text(
+        _claude_transcript(project, "session-123") + _claude_transcript(other, "session-123")
+    )
+    for target in (project, other):
+        batch = _fetch_claude(tmp_path / target.name, target, transcript)
+        assert batch.intakes == ()
+        assert batch.notices == ("session_identity_mismatch",)
+
+
+def test_later_record_from_another_session_is_rejected(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "spliced.jsonl"
+    transcript.write_text(
+        _claude_transcript(project, "session-123") + _claude_transcript(project, "session-456")
+    )
+    batch = _fetch_claude(tmp_path, project, transcript)
+    assert batch.intakes == ()
+    assert batch.notices == ("session_identity_mismatch",)
+
+
 def test_rejects_transcript_identity_mismatch_and_inode_swap(tmp_path: Path) -> None:
     project = tmp_path / "project"
     other = tmp_path / "other"
