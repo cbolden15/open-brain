@@ -61,7 +61,7 @@ REQUIRED_OPERATIONS: Final = frozenset(
     }
 )
 # The app catalog owns this coordinate; a parity test binds both and the collector.
-PORTABLE_METADATA: Final = 16
+PORTABLE_METADATA: Final = 17
 _HANDSHAKE_DEADLINE: float = 10.0
 _METADATA_DEADLINE: float = 30.0
 _INVENTORY_DEADLINE: float = 120.0

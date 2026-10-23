@@ -44,7 +44,7 @@ HealthV1 = dict[str, object]
 # Runtime session and Portable metadata coordinates are owned by the app; the
 # collector repeats them only as inert compatibility evidence for the guide.
 _RUNTIME_COMPATIBILITY: Final = 16
-_PORTABLE_COMPATIBILITY: Final = 16
+_PORTABLE_COMPATIBILITY: Final = 17
 GUIDE_CAPABILITIES: Final[dict[str, object]] = {
     "schema_version": 1,
     "package": "open-brain-collector",

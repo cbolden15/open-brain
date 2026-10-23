@@ -2,7 +2,7 @@
 
 `open-brain source guide` takes one owner from choosing a Slack channel to a scoped MCP client that can read selected, approved Work messages. It drives the existing collector, sharing, consent and agent setup services. You never copy internal account, channel, receipt, source or preview IDs between commands. Each write still has its own owner checkpoint.
 
-This is a contributor candidate at schema/runtime/Portable `21/16/16` on branch `feat/w5-guided-slack-workflow`. It has only been run against synthetic fixtures. Real Slack access, a real client or model, and a private pilot are separate owner-authorized steps. The lower-level commands in the [Slack capture guide](slack-capture-workflow.md) and the [cited-recall guide](slack-decision-recall.md) still work and remain the reference for each step.
+This is a contributor candidate at schema/runtime/Portable `22/17/17` on branch `feat/w5-guided-slack-workflow`. It has only been run against synthetic fixtures. Real Slack access, a real client or model, and a private pilot are separate owner-authorized steps. The lower-level commands in the [Slack capture guide](slack-capture-workflow.md) and the [cited-recall guide](slack-decision-recall.md) still work and remain the reference for each step.
 
 Slack coverage beyond the selected approved messages is unknown. The guide never reports a complete channel history.
 
