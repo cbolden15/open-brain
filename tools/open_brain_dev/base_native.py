@@ -77,6 +77,10 @@ _PORTABLE_V16_SIDECARS: Final = (
     *_PORTABLE_V15_SIDECARS,
     "history/embedding-policy/embedding-policy.jsonl",
 )
+_PORTABLE_V17_SIDECARS: Final = (
+    *_PORTABLE_V16_SIDECARS,
+    "history/owner-egress-policy/owner-egress-policy.jsonl",
+)
 _REQUIRED_MODULES: Final = frozenset(
     {
         "decimal",
@@ -1173,10 +1177,10 @@ def _smoke_local_journey(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 16
+        or exported.get("schema_version") != 17
         or not (export / "portable-manifest.json").is_file()
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V16_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V17_SIDECARS)
         or not any(
             token.encode("utf-8") in path.read_bytes()
             for path in export.rglob("*")
@@ -1367,9 +1371,9 @@ def _smoke_markdown_import(
         exported.get("status") != "exported"
         or exported.get("verification") != "verified"
         or type(exported.get("schema_version")) is not int
-        or exported.get("schema_version") != 16
+        or exported.get("schema_version") != 17
         or not (export / "sources/logical-sources.json").is_file()
-        or not all((export / relative).is_file() for relative in _PORTABLE_V16_SIDECARS)
+        or not all((export / relative).is_file() for relative in _PORTABLE_V17_SIDECARS)
         or not blob.is_file()
         or blob.read_bytes() != source_bytes
         or len(captures) != 1
@@ -1705,9 +1709,9 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
         != {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 16,
+            "portable_metadata": 17,
             "runtime_session": 16,
-            "state_schema": 21,
+            "state_schema": 22,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)

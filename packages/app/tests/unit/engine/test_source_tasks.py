@@ -109,9 +109,9 @@ def test_source_route_cas_preserves_capture_and_exports_v9(tmp_path: Path) -> No
     assert metadata["sources"][0]["head_capture_id"] == receipt.capture_id
     export = tmp_path / "export"
     exported = tasks.portability.export(export, export_id="export_" + str(uuid4()))
-    assert exported.schema_version == 16
+    assert exported.schema_version == 17
     snapshot = validated_portable_snapshot(export)
-    assert snapshot.manifest["schema_version"] == 16
+    assert snapshot.manifest["schema_version"] == 17
     assert snapshot.files.keys() >= (
         V5_SIDECAR_PATHS
         | V6_SIDECAR_PATHS
@@ -124,7 +124,7 @@ def test_source_route_cas_preserves_capture_and_exports_v9(tmp_path: Path) -> No
     import_receipt = tasks.portability.import_clean(
         export, imported, import_id="import_" + str(uuid4())
     )
-    assert import_receipt.schema_version == 16
+    assert import_receipt.schema_version == 17
     assert imported.is_dir()
 
 
@@ -872,7 +872,7 @@ def test_current_schema_imports_legacy_portable_without_changing_evidence(
     assert validated_portable_snapshot(destination).files == snapshot.files
     imported = open_local_engine(compile_single_user_local(destination))
     with open_local_database_read_only(imported.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         assert connection.execute("SELECT count(*) FROM source_revisions").fetchone()[0] > 0
 
 
@@ -907,11 +907,11 @@ def test_current_schema_owner_recovery_retains_current_writer_floor(tmp_path: Pa
     assert moved.read_bytes() == before
     reopened = open_local_engine(engine.profile)
     with open_local_database_read_only(reopened.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
             16,
-            21,
+            22,
         )
 
 

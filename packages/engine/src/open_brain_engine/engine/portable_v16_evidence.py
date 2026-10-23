@@ -24,12 +24,13 @@ def serialize_portable_v16_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    _expected_schema: int = 21,
 ) -> PortableV5StateEvidence:
     base = serialize_portable_v15_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=21,
+        _expected_schema=_expected_schema,
     )
     # Policy state, vectors and caches are host-local; only history is evidence.
     raw = embedding_policy_sidecar(history_rows(connection))

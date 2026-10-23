@@ -11,17 +11,17 @@ Local documentation checks do not promote catalog acceptance.
 | Coordinate | Candidate value | Meaning |
 |---|---|---|
 | Core / engine package | `0.1.0` / exactly `0.1.0` | Core requires the matching engine |
-| Local state schema | `21` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
+| Local state schema | `22` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
 | Runtime session | `16` | Stop old sessions and upgrade clients together |
 | Task contract | `t03.v1` | Negotiated search/read/history/source-route DTOs |
 | Catalog schema | `2` | Joined implementation, package, authorization and acceptance metadata |
 | Plugin bridge | `1` | Existing bounded inherited-stdio envelope |
-| Portable metadata | `16` | Versioned evidence; distinct from live database schema |
+| Portable metadata | `17` | Versioned evidence; distinct from live database schema |
 
 Supported Portable 1–3 imports remain implementation compatibility; standalone Portable 4 import
-is refused, and standalone clean restore accepts Portable 5 through 16. Portable 7 clean restore preserves current identity, privacy, issuer, managed source and sharing
+is refused, and standalone clean restore accepts Portable 5 through 17. Portable 7 clean restore preserves current identity, privacy, issuer, managed source and sharing
 evidence. [Portable 9](portable-brain-v9.md) adds explicitly versioned retained import evidence
-and mixed historical operations. [Portable 12](portable-brain-v12.md) retains owner-approved Slack Work sharing and immutable recall selections. Later formats add capture lifecycle ([13](portable-brain-v13.md)), owner retraction ([14](portable-brain-v14.md)), conversation intake ([15](portable-brain-v15.md)) and the local embedding policy ([16](portable-brain-v16.md)). A catalog version is not a protocol or database upgrade instruction.
+and mixed historical operations. [Portable 12](portable-brain-v12.md) retains owner-approved Slack Work sharing and immutable recall selections. Later formats add capture lifecycle ([13](portable-brain-v13.md)), owner retraction ([14](portable-brain-v14.md)), conversation intake ([15](portable-brain-v15.md)) the local embedding policy ([16](portable-brain-v16.md)) and the owner egress policy history (17). A catalog version is not a protocol or database upgrade instruction.
 
 ## Surface and claim boundaries
 

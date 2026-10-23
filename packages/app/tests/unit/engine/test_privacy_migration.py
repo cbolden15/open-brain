@@ -182,7 +182,7 @@ def _read_only(profile: SingleUserLocalProfile) -> sqlite3.Connection:
 def test_privacy_migration_is_cataloged() -> None:
     from open_brain_engine.engine import local_schema_catalog
 
-    assert [migration.name for migration in local_schema_catalog.LOCAL_MIGRATIONS][-15:] == [
+    assert [migration.name for migration in local_schema_catalog.LOCAL_MIGRATIONS][-16:] == [
         "immutable_source_history",
         "effective_privacy_projection",
         "issuer_identity_and_owner_repair",
@@ -198,24 +198,25 @@ def test_privacy_migration_is_cataloged() -> None:
         "owner-retraction",
         "consumer-conversation-intake",
         "embedding-policy",
+        "owner-egress-policy",
     ]
     assert local_schema_catalog.LOCAL_MIGRATIONS[10].version == 11
-    assert len(local_schema_catalog.LOCAL_MIGRATIONS) == 21
+    assert len(local_schema_catalog.LOCAL_MIGRATIONS) == 22
 
 
 def test_fresh_brain_is_schema_sixteen_current(tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     BrainEngine.open(profile)
-    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 21)
+    assert inspect_phase1_state(profile) == local_schema.SchemaState("current", 22)
     with _read_only(profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 21
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         assert [
             tuple(row)
             for row in connection.execute(
                 "SELECT singleton, minimum_runtime_session_version, state_schema_version "
                 "FROM runtime_compatibility"
             )
-        ] == [(1, 16, 21)]
+        ] == [(1, 16, 22)]
         # Fresh post-cutover state provisions identity atomically with the schema:
         # current epoch one, no legacy epoch, no bindings, and no migration marker.
         assert [

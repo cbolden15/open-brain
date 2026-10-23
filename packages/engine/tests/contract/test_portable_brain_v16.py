@@ -32,6 +32,13 @@ from open_brain.services.t03_adapters import owner_authority
 COMPONENT = "ab" * 32
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema21_producer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep frozen Portable16 recipes at their original schema21 boundary."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 21)
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 21)
+
+
 def _engine(root: Path) -> BrainEngine:
     root.parent.chmod(0o700)
     return BrainEngine.open(compile_single_user_local(root, starter_spaces=()))

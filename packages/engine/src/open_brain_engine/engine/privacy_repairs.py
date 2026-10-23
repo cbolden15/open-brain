@@ -31,6 +31,7 @@ from open_brain_engine.storage.migrations import _format_timestamp
 
 from .consent_contracts import EgressMode
 from .issuer_state import verify_issuer_evidence
+from .owner_egress_policy import active_egress_policy
 from .privacy_projection import (
     RepairedPrivacyEvidence,
     RetainedPrivacyEvidence,
@@ -571,6 +572,7 @@ def resolve_search_privacy(
     result_id: str,
     capture_id: str,
     record_type: str,
+    apply_egress_policy: bool = True,
 ) -> tuple[RetainedPrivacyEvidence | RepairedPrivacyEvidence, tuple[str, int] | None]:
     """Resolve one search row's effective privacy from retained evidence and repairs.
 
@@ -579,10 +581,15 @@ def resolve_search_privacy(
     aggregate heals with complete evidence and ignores direct canonical repairs.
     Otherwise a direct canonical repair applies only while it targets the page's
     current revision and the row's exact invalid digest.
+
+    The active owner egress policy overlays directly valid evidence only; repaired
+    and healed projections never gain egress from it. ``apply_egress_policy=False``
+    resolves the policy-independent base that Portable evidence carries.
     """
+    policy = active_egress_policy(connection) if apply_egress_policy else None
     if record_type == "source":
         base = project_retained_privacy_evidence(
-            _retained_capture_privacy(connection, capture_id)
+            _retained_capture_privacy(connection, capture_id), egress_policy=policy
         )
         if base.valid or base.invalid_evidence_sha256 is None:
             return base, None
@@ -631,7 +638,9 @@ def resolve_search_privacy(
             ),
             (active.repair_id, active.repair_sequence),
         )
-    base = project_retained_privacy_evidence(tuple(row["privacy_json"] for row in rows))
+    base = project_retained_privacy_evidence(
+        tuple(row["privacy_json"] for row in rows), egress_policy=policy
+    )
     if base.valid:
         return base, None
     resolved = _resolved_member_decisions(connection, rows)
@@ -962,12 +971,16 @@ def audit_privacy_repair_ledger(connection: sqlite3.Connection) -> None:
         "applied_repair_id, applied_repair_sequence FROM search_documents ORDER BY result_id"
     ):
         try:
-            evidence, applied = resolve_search_privacy(
-                connection,
-                result_id=str(row["result_id"]),
-                capture_id=str(row["capture_id"]),
-                record_type=str(row["record_type"]),
-            )
+            resolutions = [
+                resolve_search_privacy(
+                    connection,
+                    result_id=str(row["result_id"]),
+                    capture_id=str(row["capture_id"]),
+                    record_type=str(row["record_type"]),
+                    apply_egress_policy=overlay,
+                )
+                for overlay in (False, True)
+            ]
         except PrivacyRepairError:
             raise T03Error("operation_pending") from None
         stored = (
@@ -979,15 +992,20 @@ def audit_privacy_repair_ledger(connection: sqlite3.Connection) -> None:
             row["applied_repair_id"],
             row["applied_repair_sequence"],
         )
-        if stored != (
-            evidence.tier.value,
-            int(evidence.authority.cloud),
-            int(evidence.authority.external_egress),
-            None if evidence.invalid_reason is None else evidence.invalid_reason.value,
-            evidence.invalid_evidence_sha256,
-            None if applied is None else applied[0],
-            None if applied is None else applied[1],
-        ):
+        # A stored row equals its retained-evidence resolution or that resolution
+        # under the active owner egress policy, and nothing else.
+        if stored not in {
+            (
+                evidence.tier.value,
+                int(evidence.authority.cloud),
+                int(evidence.authority.external_egress),
+                None if evidence.invalid_reason is None else evidence.invalid_reason.value,
+                evidence.invalid_evidence_sha256,
+                None if applied is None else applied[0],
+                None if applied is None else applied[1],
+            )
+            for evidence, applied in resolutions
+        }:
             raise T03Error("operation_pending")
 
 

@@ -1,7 +1,7 @@
 """Extractive capture batches with stable per-message selection indexes.
 
-No byte/turn cursor certifies custody. An immutable outbox request and its durable
-receipt certify each batch, so replay and a failed partial enqueue cannot skip work.
+Each batch is delivered or spooled on its own. Delivery IDs make replay of an
+already delivered batch a downstream no-op, so no cursor or receipt is kept.
 """
 
 from __future__ import annotations

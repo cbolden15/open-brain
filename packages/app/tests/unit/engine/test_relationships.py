@@ -48,6 +48,7 @@ from open_brain_engine.portable.v13_catalog import PORTABLE_V13_SCHEMA_CATALOG_D
 from open_brain_engine.portable.v14_catalog import PORTABLE_V14_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v15_catalog import PORTABLE_V15_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v16_catalog import PORTABLE_V16_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v17_catalog import PORTABLE_V17_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -101,6 +102,7 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
         and not relative.startswith("history/capture-lifecycle/")
         and not relative.startswith("history/consumer-intake/")
         and not relative.startswith("history/embedding-policy/")
+        and not relative.startswith("history/owner-egress-policy/")
     }
     for relative, payload in files.items():
         target = destination / relative
@@ -197,11 +199,11 @@ def test_symmetric_relationship_replay_versions_and_hidden_endpoint(tmp_path: Pa
         engine.relationships.decide(proposed, authority=scoped)
 
 
-@pytest.mark.parametrize("portable_version", [8, 9, 10, 11, 12, 13, 14, 15, 16])
+@pytest.mark.parametrize("portable_version", [8, 9, 10, 11, 12, 13, 14, 15, 16, 17])
 def test_supersedes_cycle_self_and_export_complete_decisions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, portable_version: int
 ) -> None:
-    if portable_version in {8, 9, 10, 11, 12, 13, 14, 15}:
+    if portable_version in {8, 9, 10, 11, 12, 13, 14, 15, 16}:
         version = portable_version + 5
         monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", version)
         monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:version])
@@ -215,6 +217,7 @@ def test_supersedes_cycle_self_and_export_complete_decisions(
         14: PORTABLE_V14_SCHEMA_CATALOG_DIGEST,
         15: PORTABLE_V15_SCHEMA_CATALOG_DIGEST,
         16: PORTABLE_V16_SCHEMA_CATALOG_DIGEST,
+        17: PORTABLE_V17_SCHEMA_CATALOG_DIGEST,
     }[portable_version]
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     ids = [

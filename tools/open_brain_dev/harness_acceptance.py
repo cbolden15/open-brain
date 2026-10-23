@@ -47,11 +47,11 @@ SCENARIOS = (
     + "test_harness_events.py::test_native_source_identity_survives_inserted_metadata_and_rotation",
     _UNIT + "test_harness_events.py::"
     "test_trailing_partial_record_is_tolerated_but_middle_corruption_is_refused",
-    _UNIT + "test_harness_outbox.py::test_receipt_fsync_failure_preserves_custody_and_retry",
-    _UNIT + "test_harness_outbox.py::"
-    "test_latest_failure_metadata_survives_restart_without_mutating_source",
+    _UNIT + "test_harness_spool.py::test_crash_during_rewrite_keeps_the_previous_spool",
+    _UNIT + "test_harness_spool.py::test_failed_delivery_is_retried_without_discard",
+    _UNIT + "test_harness_spool.py::test_drain_caps_at_sixteen_and_rotates_failures_so_none_starve",
     _UNIT
-    + "test_harness_outbox.py::test_fork_origin_is_retained_metadata_and_unknown_parent_is_visible",
+    + "test_harness_policy.py::test_unmatched_project_uses_builtin_defaults_and_guardrail_two",
     _INTEGRATION + "test_harness_workflow.py::"
     "test_unknown_and_marked_records_are_denied_cloud_but_local_project_read_works",
     _INTEGRATION
@@ -59,9 +59,16 @@ SCENARIOS = (
     _INTEGRATION + "test_harness_workflow.py::"
     "test_explicit_changed_decision_withholds_previous_value_even_when_query_only_matches_old",
     _INTEGRATION
-    + "test_harness_bridge.py::test_credential_refusal_latches_metadata_without_source_custody",
+    + "test_harness_bridge.py::test_credential_refusal_writes_nothing_and_latches_no_session",
+    _INTEGRATION + "test_harness_bridge.py::"
+    "test_local_only_capture_is_unknown_and_withheld_from_every_unverified_reader",
+    _INTEGRATION + "test_harness_bridge.py::test_guardrail_one_declared_loopback_pi_reads_unknown",
     _INTEGRATION
-    + "test_harness_bridge.py::test_explicit_local_capture_restriction_survives_queue_and_delivery",
+    + "test_harness_bridge.py::test_guardrail_one_unverified_pi_gets_the_cloud_ceiling",
+    _INTEGRATION + "test_harness_bridge.py::"
+    "test_cloud_clients_never_read_unknown_or_secret_and_verified_pi_never_reads_secret",
+    _INTEGRATION
+    + "test_harness_bridge.py::test_cloud_reads_follow_owner_egress_policy_and_consent",
     _INTEGRATION
     + "test_harness_bridge.py::test_consent_revocation_during_shutdown_blocks_content_release",
     _INTEGRATION
@@ -283,6 +290,7 @@ def _fixture_setup(root: Path) -> tuple[Path, Path, str]:
     from open_brain.services.local_bootstrap import open_local_brain
     from open_brain.services.local_operations import current_brain_identity
     from open_brain.services.session_consent import DurableProviderConsentStore
+    from open_brain.services.t03_adapters import owner_authority
 
     project = root / "synthetic-project"
     project.mkdir()
@@ -293,6 +301,11 @@ def _fixture_setup(root: Path) -> tuple[Path, Path, str]:
         select_local_root(data_dir=str(brain), environment={"HOME": str(root)})
     ) as session:
         brain_id, epoch = current_brain_identity(session.tasks)
+        # Policy B: the core's owner egress policy decides which tiers are shared.
+        session.tasks.owner_egress_policy.set(
+            {PrivacyTier.WORK}, operation_id="fixture-share-work",
+            authority=owner_authority(session.tasks, session_id="fixture-owner"),
+        )
     store = DurableProviderConsentStore(
         authority / "consent.json", brain_id=brain_id, issuer_epoch=epoch
     )
@@ -308,7 +321,6 @@ def _fixture_setup(root: Path) -> tuple[Path, Path, str]:
         {
             "schema_version": "open-brain-harness-policy.v1",
             "enabled": True,
-            "providers": {client: ["work"] for client in CLIENTS},
             "sources": [
                 {
                     "id": "synthetic",
@@ -442,10 +454,16 @@ def run_fixture(*, report_path: Path, evidence_dir: Path) -> dict[str, object]:
             enqueue_seconds = time.monotonic() - before
             _require(queued.get("status") == "queued" and enqueue_seconds <= 2, "capture_failed")
             request_id = str(queued["request_id"])
-            outbox = config.parent / "outbox"
-            request = _load(outbox / "requests" / (request_id + ".json"))
-            run_harness("drain", config, client)
-            receipt = _load(outbox / "receipts" / (request_id + ".json"))
+            spool = (config.parent / "outbox" / "spool.jsonl").read_text().splitlines()
+            request = next(
+                line["request"] for line in map(json.loads, spool) if line["id"] == request_id
+            )
+            drained = run_harness("drain", config, client)
+            # The drain result is the only delivery record; the spool keeps no receipt.
+            receipt = next(
+                row for row in cast(list[dict[str, Any]], drained.get("results", []))
+                if row.get("request_id") == request_id
+            )
             capture_ids = receipt["acknowledgement"]["capture_ids"]
             _require(len(capture_ids) == 1, "capture_failed")
             capture_id = capture_ids[0]
@@ -470,7 +488,7 @@ def run_fixture(*, report_path: Path, evidence_dir: Path) -> dict[str, object]:
                 "replay_identity_failed",
             )
             _require(
-                run_harness("status", config, client).get("complete") is True, "custody_incomplete"
+                run_harness("status", config, client).get("complete") is True, "spool_incomplete"
             )
             for destination in CLIENTS:
                 fresh_session = "fixture-destination-" + uuid4().hex
@@ -542,7 +560,7 @@ def validate_fixture(*, report_path: Path) -> dict[str, object]:
 
 
 def _validate_fixture(*, report_path: Path) -> dict[str, object]:
-    from open_brain.services.harness_outbox import _decode_event, _validate_receipt
+    from open_brain.services.harness_spool import request_id
 
     report = _load(report_path)
     _require(
@@ -619,10 +637,8 @@ def _validate_fixture(*, report_path: Path) -> dict[str, object]:
         )
         request = _evidence(row["request"], directory)
         receipt = _evidence(row["receipt"], directory)
-        _decode_event(request)
-        _validate_receipt(receipt, row["request_id"], row["brain_id"])
         _require(
-            _digest(request) == row["request_id"]
+            request_id(request) == row["request_id"]
             and request.get("client") == client
             and request.get("session_id") == row["session_id"]
             and request.get("brain_id") == row["brain_id"],
@@ -631,7 +647,6 @@ def _validate_fixture(*, report_path: Path) -> dict[str, object]:
         _require(
             receipt.get("status") == "delivered"
             and receipt.get("request_id") == row["request_id"]
-            and receipt.get("brain_id") == row["brain_id"]
             and receipt.get("acknowledgement", {}).get("status") == "acknowledged"
             and receipt["acknowledgement"].get("capture_ids") == [row["capture_id"]]
             and receipt["acknowledgement"].get("delivery_ids"),

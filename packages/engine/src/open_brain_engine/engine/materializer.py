@@ -20,7 +20,11 @@ from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdo
 
 from .contracts import LocalEngineContext
 from .local_store import _LocalStore
-from .search_projection import source_search_title, upsert_search_document
+from .search_projection import (
+    source_projection,
+    source_projection_text,
+    upsert_search_document,
+)
 
 if TYPE_CHECKING:
     from .portable_v5_restore import V5RestoreBundle
@@ -428,7 +432,11 @@ def materialize_portable_root(
                     "import",
                 ),
             )
-            if _v5_restore is None:
+            # The record projector derives this exact text and title from the blob.
+            text = source_projection_text(
+                payload, stored_text=_payload_search_text(payload), read_blob=files.get
+            )
+            if _v5_restore is None and text is not None:
                 upsert_search_document(
                     connection,
                     result_id=capture_id,
@@ -436,11 +444,13 @@ def materialize_portable_root(
                     record_type="source",
                     payload_family=cast(str, payload["family"]),
                     space_id=cast(str | None, record["space_id"]),
-                    title=source_search_title(
+                    title=source_projection(
+                        text,
+                        source_reference=cast(str, content["source_reference"]),
                         payload_family=cast(str, payload["family"]),
-                        body=_payload_search_text(payload),
-                    ),
-                    body=_payload_search_text(payload),
+                        stored_title=cast(str | None, content["title"]),
+                    )[2],
+                    body=text,
                     canonical_path=None,
                     updated_at=cast(str, record["accepted_at"]),
                 )
@@ -667,7 +677,7 @@ def materialize_portable_root(
             )
         if _v5_restore is not None:
             _v5_restore.install(connection, profile=profile)
-        if snapshot.manifest["schema_version"] in {8, 9, 10, 11, 12, 13, 14, 15, 16}:
+        if snapshot.manifest["schema_version"] in {8, 9, 10, 11, 12, 13, 14, 15, 16, 17}:
             from open_brain_engine.portable.v8_capture_metadata import (
                 CAPTURE_COLUMNS,
                 validate_capture_metadata,

@@ -84,6 +84,13 @@ from open_brain.services.consumer_import import (
     write_consumer_failure,
     write_consumer_interrupted,
 )
+from open_brain.services.egress_policy_cli import (
+    OwnerEgressPolicyError,
+    add_egress_policy_parsers,
+    run_egress_policy_command,
+    validate_egress_policy_arguments,
+    write_egress_policy_failure,
+)
 from open_brain.services.embedding_policy_cli import (
     EmbeddingPolicyError,
     add_embedding_parsers,
@@ -261,6 +268,11 @@ def run_cli(
             validate_embedding_arguments(parsed)
         except EmbeddingPolicyError as error:
             return write_embedding_failure(error.code, json_output=json_output)
+    if parsed.command == "egress-policy":
+        try:
+            validate_egress_policy_arguments(parsed)
+        except OwnerEgressPolicyError as error:
+            return write_egress_policy_failure(error.code, json_output=json_output)
     if parsed.command == "restore":
         return _run_portable_restore(parsed, json_output=json_output)
     if parsed.command == "harness":
@@ -472,6 +484,8 @@ def _run_parsed_command(
             return write_retraction_failure("local_operation_failed", json_output=json_output)
         if parsed.command == "embedding":
             return write_embedding_failure("local_operation_failed", json_output=json_output)
+        if parsed.command == "egress-policy":
+            return write_egress_policy_failure("local_operation_failed", json_output=json_output)
         if _is_workspace_recovery(parsed):
             return _write_managed_recovery_failure(
                 "private_data_unavailable",
@@ -570,6 +584,29 @@ def _run_parsed_command(
                 return write_embedding_failure(error.code, json_output=json_output)
             except Exception as error:
                 return write_embedding_failure(
+                    "local_operation_busy"
+                    if database_is_busy(error) or isinstance(error, LockBusyError)
+                    else "local_operation_failed",
+                    json_output=json_output,
+                )
+        if parsed.command == "egress-policy":
+            try:
+                if not selection.brain_root.exists():
+                    return write_egress_policy_failure(
+                        "local_operation_failed", json_output=json_output
+                    )
+                with open_local_brain(
+                    selection,
+                    filesystem_type_probe=filesystem_type_probe,
+                    existing_only=True,
+                ) as session:
+                    return run_egress_policy_command(
+                        parsed, session.tasks, json_output=json_output
+                    )
+            except OwnerEgressPolicyError as error:
+                return write_egress_policy_failure(error.code, json_output=json_output)
+            except Exception as error:
+                return write_egress_policy_failure(
                     "local_operation_busy"
                     if database_is_busy(error) or isinstance(error, LockBusyError)
                     else "local_operation_failed",
@@ -894,6 +931,7 @@ def _parser() -> argparse.ArgumentParser:
     privacy_repair.add_argument("--json", action="store_true", required=True)
     privacy_repair.add_argument("--data-dir", default=argparse.SUPPRESS)
     privacy_repair.set_defaults(_catalog_discoverable=False)
+    add_egress_policy_parsers(subparsers, _add_local_options)
     consent_parser = subparsers.add_parser(
         "consent", help="Manage owner-local external-provider consent state."
     )
@@ -3294,6 +3332,7 @@ def _record_verified_export(
         14,
         15,
         16,
+        17,
     }:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
@@ -3334,7 +3373,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in set(range(1, 17))
+            or value["schema_version"] not in set(range(1, 18))
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)
