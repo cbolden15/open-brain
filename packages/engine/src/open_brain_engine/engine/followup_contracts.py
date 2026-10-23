@@ -128,7 +128,7 @@ def _require_owner(owner: object, owner_name: object) -> None:
     if type(owner) is not OwnerKind:
         raise _invalid()
     if owner is OwnerKind.OTHER:
-        _require_text(owner_name, limit=200)
+        _require_text(owner_name, limit=128)
     elif owner_name is not None:
         raise _invalid()
 
@@ -187,7 +187,7 @@ class ProposeRequest:
         if type(self.kind) is not FollowupKind:
             raise _invalid()
         _require_text(self.summary, limit=MAX_SUMMARY_CHARS)
-        _require_text(self.project, limit=200, allow_none=True)
+        _require_text(self.project, limit=128, allow_none=True)
         _require_owner(self.owner, self.owner_name)
         _require_date(self.due, allow_none=True)
         if (
@@ -227,7 +227,7 @@ def _validate_corrections(corrections: Mapping[str, object]) -> None:
     if "summary" in corrections:
         _require_text(corrections["summary"], limit=MAX_SUMMARY_CHARS)
     if "project" in corrections:
-        _require_text(corrections["project"], limit=200, allow_none=True)
+        _require_text(corrections["project"], limit=128, allow_none=True)
     if "owner" in corrections or "owner_name" in corrections:
         try:
             owner = OwnerKind(str(corrections.get("owner")))
@@ -296,7 +296,7 @@ class DecideRequest:
             _validate_corrections(self.corrections)
         elif self.action is DecisionAction.LINK:
             _require_text(self.ticket_key, limit=200)
-            _require_text(self.ticket_url, limit=2000, allow_none=True)
+            _require_text(self.ticket_url, limit=2048, allow_none=True)
             if self.ticket_url is not None and not self.ticket_url.startswith(
                 ("https://", "http://")
             ):
@@ -395,7 +395,7 @@ class ListFilter:
             or type(self.include_closed) is not bool
         ):
             raise _invalid()
-        _require_text(self.project, limit=200, allow_none=True)
+        _require_text(self.project, limit=128, allow_none=True)
         _require_text(self.cursor, limit=512, allow_none=True)
 
 

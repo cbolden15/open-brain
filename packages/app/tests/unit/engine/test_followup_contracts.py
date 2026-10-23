@@ -223,3 +223,32 @@ def test_list_filter_bounds_limit(limit: int) -> None:
     with pytest.raises(FollowupError, match="invalid_request"):
         ListFilter(limit=limit)
     assert ListFilter().limit == 50
+
+
+def test_text_limits_match_the_schema23_columns() -> None:
+    """project and owner_name fit 128 characters, ticket_url 2048 (followup_items DDL)."""
+    propose(project="p" * 128)
+    propose(owner=OwnerKind.OTHER, owner_name="n" * 128)
+    for overrides in (
+        {"project": "p" * 129},
+        {"owner": OwnerKind.OTHER, "owner_name": "n" * 129},
+    ):
+        with pytest.raises(FollowupError, match="invalid_request"):
+            propose(**overrides)
+    base: dict[str, Any] = {
+        "operation_id": "op-3",
+        "item_id": "followup_1",
+        "expected_version": 1,
+    }
+    DecideRequest(**base, action=DecisionAction.CORRECT, corrections={"project": "p" * 128})
+    with pytest.raises(FollowupError, match="invalid_request"):
+        DecideRequest(**base, action=DecisionAction.CORRECT, corrections={"project": "p" * 129})
+    url = "https://t/" + "u" * (2048 - len("https://t/"))
+    DecideRequest(**base, action=DecisionAction.LINK, ticket_key="ABC-1", ticket_url=url)
+    with pytest.raises(FollowupError, match="invalid_request"):
+        DecideRequest(
+            **base, action=DecisionAction.LINK, ticket_key="ABC-1", ticket_url=url + "u"
+        )
+    ListFilter(project="p" * 128)
+    with pytest.raises(FollowupError, match="invalid_request"):
+        ListFilter(project="p" * 129)

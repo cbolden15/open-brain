@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -339,10 +340,10 @@ def _clock() -> datetime:
     return datetime(2026, 10, 23, tzinfo=UTC)
 
 
-def _connect(profile: LocalEngineContext) -> sqlite3.Connection:
+def _connect(profile: LocalEngineContext) -> closing[sqlite3.Connection]:
     connection = sqlite3.connect(profile.root / local_schema.PHASE1_STATE_DATABASE)
     connection.row_factory = sqlite3.Row
-    return connection
+    return closing(connection)
 
 
 def _schema22(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LocalEngineContext:
