@@ -662,16 +662,19 @@ class CollectorController:
         try:
             self._custody.outcome(receipt_id, outcome, **details)
         except LiveSourceError as error:
-            if error.code != "collector_custody_not_found":
-                raise
-            with self._capture_guard, self._selection_barrier():
-                latest = _source(_sources(self._store.load()), source_id)
-            if not (
-                latest["status"] in {"paused", "disabled"}
-                or latest["control_epoch"] != entry["control_epoch"]
-                or latest["generation"] != entry["generation"]
+            if error.code != "collector_custody_not_found" or not self._run_cancelled(
+                source_id, entry
             ):
                 raise
+
+    def _run_cancelled(self, source_id: str, entry: dict[str, object]) -> bool:
+        with self._capture_guard, self._selection_barrier():
+            latest = _source(_sources(self._store.load()), source_id)
+        return (
+            latest["status"] in {"paused", "disabled"}
+            or latest["control_epoch"] != entry["control_epoch"]
+            or latest["generation"] != entry["generation"]
+        )
 
     @staticmethod
     def _is_item_conflict(error: Exception) -> bool:
@@ -1009,7 +1012,16 @@ class CollectorController:
                 delivery_id = intake.key.delivery_id()
                 revision_identity = intake.key.revision_identity()
                 digest = intake_digest(intake)
-                prior = self._custody.receipt(receipt_id)
+                # A pause between the guarded sections discards this page's receipts.
+                # Stop here; the post-page check reports the confirmed cancellation.
+                try:
+                    prior = self._custody.receipt(receipt_id)
+                except LiveSourceError as error:
+                    if error.code != "collector_custody_not_found" or not self._run_cancelled(
+                        source_id, entry
+                    ):
+                        raise
+                    break
                 if prior["outcome"] == "quarantined":
                     quarantined += 1
                     continue
@@ -1044,7 +1056,7 @@ class CollectorController:
                             or guarded_entry["generation"] != entry["generation"]
                             or guarded_entry["status"] != "enabled"
                         ):
-                            raise LiveSourceError("collector_import_cancelled")
+                            break
                         self._in_capture.active = True
                         try:
                             baseline = (capture_sink.lookup_baseline(
