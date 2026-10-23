@@ -8,3 +8,5 @@ Planned: one task-tdd-implementer and one task-spec-compliance-reviewer per pack
 
 | # | Child | Package | Model | Status |
 |---|---|---|---|---|
+| 1 | task-tdd-implementer | P1 (Tasks 1–4) | opus | done with concerns: 5 commits ede0e22..421da63; verify 1 unrelated timing flake |
+| 2 | task-spec-compliance-reviewer | P1 | opus | APPROVED_WITH_FIXES; fixes applied by child 1 (resumed) in a3786da |
