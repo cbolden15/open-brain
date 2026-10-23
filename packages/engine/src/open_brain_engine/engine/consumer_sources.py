@@ -183,13 +183,21 @@ def _owned_placeholder(
     privacy = connection.execute(
         "SELECT privacy_json FROM captures WHERE capture_id=?", (segment.identities.capture_id,)
     ).fetchone()
+    from .owner_egress_policy import active_egress_policy
     from .privacy_projection import effective_privacy_json, project_retained_privacy_evidence
 
-    expected_privacy = effective_privacy_json(
-        project_retained_privacy_evidence(
-            [canonical(segment.envelope.admitted_privacy.to_dict()).decode()]
-        )
-    )
+    # The current projection is the admitted evidence, or it under the owner egress policy.
+    expected_privacy = {
+        sha256(
+            effective_privacy_json(
+                project_retained_privacy_evidence(
+                    [canonical(segment.envelope.admitted_privacy.to_dict()).decode()],
+                    egress_policy=policy,
+                )
+            ).encode()
+        ).hexdigest()
+        for policy in (None, active_egress_policy(connection))
+    }
     return bool(
         source is not None
         and source["historical_only"] == 1
@@ -197,7 +205,7 @@ def _owned_placeholder(
         and privacy is not None
         and privacy["privacy_json"]
         == canonical(segment.envelope.admitted_privacy.to_dict()).decode()
-        and current.effective_privacy_sha256 == sha256(expected_privacy.encode()).hexdigest()
+        and current.effective_privacy_sha256 in expected_privacy
         and _retained_segment(connection, segment.identities.capture_id) == segment
     )
 

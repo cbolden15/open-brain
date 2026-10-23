@@ -55,6 +55,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/catalog.py",
         "services/component_manifest_v2.py",
         "services/consumer_import.py",
+        "services/egress_policy_cli.py",
         "services/embedding_health.py",
         "services/embedding_helper.py",
         "services/embedding_pin.py",

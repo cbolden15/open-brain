@@ -846,7 +846,7 @@ def test_o14_fresh_portable_preserves_plugin_mutations_and_rejects_old_preview(
     target = tmp_path / "fresh" / "synthetic-restored"
     target.parent.mkdir(mode=0o700)
     imported = engine.portability.import_clean(archive, target, import_id=f"import_{uuid.uuid4()}")
-    assert imported.schema_version == 16
+    assert imported.schema_version == 17
     reopened = BrainEngine.open(open_existing_single_user_local(target))
     plugin.__init__(target)
     assert plugin.call("facet.query.page", query_id=query, expected_query_version=1) == original

@@ -11,7 +11,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager, State, path::BaseDirectory};
 use uuid::Uuid;
 
-const SUPPORTED_STATE_SCHEMA: u64 = 21;
+const SUPPORTED_STATE_SCHEMA: u64 = 22;
 const SUPPORTED_RUNTIME_SESSION: u64 = 16;
 const BASE_OPERATIONS: &[&str] = &[
     "system.status",
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn unknown_schema_and_relative_brain_are_rejected() {
         for unsupported in [
-            4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22,
+            4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23,
         ] {
             let mut wrong_version = handshake();
             wrong_version["state_schema_version"] = json!(unsupported);
@@ -586,7 +586,9 @@ mod tests {
             (18, 13),
             (19, 14),
             (20, 15),
+            (21, 16),
             (22, 17),
+            (23, 17),
             (18, 12),
             (17, 13),
         ] {

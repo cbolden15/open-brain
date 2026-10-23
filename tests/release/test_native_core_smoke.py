@@ -54,9 +54,9 @@ def _catalog() -> dict[str, object]:
         "compatibility": {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 16,
+            "portable_metadata": 17,
             "runtime_session": 16,
-            "state_schema": 21,
+            "state_schema": 22,
             "task_contract": "t03.v1",
         },
         "packages": [

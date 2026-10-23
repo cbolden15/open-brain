@@ -117,7 +117,7 @@ def migrate_embedding_policy(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 21:
+        if state.state in {"current", "supported_old"} and state.version in {21, 22}:
             return
         if state.state != "supported_old" or state.version != 20:
             raise T03Error("operation_pending")
@@ -135,7 +135,7 @@ def migrate_embedding_policy(
             schema_version=21,
         )
         upgraded = classify_local_schema(connection)
-        if upgraded.state != "current" or upgraded.version != 21:
+        if upgraded.state not in {"current", "supported_old"} or upgraded.version != 21:
             raise T03Error("operation_pending")
         checkpoint("embedding_policy_before_commit")
         require_historical_snapshot_settled(connection, profile)
