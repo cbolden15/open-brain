@@ -10,3 +10,5 @@ Planned: one task-tdd-implementer and one task-spec-compliance-reviewer per pack
 |---|---|---|---|---|
 | 1 | task-tdd-implementer | P1 (Tasks 1–4) | opus | done with concerns: 5 commits ede0e22..421da63; verify 1 unrelated timing flake |
 | 2 | task-spec-compliance-reviewer | P1 | opus | APPROVED_WITH_FIXES; fixes applied by child 1 (resumed) in a3786da |
+| 3 | task-tdd-implementer | P2 (Tasks 5–9) | opus | done with concerns: 5 commits ab544a0..7c91f2f; verify blocked by load flakes (harness acceptance timeouts, t07-ui TESTING-014) |
+| 4 | task-spec-compliance-reviewer | P2 | opus | APPROVED_WITH_FIXES; findings 1–4 sent to child 3 (resumed); finding 5 carried into BRIEF-P3 |
