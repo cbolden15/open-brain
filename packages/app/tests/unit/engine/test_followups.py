@@ -23,6 +23,7 @@ from open_brain_engine.engine.followup_contracts import (
     FollowupItem,
     FollowupKind,
     FollowupState,
+    ListFilter,
     OwnerKind,
     ProposeRequest,
 )
@@ -620,7 +621,6 @@ def test_decide_reopen_of_never_confirmed_item_returns_to_suggested(tmp_path: Pa
     assert (reopened.state, reopened.owner_confirmed) == (FollowupState.SUGGESTED, False)
 
 
-@pytest.mark.xfail(strict=True, reason="show lands in Task 8")
 def test_decide_snooze_returns_to_prior_state_when_the_clock_passes(tmp_path: Path) -> None:
     clock = Clock()
     engine = _engine(tmp_path, clock)
@@ -652,14 +652,10 @@ def test_decide_snooze_returns_to_prior_state_when_the_clock_passes(tmp_path: Pa
         date(2026, 10, 30),
         FollowupState.CONFIRMED,
     )
-    shown, _evidence, _history = tasks.show(  # type: ignore[attr-defined]
-        item.item_id, authority=_owner(engine)
-    )
+    shown, _evidence, _history = tasks.show(item.item_id, authority=_owner(engine))
     assert shown.state is FollowupState.SNOOZED
     clock.now = datetime(2026, 10, 30, 8, 0, tzinfo=UTC)
-    shown, _evidence, _history = tasks.show(  # type: ignore[attr-defined]
-        item.item_id, authority=_owner(engine)
-    )
+    shown, _evidence, _history = tasks.show(item.item_id, authority=_owner(engine))
     assert (shown.state, shown.snoozed_until, shown.version) == (FollowupState.CONFIRMED, None, 3)
     # Deciding after expiry acts on the returned state and records it as prior.
     dismissed = _decide(tasks, engine, item.item_id, 3, DecisionAction.DISMISS, operation_id="c4")
@@ -894,3 +890,182 @@ def test_decide_requires_followup_decide_grant(tmp_path: Path) -> None:
         authority=_agent("followup-decide", "content-read"),
     )
     assert confirmed.state is FollowupState.CONFIRMED
+
+
+def test_list_defaults_to_open_items_and_filters(tmp_path: Path) -> None:
+    clock = Clock()
+    engine = _engine(tmp_path, clock)
+    tasks = FollowupTasks(engine)
+    capture = _capture(
+        engine,
+        "Ship the report. Ask about the budget. Call Dana. Close ticket.",
+        delivery="d1",
+        tier=PrivacyTier.WORK,
+    )
+    owner = _owner(engine)
+    a = tasks.propose(
+        _propose(_ref(engine, capture, "Ship the report"), operation_id="p1"), authority=owner
+    )
+    clock.now = datetime(2026, 10, 23, 9, 1, tzinfo=UTC)
+    b = tasks.propose(
+        _propose(
+            _ref(engine, capture, "Ask about the budget"),
+            operation_id="p2",
+            kind=FollowupKind.QUESTION,
+            summary="Budget?",
+            owner=OwnerKind.OTHER,
+            owner_name="Dana",
+        ),
+        authority=owner,
+    )
+    clock.now = datetime(2026, 10, 23, 9, 2, tzinfo=UTC)
+    c = tasks.propose(
+        _propose(
+            _ref(engine, capture, "Call Dana"),
+            operation_id="p3",
+            due=date(2026, 10, 28),
+            due_evidence_index=0,
+        ),
+        authority=owner,
+    )
+    clock.now = datetime(2026, 10, 23, 9, 3, tzinfo=UTC)
+    d = tasks.propose(
+        _propose(_ref(engine, capture, "Close ticket"), operation_id="p4"), authority=owner
+    )
+    _decide(tasks, engine, d.item_id, 1, DecisionAction.DISMISS, operation_id="c1")
+    _decide(
+        tasks,
+        engine,
+        c.item_id,
+        1,
+        DecisionAction.SNOOZE,
+        operation_id="c2",
+        snoozed_until=date(2026, 10, 25),
+    )
+
+    items, cursor = tasks.list(ListFilter(), authority=owner)
+    assert [item.item_id for item in items] == [a.item_id, b.item_id]
+    assert cursor is None
+    items, _ = tasks.list(ListFilter(include_closed=True), authority=owner)
+    assert [item.item_id for item in items] == [a.item_id, b.item_id, c.item_id, d.item_id]
+    items, _ = tasks.list(ListFilter(states=frozenset({FollowupState.DISMISSED})), authority=owner)
+    assert [item.item_id for item in items] == [d.item_id]
+    items, _ = tasks.list(ListFilter(kinds=frozenset({FollowupKind.QUESTION})), authority=owner)
+    assert [item.item_id for item in items] == [b.item_id]
+    items, _ = tasks.list(ListFilter(owner=OwnerKind.OTHER), authority=owner)
+    assert [item.item_id for item in items] == [b.item_id]
+    items, _ = tasks.list(ListFilter(project="Nope"), authority=owner)
+    assert items == ()
+    # Snooze lapses at read time; c returns with its due date and is listed by due_before.
+    clock.now = datetime(2026, 10, 25, 7, 0, tzinfo=UTC)
+    items, _ = tasks.list(ListFilter(due_before=date(2026, 10, 29)), authority=owner)
+    assert [(item.item_id, item.state) for item in items] == [(c.item_id, FollowupState.SUGGESTED)]
+
+
+def test_list_returns_a_closed_item_with_new_evidence_by_default(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(
+        engine, "Ship the report on Monday. Shipped it.", delivery="d1", tier=PrivacyTier.WORK
+    )
+    item = _item(engine, tasks, capture, "Ship the report")
+    _decide(
+        tasks,
+        engine,
+        item.item_id,
+        1,
+        DecisionAction.RESOLVE,
+        operation_id="r1",
+        resolution="owner_statement",
+    )
+    assert tasks.list(ListFilter(), authority=_owner(engine))[0] == ()
+    tasks.add_evidence(
+        AddEvidenceRequest(
+            "e1",
+            item.item_id,
+            _ref(engine, capture, "Shipped it", role=EvidenceRole.RESOLUTION),
+        ),
+        authority=_owner(engine),
+    )
+    items, _ = tasks.list(ListFilter(), authority=_owner(engine))
+    assert [(i.item_id, i.state, i.new_evidence_since_decision) for i in items] == [
+        (item.item_id, FollowupState.RESOLVED, True)
+    ]
+
+
+def test_list_pages_with_a_cursor(tmp_path: Path) -> None:
+    clock = Clock()
+    engine = _engine(tmp_path, clock)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "one two three", delivery="d1", tier=PrivacyTier.WORK)
+    owner = _owner(engine)
+    ids = []
+    for index, word in enumerate(["one", "two", "three"]):
+        clock.now = datetime(2026, 10, 23, 9, index, tzinfo=UTC)
+        ids.append(
+            tasks.propose(
+                _propose(_ref(engine, capture, word), operation_id=f"p{index}"), authority=owner
+            ).item_id
+        )
+    first, cursor = tasks.list(ListFilter(limit=2), authority=owner)
+    assert [item.item_id for item in first] == ids[:2]
+    assert cursor == ids[1]
+    rest, end = tasks.list(ListFilter(limit=2, cursor=cursor), authority=owner)
+    assert ([item.item_id for item in rest], end) == ([ids[2]], None)
+    with pytest.raises(FollowupError, match="invalid_request"):
+        tasks.list(ListFilter(cursor="followup_unknown"), authority=owner)
+
+
+def test_list_and_show_hide_items_a_session_cannot_read(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    work = _capture(engine, "Ship the report", delivery="d1", tier=PrivacyTier.WORK)
+    personal = _capture(engine, "Book the dentist", delivery="d2", tier=PrivacyTier.PERSONAL)
+    owner = _owner(engine)
+    w = tasks.propose(
+        _propose(_ref(engine, work, "Ship the report"), operation_id="p1"), authority=owner
+    )
+    p = tasks.propose(
+        _propose(_ref(engine, personal, "Book the dentist"), operation_id="p2"), authority=owner
+    )
+    work_only = EffectiveAuthority(
+        principal_id="agent-1",
+        session_id="s",
+        space_ids=None,
+        capabilities=frozenset({"followup-read", "content-read"}),
+        allowed_read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    items, _ = tasks.list(ListFilter(), authority=work_only)
+    assert [item.item_id for item in items] == [w.item_id]
+    with pytest.raises(FollowupError, match="not_found"):
+        tasks.show(p.item_id, authority=work_only)
+    with pytest.raises(T03Error, match="unsupported_capability"):
+        tasks.list(ListFilter(), authority=_agent("content-read"))
+
+
+def test_show_rebuilds_quotes_and_returns_history(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(
+        engine, "Ship the report on Monday. Dana agreed.", delivery="d1", tier=PrivacyTier.WORK
+    )
+    item = _item(engine, tasks, capture, "Ship the report")
+    tasks.add_evidence(
+        AddEvidenceRequest(
+            "e1",
+            item.item_id,
+            _ref(engine, capture, "Dana agreed", role=EvidenceRole.SUPPORTING),
+        ),
+        authority=_owner(engine),
+    )
+    shown, evidence, history = tasks.show(item.item_id, authority=_owner(engine))
+    assert shown.version == 2
+    assert [(view.role, view.quote) for view in evidence] == [
+        (EvidenceRole.ORIGIN, "Ship the report"),
+        (EvidenceRole.SUPPORTING, "Dana agreed"),
+    ]
+    assert [(row.action, row.new_version) for row in history] == [
+        ("propose", 1),
+        ("add_evidence", 2),
+    ]
+    assert history[1].evidence_ids == (evidence[1].evidence_id,)

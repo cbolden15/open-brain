@@ -20,6 +20,7 @@ from open_brain_engine.core.models import PrivacyTier
 
 from .cursors import binding_digest
 from .followup_contracts import (
+    CLOSED_STATES,
     MAX_EVIDENCE_PER_ITEM,
     MAX_ITEMS,
     OPEN_STATES,
@@ -27,17 +28,21 @@ from .followup_contracts import (
     DecideRequest,
     DecisionAction,
     EvidenceRef,
+    EvidenceRole,
     FollowupDecisionRow,
     FollowupError,
+    FollowupEvidenceView,
     FollowupItem,
     FollowupKind,
     FollowupState,
+    ListFilter,
     OwnerKind,
     ProposeRequest,
     request_wire,
 )
 from .followup_visibility import evidence_ref, rebuild_quote, visible_to
 from .normalization import _timestamp
+from .paging import read_snapshot
 from .privacy_projection import parse_effective_privacy_json
 from .records import RecordProjector
 from .t03_contracts import EffectiveAuthority, T03Error
@@ -665,6 +670,122 @@ class FollowupTasks:
         ).rowcount
         if updated != 1:
             raise FollowupError("version_conflict", current_version=item.version - 1)
+
+    # -- read ------------------------------------------------------------------
+
+    def _owner_projection(
+        self,
+        connection: sqlite3.Connection,
+        item: FollowupItem,
+        evidence: list[sqlite3.Row],
+        authority: EffectiveAuthority,
+    ) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...]]:
+        """Rebuild quotes; an unreadable revision marks the item retracted for the owner."""
+        projector = RecordProjector(self._engine.profile, connection, authority)
+        views = []
+        retracted = False
+        for row in evidence:
+            ref = evidence_ref(row)
+            quote: str | None
+            try:
+                record = projector.read(ref.capture_id, expected=ref.revision_id, history=True)
+                quote = rebuild_quote(record.text, ref)
+            except T03Error as error:
+                if error.code not in {"not_found", "revision_changed"}:
+                    raise
+                quote = None
+            retracted = retracted or quote is None
+            views.append(
+                FollowupEvidenceView(
+                    evidence_id=row["evidence_id"],
+                    role=EvidenceRole(row["role"]),
+                    capture_id=row["capture_id"],
+                    revision_id=row["revision_id"],
+                    quote=quote,
+                )
+            )
+        if retracted:
+            item = replace(item, evidence_retracted=True, summary=None)
+        return item, tuple(views)
+
+    @staticmethod
+    def _matches(item: FollowupItem, filter: ListFilter) -> bool:
+        if filter.states:
+            if item.state not in filter.states:
+                return False
+        elif not filter.include_closed and (
+            item.state is FollowupState.SNOOZED
+            or (item.state in CLOSED_STATES and not item.new_evidence_since_decision)
+        ):
+            # The default list holds open items: a snoozed item leaves it until its date and
+            # a closed item returns only when new evidence arrived after the decision.
+            return False
+        if filter.kinds and item.kind not in filter.kinds:
+            return False
+        if filter.owner is not None and item.owner is not filter.owner:
+            return False
+        if filter.project is not None and item.project != filter.project:
+            return False
+        return filter.due_before is None or (item.due is not None and item.due < filter.due_before)
+
+    def show(
+        self, item_id: str, *, authority: EffectiveAuthority
+    ) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...], tuple[FollowupDecisionRow, ...]]:
+        authority.require("followup-read")
+        with read_snapshot(self._engine) as connection:
+            stored, evidence = self._visible_item(connection, item_id, authority=authority)
+            item = effective_item(stored, self._today())
+            item, views = self._owner_projection(connection, item, evidence, authority)
+            history = tuple(
+                decision_from_row(row)
+                for row in connection.execute(
+                    "SELECT * FROM followup_decisions WHERE item_id=? ORDER BY sequence",
+                    (item_id,),
+                )
+            )
+            return item, views, history
+
+    def list(
+        self, filter: ListFilter, *, authority: EffectiveAuthority
+    ) -> tuple[tuple[FollowupItem, ...], str | None]:
+        authority.require("followup-read")
+        with read_snapshot(self._engine) as connection:
+            today = self._today()
+            after: tuple[str, str] | None = None
+            if filter.cursor is not None:
+                anchor = connection.execute(
+                    "SELECT created_at,item_id FROM followup_items WHERE item_id=?",
+                    (filter.cursor,),
+                ).fetchone()
+                if anchor is None:
+                    raise FollowupError("invalid_request")
+                after = (anchor["created_at"], anchor["item_id"])
+            projector = RecordProjector(self._engine.profile, connection, authority)
+            selected: list[FollowupItem] = []
+            more = False
+            rows = connection.execute(
+                f"SELECT {_ITEM_COLUMNS} FROM followup_items "
+                "ORDER BY created_at COLLATE BINARY, item_id COLLATE BINARY"
+            )
+            for row in rows:
+                if after is not None and (row["created_at"], row["item_id"]) <= after:
+                    continue
+                stored = item_from_row(row)
+                evidence = self._evidence_rows(connection, stored.item_id)
+                refs = [evidence_ref(row) for row in evidence]
+                if not visible_to(stored, refs, authority=authority, projector=projector):
+                    continue
+                item = effective_item(stored, today)
+                if authority.owner:
+                    item, _views = self._owner_projection(connection, item, evidence, authority)
+                if not self._matches(item, filter):
+                    continue
+                if len(selected) == filter.limit:
+                    more = True
+                    break
+                selected.append(item)
+            cursor = selected[-1].item_id if more and selected else None
+            return tuple(selected), cursor
 
 
 __all__ = [
