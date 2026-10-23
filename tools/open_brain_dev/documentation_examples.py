@@ -72,7 +72,7 @@ AGENT_SETUP_GRANTS: Final = {
 }
 COMPATIBILITY_COORDINATES: Final = {
     "Core / engine package": "0.1.0 / exactly 0.1.0",
-    "Local state schema": "22",
+    "Local state schema": "23",
     "Runtime session": "16",
     "Task contract": "t03.v1",
     "Catalog schema": "2",

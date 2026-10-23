@@ -11,7 +11,7 @@ Local documentation checks do not promote catalog acceptance.
 | Coordinate | Candidate value | Meaning |
 |---|---|---|
 | Core / engine package | `0.1.0` / exactly `0.1.0` | Core requires the matching engine |
-| Local state schema | `22` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
+| Local state schema | `23` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
 | Runtime session | `16` | Stop old sessions and upgrade clients together |
 | Task contract | `t03.v1` | Negotiated search/read/history/source-route DTOs |
 | Catalog schema | `2` | Joined implementation, package, authorization and acceptance metadata |

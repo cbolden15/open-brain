@@ -1711,7 +1711,7 @@ def _smoke_catalog(executable: Path, environment: Mapping[str, str]) -> None:
             "catalog_schema": 2,
             "portable_metadata": 17,
             "runtime_session": 16,
-            "state_schema": 22,
+            "state_schema": 23,
             "task_contract": "t03.v1",
         }
         or not isinstance(product, dict)

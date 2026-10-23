@@ -86,7 +86,7 @@ def test_catalog_is_deterministic_json_safe_and_evidence_paths_exist() -> None:
     compatibility = cast(dict[str, object], first["compatibility"])
     assert compatibility["portable_metadata"] == 17
     assert compatibility["runtime_session"] == 16
-    assert compatibility["state_schema"] == 22
+    assert compatibility["state_schema"] == 23
     assert cast(dict[str, object], first["acceptance"])["trusted_certifications"] == []
     root = Path(__file__).resolve().parents[4]
     evidence = cast(list[dict[str, str]], cast(dict[str, object], first["acceptance"])["evidence"])
