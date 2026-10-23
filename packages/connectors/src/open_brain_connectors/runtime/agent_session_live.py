@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+from open_brain_engine.capture.redaction import redact_text
+
 from open_brain_connectors.runtime.agent_session import (
     AgentSessionRecord,
     AgentSessionSourceAdapter,
@@ -30,6 +32,7 @@ from open_brain_connectors.runtime.live_common import (
     LiveSourceError,
     local_source_privacy,
 )
+from open_brain_connectors.runtime.session_secrets import contains_session_secret
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake
 from open_brain_connectors.runtime.source_registry import (
     D4_AGENT_SESSION_SOURCE,
@@ -41,8 +44,6 @@ _MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024
 _MAX_MESSAGES = 64
 _MAX_TEXT = 65_536
 _MAX_SUMMARY_MESSAGES = 4
-_PRIVATE_KEY = re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")
-_CREDENTIAL_URL = re.compile(r"(?i)https?://[^\s/@:]+:[^\s/@]+@")
 
 SessionClient = Literal["claude_code", "codex"]
 
@@ -489,15 +490,7 @@ def _clean_text(value: str) -> str | None:
 
 
 def _contains_secret(messages: Sequence[_Message]) -> bool:
-    joined = "\n".join(message.text for message in messages)
-    if _PRIVATE_KEY.search(joined) or _CREDENTIAL_URL.search(joined):
-        return True
-    try:
-        from open_brain_engine.capture.redaction import has_redaction_finding
-
-        return has_redaction_finding(joined)
-    except ValueError:
-        return True
+    return contains_session_secret("\n".join(message.text for message in messages))
 
 
 def _intakes(
@@ -524,8 +517,9 @@ def _intakes(
         session_id=turn_id,
         revision_id=revision,
         client_name=event.client,
-        summary=summary,
-        transcript=transcript if capture_transcript else None,
+        # The gate quarantined credentials; stored bodies still follow the redaction policy.
+        summary=redact_text(summary),
+        transcript=redact_text(transcript) if capture_transcript else None,
         transcript_selected=capture_transcript,
     )
     all_intakes = adapter.intakes(selection, record, privacy=local_source_privacy())

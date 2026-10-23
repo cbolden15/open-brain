@@ -159,6 +159,32 @@ def test_secret_in_older_history_is_not_lost_by_recent_window(tmp_path: Path) ->
     assert "session_quarantined_secret" in batch.notices
 
 
+def test_identifiers_and_personal_details_do_not_quarantine_a_session(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "identifiers.jsonl"
+    text = _claude_transcript(project, "session-123").replace(
+        "Please inspect the queue.",
+        "Commit 9f50bd0c5e1a2b3c4d5e6f708192a3b4c5d6e7f8 wrote "
+        "capture_65fdf64a-f32b-4c38-98ca-248de7fd2219; ask owner@example.com today",
+    )
+    transcript.write_text(text, encoding="utf-8")
+    root = tmp_path / "queue"
+    _enqueue(root, project, transcript)
+    source = AgentSessionLiveSource(root)
+    batch = source.fetch(
+        source.selection(client="claude_code", project_path=project),
+        _options("claude_code", project),
+        None,
+    )
+    assert batch.notices == ()
+    assert batch.intakes
+    for intake in batch.intakes:
+        assert "Commit [REDACTED_CREDENTIAL] wrote" in intake.text
+        assert "65fdf64a" not in intake.text
+        assert "owner@example.com" not in intake.text
+
+
 def test_secret_event_is_quarantined_without_blocking_later_clean_session(tmp_path: Path) -> None:
     project = tmp_path / "project"
     project.mkdir()

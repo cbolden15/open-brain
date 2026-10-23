@@ -39,6 +39,13 @@ def has_redaction_finding(value: str) -> bool:
     return any(counts.values())
 
 
+def redact_text(value: str) -> str:
+    """Apply the approved policy to one text value and return the redacted text."""
+    if not isinstance(value, str):
+        raise ValueError("invalid redaction text")
+    return _redact_text(value)[0]
+
+
 @dataclass(frozen=True, slots=True)
 class VersionedCaptureRedactor:
     """The only redaction policy approved for capture-service event emission."""
