@@ -1081,3 +1081,109 @@ def test_engine_exposes_followup_tasks(tmp_path: Path) -> None:
     )
     items, _ = engine.tasks.followups.list(ListFilter(), authority=_owner(engine))
     assert [i.item_id for i in items] == [item.item_id]
+
+
+def test_propose_replay_after_source_revised_returns_original_receipt(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    source = _new_source(engine, "Ship the report on Monday")
+    request = _propose(_ref(engine, source.head, "Ship the report"))
+    first = tasks.propose(request, authority=_owner(engine))
+    _revise_source(engine, source, "Ship the report on Tuesday")
+    assert tasks.propose(request, authority=_owner(engine)) == first
+
+
+def test_add_evidence_replay_after_source_revised_returns_original_receipt(
+    tmp_path: Path,
+) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    item = _item(engine, tasks, capture, "Ship the report")
+    source = _new_source(engine, "Dana agreed to review")
+    request = AddEvidenceRequest(
+        "op-ev-1",
+        item.item_id,
+        _ref(engine, source.head, "Dana agreed", role=EvidenceRole.SUPPORTING),
+    )
+    first = tasks.add_evidence(request, authority=_owner(engine))
+    _revise_source(engine, source, "Dana agreed to review it later")
+    assert tasks.add_evidence(request, authority=_owner(engine)) == first
+
+
+def _hidden_from_work_session(
+    engine: BrainEngine, tasks: FollowupTasks
+) -> tuple[str, FollowupItem, EffectiveAuthority]:
+    """An item whose origin a Work session reads but whose other source head turned Personal."""
+    work = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    source = _new_source(engine, "Dana agreed to review")
+    item = tasks.propose(
+        _propose(
+            _ref(engine, work, "Ship the report"),
+            _ref(engine, source.head, "Dana agreed", role=EvidenceRole.SUPPORTING),
+        ),
+        authority=_owner(engine),
+    )
+    _revise_source(engine, source, "Dana agreed to review", tier=PrivacyTier.PERSONAL)
+    work_only = EffectiveAuthority(
+        principal_id="agent-1",
+        session_id="s",
+        space_ids=None,
+        capabilities=frozenset({"followup-propose", "followup-read", "content-read"}),
+        allowed_read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    return work, item, work_only
+
+
+def test_propose_duplicate_of_a_hidden_item_is_not_found(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    work, _hidden, work_only = _hidden_from_work_session(engine, tasks)
+    with pytest.raises(FollowupError, match="not_found") as info:
+        tasks.propose(
+            _propose(_ref(engine, work, "Ship the report"), operation_id="op-propose-2"),
+            authority=work_only,
+        )
+    assert info.value.existing_item_id is None
+
+
+def test_list_refuses_a_hidden_item_as_cursor(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    _work, hidden, work_only = _hidden_from_work_session(engine, tasks)
+    with pytest.raises(FollowupError, match="invalid_request"):
+        tasks.list(ListFilter(cursor=hidden.item_id), authority=work_only)
+
+
+def test_add_evidence_logs_the_state_after_snooze_expiry(tmp_path: Path) -> None:
+    clock = Clock()
+    engine = _engine(tmp_path, clock)
+    tasks = FollowupTasks(engine)
+    capture = _capture(
+        engine, "Ship the report on Monday. Dana agreed.", delivery="d1", tier=PrivacyTier.WORK
+    )
+    item = _item(engine, tasks, capture, "Ship the report")
+    _decide(
+        tasks,
+        engine,
+        item.item_id,
+        1,
+        DecisionAction.SNOOZE,
+        operation_id="c1",
+        snoozed_until=date(2026, 10, 25),
+    )
+    clock.now = datetime(2026, 10, 26, 9, 0, tzinfo=UTC)
+    updated = tasks.add_evidence(
+        AddEvidenceRequest(
+            "op-ev-1",
+            item.item_id,
+            _ref(engine, capture, "Dana agreed", role=EvidenceRole.SUPPORTING),
+        ),
+        authority=_owner(engine),
+    )
+    assert (updated.state, updated.snoozed_until) == (FollowupState.SUGGESTED, None)
+    with _connect(engine) as connection:
+        row = connection.execute(
+            "SELECT prior_state,new_state FROM followup_decisions WHERE operation_id='op-ev-1'"
+        ).fetchone()
+    assert tuple(row) == ("suggested", "suggested")

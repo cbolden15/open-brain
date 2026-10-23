@@ -267,6 +267,16 @@ class FollowupTasks:
             ),
         )
 
+    @staticmethod
+    def _require_readable(projector: RecordProjector, ref: EvidenceRef) -> None:
+        """The session can read the cited source now; ``not_found`` otherwise."""
+        try:
+            projector.read(ref.capture_id)
+        except T03Error as error:
+            if error.code == "not_found":
+                raise FollowupError("not_found") from None
+            raise
+
     def _verify_evidence(
         self,
         connection: sqlite3.Connection,
@@ -363,12 +373,15 @@ class FollowupTasks:
         digest = binding_digest(request_wire(request))
         with self._write() as connection:
             projector = RecordProjector(self._engine.profile, connection, authority)
-            # Verify readability first so an unreadable citation never reveals replay
-            # state, duplicates, or capacity.
-            tiers = [self._verify_evidence(connection, projector, ref) for ref in request.evidence]
+            # Check readability first so an unreadable citation never reveals replay
+            # state, duplicates, or capacity. Revision, position and hash are checked only
+            # after replay misses, so a retry after the source moved returns its receipt.
+            for ref in request.evidence:
+                self._require_readable(projector, ref)
             replayed = self._replay(connection, request.operation_id, digest)
             if replayed is not None:
                 return replayed
+            tiers = [self._verify_evidence(connection, projector, ref) for ref in request.evidence]
             if any(tier is not tiers[0] for tier in tiers):
                 raise FollowupError("tier_mismatch")
             origin = request.evidence[0]
@@ -378,6 +391,8 @@ class FollowupTasks:
                 origin.position(),
             ).fetchone()
             if existing is not None:
+                # A duplicate the session cannot see is reported as unreadable, not by id.
+                self._visible_item(connection, existing["item_id"], authority=authority)
                 raise FollowupError("duplicate_item", existing_item_id=existing["item_id"])
             count = connection.execute("SELECT count(*) FROM followup_items").fetchone()[0]
             if count >= MAX_ITEMS:
@@ -439,10 +454,11 @@ class FollowupTasks:
         with self._write() as connection:
             stored, evidence = self._visible_item(connection, request.item_id, authority=authority)
             projector = RecordProjector(self._engine.profile, connection, authority)
-            tier = self._verify_evidence(connection, projector, request.evidence)
+            self._require_readable(projector, request.evidence)
             replayed = self._replay(connection, request.operation_id, digest)
             if replayed is not None:
                 return replayed
+            tier = self._verify_evidence(connection, projector, request.evidence)
             if tier.value != stored.privacy_tier:
                 raise FollowupError("tier_mismatch")
             current = effective_item(stored, self._today())
@@ -454,12 +470,14 @@ class FollowupTasks:
             evidence_id = self._insert_evidence(
                 connection, stored.item_id, request.evidence, now, "evidence_" + str(uuid4())
             )
+            # Written from the effective item, so a lapsed snooze is settled by this write
+            # and the log records the state the session saw, as decide does.
             item = replace(
-                stored,
+                current,
                 version=stored.version + 1,
                 updated_at=now,
                 new_evidence_since_decision=(
-                    stored.new_evidence_since_decision
+                    current.new_evidence_since_decision
                     or current.state in {FollowupState.DISMISSED, FollowupState.RESOLVED}
                 ),
             )
@@ -471,7 +489,7 @@ class FollowupTasks:
                 digest=digest,
                 principal_id=authority.principal_id,
                 action="add_evidence",
-                prior_state=stored.state,
+                prior_state=current.state,
                 prior_version=stored.version,
                 evidence_ids=(evidence_id,),
             )
@@ -753,13 +771,14 @@ class FollowupTasks:
             today = self._today()
             after: tuple[str, str] | None = None
             if filter.cursor is not None:
-                anchor = connection.execute(
-                    "SELECT created_at,item_id FROM followup_items WHERE item_id=?",
-                    (filter.cursor,),
-                ).fetchone()
-                if anchor is None:
-                    raise FollowupError("invalid_request")
-                after = (anchor["created_at"], anchor["item_id"])
+                # A hidden anchor is refused exactly like an unknown one.
+                try:
+                    anchor, _anchor_evidence = self._visible_item(
+                        connection, filter.cursor, authority=authority
+                    )
+                except FollowupError:
+                    raise FollowupError("invalid_request") from None
+                after = (anchor.created_at, anchor.item_id)
             projector = RecordProjector(self._engine.profile, connection, authority)
             selected: list[FollowupItem] = []
             more = False
