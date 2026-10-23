@@ -4,6 +4,23 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-015: Ancestor trust checks pass on macOS and fail under Linux `/tmp`
+
+Category: Testing / Platform.
+
+Symptom: PR #100 passed the full suite on macOS, but Linux CI failed 154 W5
+guide tests with `unsafe_path`. The guide's collector ancestor check rejected
+every group- or world-writable directory. On Linux, pytest's `tmp_path` sits
+under `/tmp`, which is `1777` and root-owned. On macOS it sits under
+`/var/folders`, which is not world-writable, so local runs never reached the
+case. An earlier local run with `--basetemp` under `/private/tmp` showed the same
+failures and was misread as a test-setup mistake.
+
+Action: path-trust walks must accept a root-owned sticky ancestor, as
+`agent_settings_observation.py` does, and test that case directly. Before
+pushing, run new path-trust tests on macOS with `--basetemp` under
+`/private/tmp`. That reproduces the Linux layout.
+
 ### TESTING-014: Plugin `t07-ui` `vi.waitFor` default timeout flakes under load
 
 Category: Testing / Host.

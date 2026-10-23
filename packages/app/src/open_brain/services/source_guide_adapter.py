@@ -178,6 +178,8 @@ def _trusted_directory_chain(directory: Path) -> None:
             not stat.S_ISDIR(info.st_mode)
             or info.st_uid not in {os.getuid(), 0}
             or stat.S_IMODE(info.st_mode) & 0o022
+            # A root-owned sticky directory such as /tmp cannot have our entries replaced.
+            and not (info.st_uid == 0 and info.st_mode & stat.S_ISVTX)
         ):
             raise GuideAdapterError("unsafe_path")
 

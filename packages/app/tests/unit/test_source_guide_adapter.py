@@ -105,6 +105,41 @@ def test_executable_must_be_absolute_existing_and_owner_controlled(tmp_path: Pat
     _assert_code(error, "unsafe_path")
 
 
+@pytest.mark.parametrize(
+    ("mode", "uid", "trusted"),
+    [
+        (0o41777, 0, True),
+        (0o40777, 0, False),
+        (0o41777, None, False),
+    ],
+)
+def test_ancestor_trust_admits_only_root_owned_sticky_shared_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int, uid: int | None, trusted: bool
+) -> None:
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o700)
+    owner = os.getuid() if uid is None else uid
+    real_lstat = os.lstat
+
+    def fake_lstat(item: object) -> os.stat_result:
+        info = real_lstat(item)  # type: ignore[arg-type]
+        if Path(cast(str, item)) != shared:
+            return info
+        fields = list(info)
+        fields[0], fields[4] = mode, owner
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(os, "lstat", fake_lstat)
+    directory = shared / "bin"
+    directory.mkdir(mode=0o700)
+    if trusted:
+        adapter._trusted_directory_chain(directory)
+    else:
+        with pytest.raises(GuideAdapterError) as error:
+            adapter._trusted_directory_chain(directory)
+        _assert_code(error, "unsafe_path")
+
+
 def test_installer_symlink_records_canonical_target_and_detects_replacement(
     tmp_path: Path,
 ) -> None:
