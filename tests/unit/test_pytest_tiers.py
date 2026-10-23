@@ -123,6 +123,7 @@ def test_makefile_verification_targets_are_phony() -> None:
         "lint",
         "typecheck",
         "test",
+        "test-shard",
         "test-fast",
         "test-integration",
         "test-tiers-audit",
