@@ -750,3 +750,39 @@ def test_resumed_interactive_repick_does_not_duplicate_an_approval(
     assert len(approvals) == 1
     assert "already has a current approved copy" in output
     assert "Selection completeness: 1 of 1" in output
+
+
+
+def test_work_egress_policy_never_exposes_the_slack_original(guide: Guide) -> None:
+    """An owner `{work}` egress policy widens Work captures, never managed Slack originals."""
+    from open_brain_engine.core.models import PrivacyTier
+    from open_brain_engine.engine import open_local_engine
+    from open_brain_engine.engine.t03_contracts import SearchPageRequest
+
+    from open_brain.services.session_authority import TrustedSessionAuthority
+    from open_brain.services.t03_adapters import owner_authority
+
+    copies = approved_one(guide)
+    policy_applied(guide)
+    engine: Any = open_local_engine(compile_single_user_local(guide.brain))
+    scoped = TrustedSessionAuthority(
+        engine,
+        policy_path=guide.root / "policy" / "policy.json",
+        consent_state_path=guide.root / "consent" / "state.json",
+    )
+
+    def found(authority: Any = None) -> set[str]:
+        page = engine.retrieval.search_page(
+            SearchPageRequest(query="invite-only", limit=10),
+            authority=authority or scoped.load(),
+        )
+        return {str(row["record_id"]) for row in page.to_wire()["results"]}
+
+    # The owner sees the matching Slack original, so the scoped result below is meaningful.
+    assert found(owner_authority(engine, session_id="owner-test")) > set(copies)
+    assert found() == set(copies)
+    engine.owner_egress_policy.set(
+        frozenset({PrivacyTier.WORK}), operation_id="op-work",
+        authority=owner_authority(engine, session_id="owner-test"),
+    )
+    assert found() == set(copies)

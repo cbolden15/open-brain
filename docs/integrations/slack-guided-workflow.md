@@ -2,7 +2,7 @@
 
 `open-brain source guide` takes one owner from choosing a Slack channel to a scoped MCP client that can read selected, approved Work messages. It drives the existing collector, sharing, consent and agent setup services. You never copy internal account, channel, receipt, source or preview IDs between commands. Each write still has its own owner checkpoint.
 
-This is a contributor candidate at schema/runtime/Portable `22/17/17` on branch `feat/w5-guided-slack-workflow`. It has only been run against synthetic fixtures. Real Slack access, a real client or model, and a private pilot are separate owner-authorized steps. The lower-level commands in the [Slack capture guide](slack-capture-workflow.md) and the [cited-recall guide](slack-decision-recall.md) still work and remain the reference for each step.
+This is a contributor candidate at schema/runtime/Portable `22/16/17` on branch `feat/w5-guided-slack-workflow`. It has only been run against synthetic fixtures. Real Slack access, a real client or model, and a private pilot are separate owner-authorized steps. The lower-level commands in the [Slack capture guide](slack-capture-workflow.md) and the [cited-recall guide](slack-decision-recall.md) still work and remain the reference for each step.
 
 Slack coverage beyond the selected approved messages is unknown. The guide never reports a complete channel history.
 
@@ -114,5 +114,7 @@ The journal is bound to the device and inode of the collector state root as well
 Native collector and owner-service failure codes are mapped to the closed guide codes. The journal keeps the mapped state only, never the native code or any provider text.
 
 ## What this does not establish
+
+The scoped client can read only the dedicated space. Inside it, Slack originals stay local, and only approved copies leave. If you also turn on the owner egress policy (`open-brain egress-policy`) for the Work tier, other Work captures you later route into that space become readable by the scoped provider too. Keep the space for this workflow alone.
 
 Synthetic tests do not prove live Slack access, real client configuration, model answers or injection resistance. Slack coverage beyond the selected approved messages is unknown: edits, deletions and messages outside the fetched pages are not reflected until you import and inspect them again.
