@@ -25,7 +25,7 @@ from .capture_lifecycle_contracts import (
     canonical_bytes,
     decode_canonical,
 )
-from .capture_lifecycle_journal import LifecycleJournal, snapshot_token
+from .capture_lifecycle_journal import LifecycleJournal, _State, snapshot_token
 from .capture_recovery import CaptureRecoveryPlan, CaptureReservationIdentity
 from .consent_contracts import EgressMode
 from .consumer_journal import LifecycleJournalV2, consumer_items
@@ -207,7 +207,12 @@ def decode_lifecycle_segment(
     journal: LifecycleJournal, operation_id: str, raw: bytes
 ) -> LifecycleSegment | ConsumerSegmentEnvelope:
     """The typed accepted request selects the decoder; envelope shape grants nothing."""
-    state = journal._state()
+    return _decode_segment(journal, journal._state(), operation_id, raw)
+
+
+def _decode_segment(
+    journal: LifecycleJournal, state: _State, operation_id: str, raw: bytes
+) -> LifecycleSegment | ConsumerSegmentEnvelope:
     request = state.request(operation_id)
     if consumer_items(request) is None:
         return LifecycleSegment.from_bytes(raw)
@@ -225,12 +230,17 @@ def decode_lifecycle_segment(
 
 
 def _segments(journal: LifecycleJournal) -> Iterator[LifecycleSegment | ConsumerSegmentEnvelope]:
+    """Decode every custodied segment against one verified journal state.
+
+    Verification replays the whole journal, so it runs once per pass, not once per
+    segment. Callers must not write the journal while iterating.
+    """
     state = journal._state()
     for operation, group, capture in state.custodied:
         binding = next(
             item for item in state.staged[operation, group].segments if item.capture_id == capture
         )
-        segment = decode_lifecycle_segment(journal, operation, state.blobs[binding.request_sha256])
+        segment = _decode_segment(journal, state, operation, state.blobs[binding.request_sha256])
         if segment.binding != binding:
             raise LifecycleError("invalid_evidence")
         yield segment
@@ -420,7 +430,7 @@ class CaptureLifecycleTasks:
                 manifest = state.staged.get((request.operation_id, group_key))
                 if manifest is None or segment.binding not in manifest.segments:
                     raise LifecycleError("invalid_arguments")
-                if decode_lifecycle_segment(journal, request.operation_id, segment.to_bytes()) != (
+                if _decode_segment(journal, state, request.operation_id, segment.to_bytes()) != (
                     segment
                 ):
                     raise LifecycleError("invalid_evidence")
