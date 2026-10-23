@@ -16,7 +16,7 @@ from open_brain_engine.core.ports import (
     RedactionReceipt,
 )
 
-REDACTION_POLICY_VERSION = "open-brain-redaction-v1"
+REDACTION_POLICY_VERSION = "open-brain-redaction-v2"
 
 _CREDENTIAL = "[REDACTED_CREDENTIAL]"
 _PERSONAL_IDENTIFIER = "[REDACTED_PERSONAL_IDENTIFIER]"
@@ -26,7 +26,10 @@ _CREDENTIAL_ASSIGNMENT = re.compile(
     r"(\s*[:=]\s*)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,;&]+)"
 )
 _BEARER_TOKEN = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{8,}={0,2}")
-_EMAIL = re.compile(r"(?i)(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?![A-Z0-9.-])")
+# A period may follow the address only when it ends a sentence, not when a domain label does.
+_EMAIL = re.compile(
+    r"(?i)(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?![A-Z0-9-]|\.[A-Z0-9])"
+)
 _PHONE = re.compile(r"(?<![\w-])(?:\+?\d{1,3}[ .-])?(?:\(?\d{3}\)?[ .-])\d{3}[ .-]\d{4}(?!\w)")
 _SECRET_SHAPED_TOKEN = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 
