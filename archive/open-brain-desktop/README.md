@@ -6,6 +6,9 @@ member, build target, CI job, or supported product. The collector's headless CLI
 (`open-brain-collector` and its `sources` operations) covers the source operations the desktop
 exposed, and Homebrew installs only the core.
 
+The npm and Cargo lockfiles were removed so dependency scanners stop proposing updates for code that
+never ships. Recover them from the commit before the archive commit if you need an exact build.
+
 Future desktop work should start from this history with its own release decision. Do not restore it
 to `packages/` or to `make contributor-check` without one. The original notes follow unchanged;
 their commands assume the old `packages/desktop` path and Makefile targets.
