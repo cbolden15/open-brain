@@ -13,6 +13,7 @@ still run the complete suite. The tiers are for faster local feedback only.
 | `make test-integration` | Integration tier only | Not timed separately; about 94% of the suite's cumulative test time |
 | `make test-tiers-audit` | Proves the two tiers partition the full collection | 5.2 s warm (three serial collections) |
 | `make test-profile` | Complete suite with the timing reporter, then a summary | Complete-suite time; reporter overhead not isolated |
+| `make test-shard SHARD=I/N` | Shard I of N; shards 1 through N together run the complete suite | About a quarter of `make test` at N=4 |
 
 Run `make test-fast` while iterating, then `make test` or `make verify` before handoff. The
 fast tier never replaces the complete suite. Set the worker count with
@@ -52,6 +53,16 @@ from a structured node list. It clears inherited `PYTEST_ADDOPTS` and `PYTEST_PL
 refuses selection options in configured `addopts`, and fails when the tiers overlap, miss a
 collected test, or name a stale function. Pass `--baseline FILE` with one node ID per line to
 also prove that every earlier test is still collected.
+
+## CI shards
+
+CI runs the Python suite as four parallel jobs per platform with `make test-shard`, and
+everything else in `make contributor-check` through `make contributor-check-without-tests`.
+`tools/open_brain_dev/pytest_shard.py` assigns each test node to a shard by the SHA-256 of
+its node ID, so every collected test runs in exactly one shard without a stored timing file.
+On the October 2026 profile, four shards came within 6% of an even split of the suite's
+CPU time. The required `Linux x86_64` and `macOS arm64` checks pass only when that
+platform's build job and all four of its shards pass.
 
 ## Profiling fields
 
