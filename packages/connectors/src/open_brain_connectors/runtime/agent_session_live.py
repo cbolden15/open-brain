@@ -37,7 +37,7 @@ from open_brain_connectors.runtime.source_registry import (
 )
 
 _CLIENTS = frozenset({"claude_code", "codex"})
-_MAX_TRANSCRIPT_BYTES = 524_288
+_MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024
 _MAX_MESSAGES = 64
 _MAX_TEXT = 65_536
 _MAX_SUMMARY_MESSAGES = 4
@@ -114,22 +114,23 @@ class AgentSessionLiveSource:
             project_path=str(project),
             captured_ids=captured_ids,
         )
-        accepted: list[tuple[QueuedSessionEvent, tuple[_Message, ...]]] = []
+        accepted: list[tuple[QueuedSessionEvent, tuple[_Message, ...], str]] = []
         notices: list[str] = ["session_queue_full"] if queue_overflow_count(self._root) else []
         for event in candidates:
             try:
-                messages = _read_messages(event)
+                stats: dict[str, object] = {}
+                messages = _read_messages(event, stats=stats)
             except _SessionFormatError as error:
                 notices.append(error.notice)
                 continue
-            if _contains_secret(messages):
+            if stats["contains_secret"]:
                 notices.append("session_quarantined_secret")
                 continue
-            accepted.append((event, messages))
+            accepted.append((event, messages, str(stats["content_sha256"])))
         page = accepted[:25]
         intakes = tuple(
             intake
-            for event, messages in page
+            for event, messages, turn_digest in page
             for intake in _intakes(
                 self._adapter,
                 selection,
@@ -137,6 +138,7 @@ class AgentSessionLiveSource:
                 messages,
                 capture_summary=capture_summary,
                 capture_transcript=capture_transcript,
+                turn_digest=turn_digest,
             )
         )
         # A transcript produces at most two intakes.  Avoid accepting more than
@@ -146,7 +148,7 @@ class AgentSessionLiveSource:
             page = accepted[:max_events]
             intakes = tuple(
                 intake
-                for event, messages in page
+                for event, messages, turn_digest in page
                 for intake in _intakes(
                     self._adapter,
                     selection,
@@ -154,9 +156,10 @@ class AgentSessionLiveSource:
                     messages,
                     capture_summary=capture_summary,
                     capture_transcript=capture_transcript,
+                    turn_digest=turn_digest,
                 )
             )
-        proposed_ids = tuple(event.event_id for event, _messages in page)
+        proposed_ids = tuple(event.event_id for event, _messages, _digest in page)
         proposed: dict[str, object] = {
             "captured_event_ids": list(_bounded_ids((*captured_ids, *proposed_ids))),
             "client": client,
@@ -330,7 +333,9 @@ def _latest_events(
     )
 
 
-def _read_messages(event: QueuedSessionEvent) -> tuple[_Message, ...]:
+def _read_messages(
+    event: QueuedSessionEvent, *, stats: dict[str, object] | None = None
+) -> tuple[_Message, ...]:
     path = Path(event.transcript_path)
     try:
         if path.is_symlink() or not path.is_file():
@@ -348,6 +353,8 @@ def _read_messages(event: QueuedSessionEvent) -> tuple[_Message, ...]:
     except UnicodeDecodeError as error:
         raise _SessionFormatError("session_unsupported_format") from error
     messages: list[_Message] = []
+    content_hash = hashlib.sha256()
+    contains_secret = False
     codex_meta_seen = False
     lines = text.splitlines()
     for position, line in enumerate(lines):
@@ -366,14 +373,20 @@ def _read_messages(event: QueuedSessionEvent) -> tuple[_Message, ...]:
             codex_meta_seen = _validate_codex_meta(value, event) or codex_meta_seen
             message = _codex_message(value)
         if message is not None:
+            content_hash.update(json.dumps([message.role, message.text]).encode("utf-8"))
+            contains_secret = contains_secret or _contains_secret((message,))
             messages.append(message)
-            if (
+            if len(message.text) > _MAX_TEXT:
+                raise _SessionFormatError("session_transcript_too_large")
+            while (
                 len(messages) > _MAX_MESSAGES
                 or sum(len(item.text) for item in messages) > _MAX_TEXT
             ):
-                raise _SessionFormatError("session_transcript_too_large")
+                messages.pop(0)
     if not messages or (event.client == "codex" and not codex_meta_seen):
         raise _SessionFormatError("session_unsupported_format")
+    if stats is not None:
+        stats.update(content_sha256=content_hash.hexdigest(), contains_secret=contains_secret)
     return tuple(messages)
 
 
@@ -495,16 +508,20 @@ def _intakes(
     *,
     capture_summary: bool,
     capture_transcript: bool,
+    turn_digest: str | None = None,
 ) -> tuple[SourceRecordIntake, ...]:
     transcript = "\n\n".join(f"{message.role}: {message.text}" for message in messages)
-    summary_messages = messages[:_MAX_SUMMARY_MESSAGES]
+    summary_messages = messages[-_MAX_SUMMARY_MESSAGES:]
     summary = "Extractive session summary:\n" + "\n".join(
         f"{message.role}: {message.text}" for message in summary_messages
     )
-    revision = hashlib.sha256((event.event_id + "\x1f" + transcript).encode("utf-8")).hexdigest()
+    # Observations have random queue IDs. Content identifies a completed turn so
+    # restart replay is exact; later turns are independent, unordered sources.
+    revision = turn_digest or hashlib.sha256(transcript.encode("utf-8")).hexdigest()
+    turn_id = hashlib.sha256((event.session_id + "\x1f" + revision).encode("utf-8")).hexdigest()
     record = AgentSessionRecord(
         project_id=selection.resource_id,
-        session_id=event.session_id,
+        session_id=turn_id,
         revision_id=revision,
         client_name=event.client,
         summary=summary,
