@@ -292,6 +292,44 @@ def test_missing_custody_without_cancellation_still_fails_the_run(
 
 
 
+def test_pause_between_page_records_returns_a_paused_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _Clock(100)
+    state_store = CollectorStateStore(tmp_path / "collector.json")
+    controller = CollectorController(state_store, clock=clock)
+    control = CollectorController(state_store, clock=clock)
+    selection = _selection()
+    release = threading.Event()
+    release.set()
+    sink = _BlockingSink(threading.Event(), release)
+    receipt = controller._custody.receipt
+    paused: list[object] = []
+
+    def pause_during_second_lookup(receipt_id: str) -> dict[str, object]:
+        # The per-record lookup runs between two capture-guard sections. Land the
+        # pause there deterministically; the multi-record race test hits it by chance.
+        if len(sink.external_ids) == 1 and not paused:
+            paused.append(control.pause("github.fixture"))
+        return receipt(receipt_id)
+
+    monkeypatch.setattr(controller._custody, "receipt", pause_during_second_lookup)
+    controller.enable(source_id="github.fixture", selection=selection, interval_seconds=30)
+
+    result = controller.sync_due(
+        source_id="github.fixture", runtime=_MultiRecordSource(selection), capture_sink=sink
+    )
+
+    assert result.outcome == "failed"
+    assert result.failure_code == "collector_paused"
+    assert result.captured_count == 1
+    assert len(sink.external_ids) == 1
+    persisted = json.loads((tmp_path / "collector.json").read_text(encoding="utf-8"))
+    assert persisted["sources"]["github.fixture"]["status"] == "paused"
+    assert persisted["sources"]["github.fixture"]["last_run"]["failure_code"] == "collector_paused"
+
+
 def test_pause_during_multi_record_page_stops_remaining_imports(
     tmp_path: Path,
 ) -> None:
