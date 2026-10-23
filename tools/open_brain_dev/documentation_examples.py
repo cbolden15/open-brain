@@ -77,7 +77,7 @@ COMPATIBILITY_COORDINATES: Final = {
     "Task contract": "t03.v1",
     "Catalog schema": "2",
     "Plugin bridge": "1",
-    "Portable metadata": "17",
+    "Portable metadata": "18",
 }
 README_MCP_CONFIGS: Final = (
     ("Capture only", ("mcp", "--allow-capture")),

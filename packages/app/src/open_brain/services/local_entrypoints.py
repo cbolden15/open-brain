@@ -3333,6 +3333,7 @@ def _record_verified_export(
         15,
         16,
         17,
+        18,
     }:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
@@ -3373,7 +3374,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in set(range(1, 18))
+            or value["schema_version"] not in set(range(1, 19))
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

@@ -753,7 +753,7 @@ def test_real_populated_facets_export_import_reopen_query_retry_and_reexport(
     exported = tmp_path / "portable"
     engine.portability.export(exported, export_id="export_00000000-0000-4000-8000-000000000091")
     before = validated_portable_snapshot(exported)
-    assert before.manifest["schema_version"] == 17
+    assert before.manifest["schema_version"] == 18
     operations = json.loads(before.files[FACET_OPERATIONS_PATH])["operations"]
     assert {row["principal_id"] for row in operations} == {authority.principal_id}
     events = json.loads(before.files[FACET_EVENTS_PATH])["events"]

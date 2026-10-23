@@ -176,7 +176,7 @@ def test_exact_replay_scope_and_portable_restore(tmp_path: Path) -> None:
         engine.developments.bind(derived, (raw,), operation_id="changed", authority=_authority())
     exported = tmp_path / "exported"
     engine.portability.export(exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4")
-    assert validate_portable_root(exported)["schema_version"] == 17
+    assert validate_portable_root(exported)["schema_version"] == 18
     restored = tmp_path / "restored"
     engine.portability.import_clean(
         exported, restored, import_id="import_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4"
@@ -626,4 +626,4 @@ def test_transitive_absent_receipt_cannot_be_bound_after_confirmation(
     engine.portability.export(
         exported, export_id="export_2b5f2d12-59ee-4f04-9a8b-7f6bbd9c1bd4"
     )
-    assert validate_portable_root(exported)["schema_version"] == 17
+    assert validate_portable_root(exported)["schema_version"] == 18

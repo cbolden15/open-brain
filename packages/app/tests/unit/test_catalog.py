@@ -84,7 +84,7 @@ def test_catalog_is_deterministic_json_safe_and_evidence_paths_exist() -> None:
     )
     assert first["schema_version"] == 2
     compatibility = cast(dict[str, object], first["compatibility"])
-    assert compatibility["portable_metadata"] == 17
+    assert compatibility["portable_metadata"] == 18
     assert compatibility["runtime_session"] == 16
     assert compatibility["state_schema"] == 23
     assert cast(dict[str, object], first["acceptance"])["trusted_certifications"] == []

@@ -1,0 +1,189 @@
+"""Portable18 carries follow-up items, evidence positions and decisions; never quote text."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from contextlib import closing
+from hashlib import sha256
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+from open_brain_engine.core.models import PrivacyTier
+from open_brain_engine.engine import TextPayload, local_schema
+from open_brain_engine.engine.followup_contracts import (
+    EvidenceRef,
+    EvidenceRole,
+    FollowupItem,
+    FollowupKind,
+    OwnerKind,
+    ProposeRequest,
+)
+from open_brain_engine.engine.followup_schema import FOLLOWUP_MIGRATION
+from open_brain_engine.engine.local import BrainEngine
+from open_brain_engine.engine.records import RecordProjector
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
+from open_brain_engine.portable.followups_v18 import FOLLOWUPS_CONTRACT, FOLLOWUPS_PATH
+from open_brain_engine.portable.v1 import PortableValidationError
+from open_brain_engine.portable.v17 import validated_portable_snapshot_v17
+from open_brain_engine.portable.v18_catalog import PORTABLE_V18_SCHEMA_CATALOG
+from open_brain_engine.portable.versioned import validated_portable_snapshot
+
+from open_brain.profile import compile_single_user_local, open_existing_single_user_local
+from open_brain.services.t03_adapters import owner_authority
+
+QUOTE_TEXT = "PRIVATE_SYNTHETIC_QUOTE promise to deliver the synthetic report"
+
+
+def _engine(root: Path) -> BrainEngine:
+    root.parent.chmod(0o700)
+    return BrainEngine.open(compile_single_user_local(root, starter_spaces=()))
+
+
+def _owner(engine: BrainEngine) -> EffectiveAuthority:
+    return owner_authority(engine.tasks, session_id="owner-test")
+
+
+def _export(engine: BrainEngine, root: Path, *, version: int = 18) -> dict[str, bytes]:
+    receipt = engine.tasks.portability.export(root, export_id="export_" + str(uuid4()))
+    assert receipt.schema_version == version
+    return {
+        path: raw
+        for path, raw in validated_portable_snapshot(root).files.items()
+        if path != "portable-manifest.json"
+    }
+
+
+def _restore(engine: BrainEngine, archive: Path, destination: Path) -> BrainEngine:
+    engine.tasks.portability.import_clean(archive, destination, import_id="import_" + str(uuid4()))
+    return BrainEngine.open(open_existing_single_user_local(destination))
+
+
+def _capture(engine: BrainEngine, text: str) -> str:
+    return engine.capture.accept(
+        TextPayload(text), delivery_id="followup." + str(uuid4()), privacy_tier=PrivacyTier.WORK
+    ).capture_id
+
+
+def _ref(
+    engine: BrainEngine, capture_id: str, role: EvidenceRole = EvidenceRole.ORIGIN
+) -> EvidenceRef:
+    with closing(engine._store.connect()) as connection:
+        text = (
+            RecordProjector(engine.profile, connection, _owner(engine))
+            .source(capture_id, expected=capture_id, history=True)
+            .text
+        )
+    end = min(23, len(text))
+    return EvidenceRef(
+        capture_id, capture_id, 0, end, sha256(text[:end].encode("utf-8")).hexdigest(), role
+    )
+
+
+def _propose(
+    engine: BrainEngine, *refs: EvidenceRef, summary: str = "Synthetic summary"
+) -> FollowupItem:
+    return engine.followups.propose(
+        ProposeRequest(
+            operation_id="op-" + str(uuid4()),
+            kind=FollowupKind.COMMITMENT,
+            summary=summary,
+            project="synthetic",
+            owner=OwnerKind.SELF,
+            owner_name=None,
+            due=None,
+            due_evidence_index=None,
+            evidence=refs,
+        ),
+        authority=_owner(engine),
+    )
+
+
+def _connect(engine: BrainEngine) -> sqlite3.Connection:
+    connection = sqlite3.connect(engine.profile.root / local_schema.PHASE1_STATE_DATABASE)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _rehash(root: Path) -> None:
+    path = root / "portable-manifest.json"
+    manifest = json.loads(path.read_bytes())
+    manifest["files"] = [
+        {"path": file.relative_to(root).as_posix(), "sha256": sha256(file.read_bytes()).hexdigest()}
+        for file in sorted(root.rglob("*"))
+        if file.is_file() and file != path
+    ]
+    path.write_bytes(canonical(manifest))
+
+
+def test_empty_family_catalog_and_predecessor_reader_refusal(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    files = _export(engine, tmp_path / "archive")
+    assert json.loads(files[FOLLOWUPS_PATH]) == {
+        "contract": FOLLOWUPS_CONTRACT,
+        "items": [],
+        "evidence": [],
+        "decisions": [],
+    }
+    assert files[FOLLOWUPS_PATH] == canonical(json.loads(files[FOLLOWUPS_PATH]))
+    assert PORTABLE_V18_SCHEMA_CATALOG["migration23_sha256"] == FOLLOWUP_MIGRATION.checksum
+    assert PORTABLE_V18_SCHEMA_CATALOG["state_schema_version"] == 23
+    with pytest.raises(PortableValidationError):
+        validated_portable_snapshot_v17(tmp_path / "archive")
+
+
+def test_export_carries_positions_and_hashes_never_quote_text(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    origin = _capture(engine, QUOTE_TEXT)
+    support = _capture(engine, "Synthetic supporting evidence text for the same promise")
+    refs = (_ref(engine, origin), _ref(engine, support, EvidenceRole.SUPPORTING))
+    item = _propose(engine, *refs)
+    files = _export(engine, tmp_path / "archive")
+    payload = json.loads(files[FOLLOWUPS_PATH])
+    assert payload["contract"] == FOLLOWUPS_CONTRACT
+    assert [row["item_id"] for row in payload["items"]] == [item.item_id]
+    exported = payload["items"][0]
+    assert exported["summary"] == "Synthetic summary"
+    assert exported["evidence_retracted"] is False
+    assert exported["privacy_tier"] == "work"
+    assert {
+        (row["capture_id"], row["quote_start"], row["quote_end"], row["quote_sha256"], row["role"])
+        for row in payload["evidence"]
+    } == {
+        (ref.capture_id, ref.quote_start, ref.quote_end, ref.quote_sha256, ref.role.value)
+        for ref in refs
+    }
+    assert [row["evidence_id"] for row in payload["evidence"]] == sorted(
+        row["evidence_id"] for row in payload["evidence"]
+    )
+    assert len(payload["decisions"]) >= 1
+    assert [row["sequence"] for row in payload["decisions"]] == list(
+        range(1, len(payload["decisions"]) + 1)
+    )
+    assert "PRIVATE_SYNTHETIC_QUOTE" not in files[FOLLOWUPS_PATH].decode("utf-8")
+    assert "promise" not in files[FOLLOWUPS_PATH].decode("utf-8")
+
+
+def test_retracted_item_exports_flagged_with_summary_omitted(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    gone = _capture(engine, QUOTE_TEXT)
+    kept = _capture(engine, "Synthetic kept evidence text for the same promise")
+    item = _propose(
+        engine,
+        _ref(engine, gone),
+        _ref(engine, kept, EvidenceRole.SUPPORTING),
+        summary="PRIVATE_SYNTHETIC_SUMMARY to withhold",
+    )
+    owner = _owner(engine)
+    preview = engine.lifecycle.preview_retraction(capture_id=gone, authority=owner)
+    engine.lifecycle.commit_retraction(str(preview["preview_id"]), str(uuid4()), authority=owner)
+    files = _export(engine, tmp_path / "archive")
+    payload = json.loads(files[FOLLOWUPS_PATH])
+    exported = payload["items"][0]
+    assert exported["item_id"] == item.item_id
+    assert exported["evidence_retracted"] is True
+    assert exported["summary"] is None
+    assert len(payload["evidence"]) == 2
+    assert "PRIVATE_SYNTHETIC" not in files[FOLLOWUPS_PATH].decode("utf-8")

@@ -457,7 +457,7 @@ def test_frozen_v8_archive_restores_to_fourteen_without_reinterpreting_old_bytes
     assert replay.duplicate and replay.capture_id == baseline.retained_original.capture_id
     latest = tmp_path / "latest-nine"
     assert (
-        restored.portability.export(latest, export_id="export_" + str(uuid4())).schema_version == 17
+        restored.portability.export(latest, export_id="export_" + str(uuid4())).schema_version == 18
     )
 
 
@@ -477,7 +477,7 @@ def test_v9_export_restore_preserves_import_and_cloud_copy(
     archive = tmp_path / "archive"
     engine.portability.export(archive, export_id="export_" + str(uuid4()))
     snapshot = validated_portable_snapshot(archive)
-    assert snapshot.manifest["schema_version"] == 17
+    assert snapshot.manifest["schema_version"] == 18
     restored_path = tmp_path / "restored"
     engine.portability.import_clean(archive, restored_path, import_id="import_" + str(uuid4()))
     restored = BrainEngine.open(open_existing_single_user_local(restored_path))

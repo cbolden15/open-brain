@@ -33,6 +33,13 @@ from open_brain.profile import compile_single_user_local, open_existing_single_u
 from open_brain.services.t03_adapters import owner_authority
 
 
+@pytest.fixture(autouse=True)
+def frozen_schema22_producer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep frozen Portable17 recipes at their original schema22 boundary."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 22)
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 22)
+
+
 def _engine(root: Path) -> BrainEngine:
     root.parent.chmod(0o700)
     return BrainEngine.open(compile_single_user_local(root, starter_spaces=()))
@@ -210,7 +217,7 @@ def test_portable16_input_restores_with_no_shareable_tier(
     current = _engine(tmp_path / "current")
     restored = _restore(current, tmp_path / "archive", tmp_path / "restored")
     with _connect(restored) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
         assert read_owner_egress_policy(connection).version == 0
     assert _egress(restored, work) == (0, 0, False)
     assert _export(restored, tmp_path / "again")[OWNER_EGRESS_POLICY_PATH] == b""

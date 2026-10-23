@@ -601,7 +601,7 @@ def test_f18_pending_facet_proposal_survives_clean_import_and_valid_approval(
     exported = brain.engine.portability.export(
         archive, export_id="export_00000000-0000-4000-8000-000000000010"
     )
-    assert exported.schema_version == 17
+    assert exported.schema_version == 18
     brain.engine.portability.import_clean(
         archive, restored, import_id="import_00000000-0000-4000-8000-000000000011"
     )
@@ -744,7 +744,7 @@ def test_f19_ordinary_pending_ingress_retains_main_lossless_portable_custody(
     exported = brain.engine.portability.export(
         target, export_id="export_00000000-0000-4000-8000-000000000024"
     )
-    assert exported.schema_version == 17
+    assert exported.schema_version == 18
     assert _journal_state(brain.profile) == original
     restored = brain.root.parent / "pending-restored"
     brain.engine.portability.import_clean(

@@ -100,7 +100,7 @@ def test_mixed_history_custody_and_facets_survive_clean_roundtrip(
     archive = tmp_path / "portable10"
     engine.portability.export(archive, export_id="export_" + str(uuid4()))
     before = validated_portable_snapshot(archive)
-    assert before.manifest["schema_version"] == 17
+    assert before.manifest["schema_version"] == 18
     history = validate_historical_authority(before.files)
     assert [record.request.dto_version for record in history.records] == [1, 2, 2, 2]
     with pytest.raises(PortableValidationError):
