@@ -10,6 +10,7 @@ import pytest
 from open_brain.services.harness_bridge import run_harness
 from open_brain.services.harness_mcp import HarnessMcpAdapter
 from open_brain.services.mcp_protocol import McpCallError, serve_stdio_mcp
+from open_brain.services.session_consent import DurableProviderConsentStore
 from packages.app.tests.integration.services.test_harness_bridge import event, setup
 
 
@@ -20,12 +21,12 @@ def structured(response: dict[str, object]) -> dict[str, Any]:
 
 
 def test_mcp_search_source_and_current_revocation(tmp_path: Path) -> None:
-    config, project, policy, configuration = setup(tmp_path)
+    config, project, _, configuration = setup(tmp_path)
     assert run_harness("enqueue", config, "codex", event(project))["status"] == "queued"
     drained = run_harness("drain", config, "codex")
     assert cast(list[dict[str, object]], drained["results"])[0]["status"] == "delivered", drained
     counts = cast(dict[str, int], run_harness("status", config, "codex")["counts"])
-    assert counts["delivered"] == 1
+    assert counts["pending"] == 0
     adapter = HarnessMcpAdapter(config, "claude-code", project)
     found = adapter.call_tool("brain_search_page", {"query": "editor"})
     assert found["isError"] is False
@@ -38,8 +39,15 @@ def test_mcp_search_source_and_current_revocation(tmp_path: Path) -> None:
     assert structured(source)["results"][0]["source_context"] == (
         "My preferred editor is Vim."
     )
-    policy["providers"]["claude-code"] = []
-    Path(configuration["policy"]).write_text(json.dumps(policy))
+    # Provider consent, not harness policy, is the current read authority.
+    store = DurableProviderConsentStore(
+        Path(configuration["consent_state"]), brain_id=configuration["brain_id"], issuer_epoch=1,
+    )
+    active = next(r for r in store.load().records if r.active and r.provider_id == "claude-code")
+    store.revoke(
+        consent_id=active.consent_id, operation_id="revoke-claude-mcp",
+        decided_at="2026-01-02T00:00:00Z",
+    )
     denied = adapter.call_tool("brain_read_source", {"capture_id": capture_id})
     assert denied["isError"] is True
     assert "Vim" not in json.dumps(denied)

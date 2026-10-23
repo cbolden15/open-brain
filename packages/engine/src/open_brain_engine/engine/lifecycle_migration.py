@@ -34,7 +34,7 @@ def migrate_saved_lifecycle(
         state = classify_local_schema(connection)
         if (
             state.state in {"current", "supported_old"}
-            and state.version in {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21}
+            and state.version in {11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}
         ):
             return
         if state.state != "supported_old" or state.version != 10:

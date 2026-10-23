@@ -7,7 +7,7 @@ import os
 import re
 import stat
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
@@ -15,7 +15,7 @@ from typing import cast
 
 from open_brain_engine.capture.redaction import has_redaction_finding
 
-from .harness_continuity import MAX_EVENT_BYTES, MAX_EVENT_MESSAGES
+from .harness_batching import MAX_EVENT_BYTES, MAX_EVENT_MESSAGES
 from .harness_memory import MemoryMessage, select_memories
 from .harness_policy import _LOCAL_MARKING
 
@@ -50,27 +50,6 @@ class HarnessCaptureEvent:
     messages: tuple[MemoryMessage, ...]
     timestamps: Mapping[int, str | None]
     local_only: bool = False
-    parent_session_id: str | None = None
-    session_timestamp: str | None = None
-    origin_sessions: Mapping[str, str] = field(default_factory=dict)
-    selection: tuple[tuple[int, int], ...] | None = None
-    origin_ordinals: Mapping[str, int] = field(default_factory=dict)
-
-
-def pi_parent_session_id(value: object) -> str | None:
-    """Parse the installed SDK's parent filename; never open a parent transcript."""
-    if value is None:
-        return None
-    if not isinstance(value, str) or not Path(value).is_absolute():
-        raise HarnessEventError("lineage_unavailable")
-    match = re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_"
-        r"([A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?)\.jsonl",
-        Path(value).name,
-    )
-    if match is None:
-        raise HarnessEventError("lineage_unavailable")
-    return match[1]
 
 
 def capture_event(client: str, payload: object) -> HarnessCaptureEvent:
@@ -95,28 +74,17 @@ def _capture_event(client: str, payload: object) -> HarnessCaptureEvent:
     project = _project(
         payload.get("project_path") if client in {"pi", "hermes"} else payload.get("cwd")
     )
+    # Session and fork lineage is not tracked; message identity is per source.
     if client == "hermes":
-        if any(key in payload for key in (
-            "parent_session_id", "parent_session_path", "origin_sessions", "origin_ordinals",
-        )):
-            raise HarnessEventError("lineage_unavailable")
         messages, timestamps = _hermes_messages(payload)
-        parent, session_time = None, None
     elif client == "pi":
         if payload.get("header_session_id", session) != session:
             raise HarnessEventError("identity_mismatch")
         messages, timestamps = _pi_messages(payload)
-        parent = pi_parent_session_id(payload.get("parent_session_path"))
-        supplied_parent = payload.get("parent_session_id")
-        if supplied_parent is not None and (parent is None or supplied_parent != parent):
-            raise HarnessEventError("lineage_unavailable")
-        session_time = payload.get("session_timestamp")
     else:
         if payload.get("hook_event_name") not in ("Stop", "SessionEnd"):
             raise HarnessEventError("invalid_event")
-        messages, timestamps, parent, session_time = _transcript(
-            client, session, project, payload.get("transcript_path")
-        )
+        messages, timestamps = _transcript(client, session, project, payload.get("transcript_path"))
     authored = "\n".join(message.text for message in messages if message.authored)
     return HarnessCaptureEvent(
         client,
@@ -125,8 +93,6 @@ def _capture_event(client: str, payload: object) -> HarnessCaptureEvent:
         messages,
         timestamps,
         local_only or bool(_LOCAL_MARKING.search(authored)),
-        parent,
-        session_time if isinstance(session_time, str) else None,
     )
 
 
@@ -145,7 +111,7 @@ def _project(value: object) -> Path:
 def _hermes_messages(
     payload: dict[str, object],
 ) -> tuple[tuple[MemoryMessage, ...], dict[int, str | None]]:
-    """Accept canonical host messages; injected and tool records never enter custody."""
+    """Accept canonical host messages; injected and tool records are never captured."""
     raw = payload.get("messages")
     if not isinstance(raw, list) or len(raw) > MAX_EVENT_MESSAGES:
         raise HarnessEventError("invalid_event")
@@ -226,7 +192,7 @@ def _transcript(
     session: str,
     project: Path,
     value: object,
-) -> tuple[tuple[MemoryMessage, ...], dict[int, str | None], str | None, str | None]:
+) -> tuple[tuple[MemoryMessage, ...], dict[int, str | None]]:
     if not isinstance(value, str) or not Path(value).is_absolute():
         raise HarnessEventError("transcript_unavailable")
     try:
@@ -253,8 +219,6 @@ def _transcript(
     bound = client == "claude-code"
     retained_bytes = 0
     occurrences: dict[str, int] = {}
-    parent: str | None = None
-    session_time: str | None = None
     credential = False
     for ordinal, line in enumerate(lines):
         if not line.strip():
@@ -272,13 +236,6 @@ def _transcript(
             if not isinstance(metadata, dict):
                 raise HarnessEventError("identity_mismatch")
             _bind(metadata.get("id"), metadata.get("cwd"), session, project)
-            parent_value = metadata.get("forked_from_id")
-            if parent_value is not None:
-                if not isinstance(parent_value, str) or _IDENTIFIER.fullmatch(parent_value) is None:
-                    raise HarnessEventError("lineage_unavailable")
-                parent = parent_value
-            native_time = metadata.get("timestamp", record.get("timestamp"))
-            session_time = native_time if isinstance(native_time, str) else None
             bound = True
         elif client == "claude-code" and record.get("type") in {"user", "assistant"}:
             _bind(record.get("sessionId"), record.get("cwd"), session, project)
@@ -332,7 +289,7 @@ def _transcript(
         raise HarnessEventError("identity_mismatch")
     if credential:
         raise HarnessEventError("credential_signal")
-    return tuple(messages), timestamps, parent, session_time
+    return tuple(messages), timestamps
 
 
 def _bind(actual_session: object, actual_project: object, session: str, project: Path) -> None:

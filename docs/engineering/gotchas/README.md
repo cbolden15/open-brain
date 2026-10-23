@@ -637,9 +637,31 @@ output path stale. Preserve artifact identities and fix the first failed step.
 
 Discovered: 2026-10-12, actual macOS and Linux contributor CI packaging failure.
 
+### MEMORY-004: Owner authority ignores read tiers, and revision keys cannot repeat
+
+Category: Database/Migrations, Config/Environment.
+
+Policy B gives a verified local-only Pi an owner authority with every tier except
+`secret`. The engine's `permits_read_tier` returns true for any owner authority,
+so `allowed_read_tiers` did not withhold a `secret` record. Never write a harness
+capture with tier `secret`: refuse it before the spool, and again in the
+workflow. A regression test now captures into a `secret` source and checks that a
+verified Pi cannot read it.
+
+A source revision key must be unique within its namespace. Keying a revision only
+by tier and content made a return to an earlier tier (work, then unknown, then
+work again) reuse the first key, and the engine refused it as
+`invalid_arguments`. Reuse the head's key when tier and content are unchanged;
+otherwise add the predecessor capture ID to the key and delivery ID.
+
+Discovered: 2026-10-22, Policy B harness rewrite.
+
 ### MEMORY-003: Revalidate durable restrictions before custody and sources after cleanup
 
 Category: Database/Migrations, Config/Environment.
+
+Superseded 2026-10-22: Policy B removed session/origin restrictions, the custody
+outbox and the post-cleanup source scan. Kept for history.
 
 An unmarked Hermes event can inherit a session or origin restriction. Screening
 only the current payload allowed the rejected body into custody before the SDK
@@ -831,6 +853,11 @@ Discovered: 2026-10-09, repeated automatic harness bridge verification.
 ### MEMORY-001: Harness boundaries can lose restrictions and cancellation
 
 Category: Config/Environment, Type Safety.
+
+Partly superseded 2026-10-22: Policy B lowers a local-only capture to the
+`unknown` tier at write time instead of keeping custody, and the retry spool
+moves each failed line behind the others. The consent and deadline repairs still
+apply.
 
 Independent review of the foreground memory bridge reproduced four failures:
 

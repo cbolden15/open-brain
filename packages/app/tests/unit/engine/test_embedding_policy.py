@@ -43,6 +43,13 @@ COMPONENT = "ab" * 32
 OTHER = "cd" * 32
 
 
+@pytest.fixture(autouse=True)
+def _frozen_embedding_schema21(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the predecessor cutover's exact21/16 assertions."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 21)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:21])
+
+
 def _clock() -> datetime:
     return datetime(2026, 10, 17, tzinfo=UTC)
 

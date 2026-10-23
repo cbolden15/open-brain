@@ -31,12 +31,12 @@ from packages.engine.tests.test_consumer_intake_engine import _commit, _plan
 from packages.engine.tests.test_consumer_intake_engine import active_profiles as active_profiles
 
 
-@pytest.fixture(params=(8, 9, 10, 11, 12, 13, 14, 15, 16))
+@pytest.fixture(params=(8, 9, 10, 11, 12, 13, 14, 15, 16, 17))
 def closure(
     tmp_path: Path, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch,
     active_profiles: None,
 ) -> RecoveryClosure:
-    if request.param in (8, 9, 10, 11, 12, 13, 14, 15):
+    if request.param in (8, 9, 10, 11, 12, 13, 14, 15, 16):
         schema_version = request.param + 5
         monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", schema_version)
         monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:schema_version])

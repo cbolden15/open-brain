@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
+from typing import TYPE_CHECKING
 
 from ..core.access_contracts import (
     AggregatedPrivacyDecision,
@@ -24,6 +25,9 @@ from ..core.models import (
     ValidationError,
     narrowest_tier,
 )
+
+if TYPE_CHECKING:
+    from .owner_egress_policy import OwnerEgressPolicy
 
 __all__ = [
     "InvalidPrivacyEvidenceReason",
@@ -305,6 +309,7 @@ def project_retained_privacy_evidence(
     retained: Iterable[RetainedPrivacyValue] | RetainedPrivacyValue,
     *,
     caller_declared_inconsistent: bool = False,
+    egress_policy: OwnerEgressPolicy | None = None,
 ) -> RetainedPrivacyEvidence:
     """Project one or more stored PrivacyDecision JSON values onto effective privacy.
 
@@ -324,6 +329,9 @@ def project_retained_privacy_evidence(
     retained values in a deterministic order (for example a stable ``ORDER BY``) to
     keep invalid-evidence digests reproducible. The projection never infers privacy
     from content, title, space, or path.
+
+    ``egress_policy`` overlays owner egress onto valid evidence only; ``None`` (the
+    default) projects exactly the retained evidence.
     """
     if type(caller_declared_inconsistent) is not bool:
         raise ValidationError("caller_declared_inconsistent must be a bool")
@@ -345,7 +353,7 @@ def project_retained_privacy_evidence(
         decisions.append(decision)
     if caller_declared_inconsistent:
         return _invalid_projection(InvalidPrivacyEvidenceReason.INCONSISTENT, values)
-    return _valid_projection(aggregate_privacy_decisions(decisions))
+    return _valid_projection(aggregate_privacy_decisions(decisions), decisions, egress_policy)
 
 
 def _invalid_projection(
@@ -392,12 +400,55 @@ def _invalid_evidence_preimage_value(value: object) -> object:
 
 def _valid_projection(
     aggregated: AggregatedPrivacyDecision,
+    members: Sequence[PrivacyDecision],
+    egress_policy: OwnerEgressPolicy | None = None,
 ) -> RetainedPrivacyEvidence:
-    return RetainedPrivacyEvidence(
+    projected = RetainedPrivacyEvidence(
         tier=aggregated.tier,
         authority=aggregated.authority,
         source_decision_sha256s=aggregated.source_decision_sha256s,
         confirmation_refs=aggregated.confirmation_refs,
+        invalid_reason=None,
+        invalid_evidence_sha256=None,
+    )
+    return _apply_owner_egress_policy(projected, members, egress_policy)
+
+
+def _apply_owner_egress_policy(
+    evidence: RetainedPrivacyEvidence,
+    members: Sequence[PrivacyDecision],
+    egress_policy: OwnerEgressPolicy | None,
+) -> RetainedPrivacyEvidence:
+    """Overlay owner egress onto one valid projection when every member is shared.
+
+    The aggregate tier is the strictest member's, so it alone cannot show that a
+    less strict member (work beside personal) is shared too: each member must
+    already authorize egress or have a tier the policy shares. Invalid evidence,
+    unshared members and evidence that already authorizes egress are returned
+    unchanged. The overlay grants external egress only, never cloud, and keeps the
+    retained decision digests; a personal overlay adds the policy's confirmation
+    reference. The overlay is idempotent.
+    """
+    if egress_policy is None or not evidence.valid or evidence.authority.external_egress:
+        return evidence
+    from .owner_egress_policy import overlay_decision
+
+    if not members or not all(
+        member.authority.external_egress or overlay_decision(member.tier, egress_policy)
+        for member in members
+    ):
+        return evidence
+    decision = overlay_decision(evidence.tier, egress_policy)
+    if decision is None:
+        return evidence
+    references = set(evidence.confirmation_refs)
+    if decision.confirmation_ref is not None:
+        references.add(decision.confirmation_ref)
+    return RetainedPrivacyEvidence(
+        tier=evidence.tier,
+        authority=Authority(cloud=False, external_egress=True),
+        source_decision_sha256s=evidence.source_decision_sha256s,
+        confirmation_refs=tuple(sorted(references)),
         invalid_reason=None,
         invalid_evidence_sha256=None,
     )

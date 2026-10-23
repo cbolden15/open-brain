@@ -1,8 +1,10 @@
 """Foreground, destination-bound bridge for optional native memory integrations.
 
-Enqueue and status never open the Brain. Reading or draining requires an existing
-destination, current durable identity, current source policy and provider consent.
-The CLI never accepts a request's claim that a provider is local-only.
+Policy B. Enqueue and status never open the Brain. Captures are screened and tiered
+when written; failed deliveries wait in a thin retry spool. Reads use the core's
+owner egress policy plus provider consent. A request can never claim local-only
+authority: only a client the bridge config declares local-only, and whose declared
+model endpoint the bridge verifies as loopback at read time, reads unshared tiers.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlsplit
 
 from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.core.models import PrivacyTier
@@ -26,9 +29,9 @@ from open_brain.local_data import select_local_root
 from open_brain.profile import open_existing_single_user_local
 
 from .agent_setup import _open_directory
-from .harness_events import HarnessEventError, _screen, capture_event
-from .harness_outbox import HarnessOutbox
+from .harness_events import HarnessCaptureEvent, HarnessEventError, _screen, capture_event
 from .harness_policy import HarnessPolicyError, load_harness_policy
+from .harness_spool import HarnessSpool, HarnessSpoolError, request_id
 from .harness_workflow import HarnessWorkflow
 from .local_bootstrap import open_local_brain, run_existing_local_brain_transaction
 from .local_operations import current_brain_identity
@@ -36,6 +39,9 @@ from .session_consent import DurableProviderConsentStore
 
 _SCHEMA = "open-brain-harness-bridge.v1"
 _CLIENTS = frozenset({"codex", "claude-code", "pi", "hermes"})
+# Only Pi can run on a local model; cloud clients and Hermes are never local-only.
+_LOCAL_ONLY_CAPABLE = frozenset({"pi"})
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 class HarnessBridgeError(ValueError):
@@ -49,6 +55,7 @@ class HarnessBridgeError(ValueError):
             "invalid_request",
             "local_only_host_required",
             "bridge_unavailable",
+            "source_denied",
         }:
             raise ValueError("invalid bridge error")
         self.code = code
@@ -62,21 +69,15 @@ class HarnessBridgeConfig:
     policy: Path
     consent_state: Path
     outbox: Path
+    local_only_clients: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def load(cls, path: Path) -> HarnessBridgeConfig:
         value = _read_configuration(path)
+        required = {"schema_version", "brain_root", "brain_id", "policy", "consent_state", "outbox"}
         if (
             not isinstance(value, dict)
-            or set(value)
-            != {
-                "schema_version",
-                "brain_root",
-                "brain_id",
-                "policy",
-                "consent_state",
-                "outbox",
-            }
+            or not required <= set(value) <= required | {"local_only_clients"}
             or value["schema_version"] != _SCHEMA
         ):
             raise HarnessBridgeError("invalid_configuration")
@@ -92,9 +93,46 @@ class HarnessBridgeConfig:
             if not candidate.is_absolute() or ".." in candidate.parts:
                 raise HarnessBridgeError("invalid_configuration")
             paths.append(candidate)
-        # Validates destination format without creating outbox files.
-        HarnessOutbox(paths[3], brain_id)
-        return cls(paths[0], brain_id, paths[1], paths[2], paths[3])
+        # Validates destination format without creating spool files.
+        HarnessSpool(paths[3], brain_id)
+        declared = value.get("local_only_clients", {})
+        if not isinstance(declared, dict) or not set(declared) <= _LOCAL_ONLY_CAPABLE:
+            raise HarnessBridgeError("invalid_configuration")
+        local_only: list[tuple[str, str]] = []
+        for client, declaration in declared.items():
+            endpoint = declaration.get("model_endpoint") if isinstance(declaration, dict) else None
+            if (
+                not isinstance(declaration, dict)
+                or set(declaration) != {"model_endpoint"}
+                or not isinstance(endpoint, str)
+                or not 1 <= len(endpoint) <= 2048
+                or "\0" in endpoint
+            ):
+                raise HarnessBridgeError("invalid_configuration")
+            local_only.append((client, endpoint))
+        return cls(paths[0], brain_id, paths[1], paths[2], paths[3], tuple(local_only))
+
+    def verified_local_only(self, client: str) -> bool:
+        """Guardrail 1: declared local-only here AND its model endpoint is loopback.
+
+        The config is re-read on every invocation, so this runs at read time. The
+        endpoint must parse as http(s) without credentials, and its host must be
+        127.0.0.1, ::1 or localhost. Anything else fails closed to the cloud ceiling.
+        """
+        endpoint = next((value for name, value in self.local_only_clients if name == client), None)
+        if client not in _LOCAL_ONLY_CAPABLE or endpoint is None:
+            return False
+        try:
+            parsed = urlsplit(endpoint)
+            parsed.port  # noqa: B018 - raises ValueError on an invalid port.
+        except ValueError:
+            return False
+        return (
+            parsed.scheme in {"http", "https"}
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.hostname in _LOOPBACK_HOSTS
+        )
 
 
 def _unique(pairs: list[tuple[str, object]]) -> Mapping[str, object]:
@@ -234,23 +272,57 @@ def _bounded_results(
     return {"status": "ok", "results": results, "omitted_count": omitted}
 
 
+def _capture(
+    config: HarnessBridgeConfig, spool: HarnessSpool, event: HarnessCaptureEvent
+) -> dict[str, object]:
+    """Deliver inline; spool only the requests whose delivery failed or was unavailable."""
+    requests = spool.requests(event)
+    try:
+        with _workflow(config, local_only_host=False) as workflow:
+            results = [(request, spool.deliver(workflow, request)) for request in requests]
+    except Exception:
+        spool.store(requests)
+        raise
+    done = {"acknowledged", "success_empty"}
+    delivered = [result for _, result in results if result["status"] in done]
+    refused = next((result for _, result in results if result["status"] == "refused"), None)
+    # A refusal is returned, not retried; queued or unavailable requests are spooled.
+    retry = tuple(
+        request for request, result in results if result["status"] not in done | {"refused"}
+    )
+    identifiers = {
+        "capture_ids": [i for r in delivered for i in cast(list[str], r.get("capture_ids", []))],
+        "delivery_ids": [i for r in delivered for i in cast(list[str], r.get("delivery_ids", []))],
+    }
+    if retry:
+        queued = spool.store(retry)
+        return {**queued, **identifiers} if queued["status"] == "queued" else queued
+    if refused is not None:
+        code = refused.get("error_code", "capture_refused")
+        return {"status": "refused", "error_code": code, **identifiers}
+    acknowledged = any(result["status"] == "acknowledged" for result in delivered)
+    return {
+        "status": "acknowledged" if acknowledged else "success_empty",
+        "brain_id": config.brain_id,
+        "request_id": request_id(requests[-1]),
+        **identifiers,
+    }
+
+
 def run_harness(
     action: str,
     config_path: Path,
     client: str,
     payload: object = None,
     *,
-    local_only_host: bool = False,
     provider_id: str | None = None,
     read_tiers: frozenset[PrivacyTier] | None = None,
 ) -> dict[str, object]:
-    """Trusted host function; models cannot grant local-only host authority.
+    """Trusted host function; neither models nor request JSON grant local-only reads.
 
-    The subprocess CLI always leaves local_only_host false. A Pi host may call
-    this API after enforcing every provider path; that native gate is separate
-    from this function and must remain active through context release. Hermes
-    reads require a trusted provider_id and a single personal/work read tier;
-    request JSON cannot select either authority and Hermes never grants local reads.
+    Local-only reads need the bridge config's declaration plus read-time loopback
+    verification (guardrail 1). Hermes reads require a trusted provider_id and a
+    single personal/work read tier; request JSON cannot select either authority.
     """
     try:
         if client not in _CLIENTS or action not in {
@@ -266,18 +338,18 @@ def run_harness(
         if action == "capture" and client != "hermes":
             raise HarnessBridgeError("invalid_request")
         config = HarnessBridgeConfig.load(config_path)
-        outbox = HarnessOutbox(config.outbox, config.brain_id)
+        spool = HarnessSpool(config.outbox, config.brain_id)
         if action == "status":
-            return outbox.status()
+            return spool.status()
         policy = load_harness_policy(config.policy)
         if not policy.enabled:
             raise HarnessPolicyError("disabled")
         if action == "drain":
             try:
                 with _workflow(config, local_only_host=False) as workflow:
-                    return outbox.drain(workflow)
+                    return spool.drain(workflow)
             except Exception:
-                outbox.mark_unavailable()
+                spool.mark_unavailable()
                 raise
         if not isinstance(payload, dict):
             raise HarnessBridgeError("invalid_request")
@@ -288,65 +360,17 @@ def run_harness(
             raise HarnessBridgeError("invalid_request")
         decision = policy.classify(project, authored_text=query)
         if action in {"enqueue", "capture"}:
-            try:
-                event = capture_event(client, payload)
-            except HarnessEventError as error:
-                if error.code == "credential_signal" and isinstance(payload.get("session_id"), str):
-                    return outbox.restrict_session(
-                        client, cast(str, payload["session_id"]), project,
-                        reason="credential_signal",
-                    )
-                raise
-            capture_decision = policy.classify(
-                project,
-                authored_text="\n".join(
-                    message.text for message in event.messages if message.authored
-                ),
-            )
-            if client == "hermes" and (
-                event.local_only or capture_decision.local_only
-                or capture_decision.tier not in {PrivacyTier.PERSONAL, PrivacyTier.WORK}
-            ):
-                return outbox.restrict_session(
-                    client, event.session_id, project, reason="source_denied",
-                )
-            queued = outbox.enqueue(event)
-            if action == "enqueue" or queued["status"] != "queued":
-                return queued
-            request_ids = cast(list[str], queued.get("request_ids", [queued["request_id"]]))
-            if queued.get("batch_count", len(request_ids)) != len(request_ids):
-                # An oversized event still has custody; bounded drain completes it later.
-                return queued
-            with _workflow(config, local_only_host=False) as workflow:
-                results = [
-                    outbox.deliver_request(workflow, request_id) for request_id in request_ids
-                ]
-            acknowledgements = [
-                cast(dict[str, object], result["acknowledgement"])
-                for result in results if result.get("status") == "delivered"
-            ]
-            failed = next((result for result in results if result["status"] != "delivered"), None)
-            if failed is not None:
-                return {
-                    **queued,
-                    **cast(dict[str, object], failed.get("acknowledgement", {})),
-                    "status": "queued" if failed["status"] == "pending" else failed["status"],
-                    **({"error_code": failed["error_code"]} if "error_code" in failed else {}),
-                }
-            return {
-                **queued,
-                "status": "acknowledged" if any(
-                    ack["status"] == "acknowledged" for ack in acknowledgements
-                ) else "success_empty",
-                "capture_ids": [
-                    identifier for ack in acknowledgements
-                    for identifier in cast(list[str], ack["capture_ids"])
-                ],
-                "delivery_ids": [
-                    identifier for ack in acknowledgements
-                    for identifier in cast(list[str], ack["delivery_ids"])
-                ],
-            }
+            # A credential refuses here, before anything is written.
+            event = capture_event(client, payload)
+            # The tier is assigned from current policy when the capture is written.
+            # A secret source is refused here too, so its text is never spooled.
+            tier = policy.capture_decision(
+                client, project, local_only=event.local_only,
+                authored_text="\n".join(m.text for m in event.messages if m.authored),
+            ).tier
+            if tier is PrivacyTier.SECRET:
+                raise HarnessBridgeError("source_denied")
+            return spool.append(event) if action == "enqueue" else _capture(config, spool, event)
         capture_id = payload.get("capture_id")
         if action == "source" and (
             not isinstance(capture_id, str)
@@ -368,14 +392,13 @@ def run_harness(
         requested_local = payload.get("local_only", False)
         if type(requested_local) is not bool:
             raise HarnessBridgeError("invalid_request")
-        if decision.local_only and not (client == "pi" and local_only_host and requested_local):
+        local = config.verified_local_only(client)
+        if requested_local and not local:
             return {
                 "status": "refused",
                 "requires_local_only": True,
                 "error_code": "local_only_host_required",
             }
-        if requested_local and not (client == "pi" and local_only_host):
-            raise HarnessBridgeError("local_only_host_required")
         provider = client
         if client == "hermes":
             if (
@@ -389,44 +412,30 @@ def run_harness(
             if decision.tier not in read_tiers:
                 return {"status": "refused", "error_code": "source_denied"}
             provider = provider_id
-        if not requested_local and not policy.allowed_tiers(provider):
-            return {"status": "refused", "error_code": "provider_denied"}
-        if not requested_local:
-            guard = outbox.cloud_read_guard(policy)
-            if guard.get("status") != "allowed":
-                return guard
 
         def read_and_release() -> dict[str, object]:
-            with _workflow(config, local_only_host=local_only_host) as workflow:
-                consent = None if requested_local else workflow.consent_snapshot()
+            with _workflow(config, local_only_host=local) as workflow:
+                consent = None if local else workflow.consent_snapshot()
                 if action == "source":
                     assert isinstance(capture_id, str)
                     response = (
                         workflow.read_context_local(capture_id, project=project)
-                        if requested_local else workflow.read_context(
+                        if local else workflow.read_context(
                             capture_id, provider=provider, read_tiers=read_tiers,
                         )
                     )
                 else:
                     response = (
                         workflow.recall_local(query, project=project, limit=limit)
-                        if requested_local
+                        if local
                         else workflow.recall(
                             query, provider=provider, limit=limit, read_tiers=read_tiers,
                         )
                     )
             if response.status not in {"success", "success_empty"}:
                 return {"status": response.status, "error_code": response.error_code}
-            if not workflow.sources_current(response):
-                return {"status": "refused", "error_code": "source_changed"}
-            # Recheck source policy after closing runtime and before releasing content.
-            if load_harness_policy(config.policy) != policy:
-                return {"status": "refused", "error_code": "policy_changed"}
-            if not requested_local:
-                guard = outbox.cloud_read_guard(policy)
-                if guard.get("status") != "allowed":
-                    return guard
-            if not workflow.authorization_current(policy, consent):
+            # A consent revoked while the runtime closed denies the release.
+            if not workflow.consent_current(consent):
                 return {"status": "refused", "error_code": "authorization_changed"}
             return _bounded_results(
                 response.memories,
@@ -437,7 +446,7 @@ def run_harness(
             )
 
         return run_existing_local_brain_transaction(config.brain_root, read_and_release)
-    except (HarnessBridgeError, HarnessEventError, HarnessPolicyError) as error:
+    except (HarnessBridgeError, HarnessEventError, HarnessPolicyError, HarnessSpoolError) as error:
         return {"status": "refused", "error_code": error.code}
     except Exception:
         return {"status": "unavailable", "error_code": "bridge_unavailable"}
