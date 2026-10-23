@@ -5,14 +5,16 @@ from __future__ import annotations
 import json
 import sqlite3
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.core.models import ContentOrigin, Provenance
+from open_brain_engine.storage.filesystem import StorageError, read_confined
 
-from .contracts import project_public_result_text
+from .contracts import FilePayload, LocalEngineContext, project_public_result_text
 from .harness_memory import (
     HarnessMemory,
     encode_memory,
@@ -79,6 +81,68 @@ def public_harness_record_text(value: str, *, source_reference: str) -> tuple[st
         return "", ""
     projected = HarnessMemory(memory.kind, selected, context, memory.citation)
     return encode_memory(projected), selected
+
+
+def source_projection_text(
+    payload: Mapping[str, object],
+    *,
+    stored_text: str,
+    read_blob: Callable[[str], bytes | None],
+) -> str | None:
+    """Resolve the one source text both the live index and the record projector use.
+
+    A file payload's text comes from its content-addressed blob, never from the
+    short metadata string retained with the capture. A missing or altered blob
+    yields None: the projector reports it as not_found, and the index omits it.
+    """
+    if payload.get("kind") != "file":
+        return stored_text
+    digest = cast(str, payload["blob_sha256"])
+    blob = read_blob(f"sources/blobs/sha256/{digest[:2]}/{digest}")
+    if blob is None or sha256(blob).hexdigest() != digest:
+        return None
+    return FilePayload(
+        cast(str, payload["file_name"]), cast(str, payload["media_type"]), blob
+    ).search_text()
+
+
+def read_source_blob(profile: LocalEngineContext, relative: str) -> bytes | None:
+    """Read one source blob for indexing; an unsafe or unreadable blob is absent.
+
+    The record projector refuses the same record, so treating a confinement or
+    storage failure as a missing blob keeps one bad file from aborting a rebuild
+    while never indexing text the projector cannot confirm.
+    """
+    try:
+        return read_confined(
+            root=profile.root,
+            relative=relative,
+            expected_root_identity=profile.root_identity,
+        )
+    except StorageError:
+        return None
+
+
+def source_projection(
+    text: str,
+    *,
+    source_reference: str,
+    payload_family: str,
+    stored_title: str | None,
+) -> tuple[str, str, str]:
+    """Return the source body, indexed body, and title before public title projection.
+
+    The retained capture title wins, except for harness memories. Otherwise the
+    title is the first line of the already-redacted indexed body, so a title cut
+    to length can never differ between the index and the record projector.
+    """
+    body, indexed_body = public_harness_record_text(text, source_reference=source_reference)
+    title = (
+        stored_title
+        if stored_title is not None and not is_harness_source_reference(source_reference)
+        else source_search_title(payload_family=payload_family, body=indexed_body)
+    )
+    return body, indexed_body, title
 
 
 def public_source_origin(capture: Mapping[str, object] | sqlite3.Row) -> str:
@@ -575,6 +639,8 @@ __all__ = [
     "project_search_document",
     "project_search_privacy",
     "SearchDocumentProjection",
+    "source_projection",
+    "source_projection_text",
     "source_trust",
     "source_search_title",
     "upsert_search_document",
