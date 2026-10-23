@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
@@ -13,9 +14,13 @@ import pytest
 from open_brain_engine.core.models import Authority, PrivacyDecision, PrivacyReason, PrivacyTier
 from open_brain_engine.engine import BrainEngine, TextPayload, local_schema
 from open_brain_engine.engine.followup_contracts import (
+    AddEvidenceRequest,
+    DecideRequest,
+    DecisionAction,
     EvidenceRef,
     EvidenceRole,
     FollowupError,
+    FollowupItem,
     FollowupKind,
     FollowupState,
     OwnerKind,
@@ -396,5 +401,164 @@ def test_propose_enforces_item_capacity(tmp_path: Path, monkeypatch: pytest.Monk
     with pytest.raises(FollowupError, match="capacity_reached"):
         tasks.propose(
             _propose(_ref(engine, capture, "on Monday"), operation_id="op-propose-2"),
+            authority=_owner(engine),
+        )
+
+
+def _item(
+    engine: BrainEngine,
+    tasks: FollowupTasks,
+    capture: str,
+    quote: str,
+    *,
+    operation_id: str = "op-propose-1",
+) -> FollowupItem:
+    return tasks.propose(
+        _propose(_ref(engine, capture, quote), operation_id=operation_id),
+        authority=_owner(engine),
+    )
+
+
+def test_add_evidence_appends_a_row_and_bumps_version(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(
+        engine, "Ship the report on Monday. Dana agreed.", delivery="d1", tier=PrivacyTier.WORK
+    )
+    item = _item(engine, tasks, capture, "Ship the report")
+    updated = tasks.add_evidence(
+        AddEvidenceRequest(
+            "op-ev-1",
+            item.item_id,
+            _ref(engine, capture, "Dana agreed", role=EvidenceRole.SUPPORTING),
+        ),
+        authority=_owner(engine),
+    )
+    assert (updated.version, updated.state, updated.new_evidence_since_decision) == (
+        2,
+        FollowupState.SUGGESTED,
+        False,
+    )
+    with _connect(engine) as connection:
+        roles = [
+            row[0]
+            for row in connection.execute(
+                "SELECT role FROM followup_evidence WHERE item_id=? ORDER BY ordinal",
+                (item.item_id,),
+            )
+        ]
+        assert roles == ["origin", "supporting"]
+        log = connection.execute(
+            "SELECT action,prior_version,new_version,evidence_ids_json FROM followup_decisions "
+            "ORDER BY sequence"
+        ).fetchall()
+        assert [row["action"] for row in log] == ["propose", "add_evidence"]
+        assert (log[1]["prior_version"], log[1]["new_version"]) == (1, 2)
+        assert len(json.loads(log[1]["evidence_ids_json"])) == 1
+
+
+def test_add_evidence_refuses_other_tier_and_hidden_items(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    work = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    personal = _capture(engine, "Book the dentist", delivery="d2", tier=PrivacyTier.PERSONAL)
+    item = _item(engine, tasks, work, "Ship the report")
+    with pytest.raises(FollowupError, match="tier_mismatch"):
+        tasks.add_evidence(
+            AddEvidenceRequest(
+                "op-ev-1",
+                item.item_id,
+                _ref(engine, personal, "Book the dentist", role=EvidenceRole.SUPPORTING),
+            ),
+            authority=_owner(engine),
+        )
+    personal_item = _item(engine, tasks, personal, "Book the dentist", operation_id="op-propose-2")
+    work_only = EffectiveAuthority(
+        principal_id="agent-1",
+        session_id="s",
+        space_ids=None,
+        capabilities=frozenset({"followup-propose", "content-read"}),
+        allowed_read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    with pytest.raises(FollowupError, match="not_found"):
+        tasks.add_evidence(
+            AddEvidenceRequest(
+                "op-ev-2",
+                personal_item.item_id,
+                _ref(engine, personal, "dentist", role=EvidenceRole.SUPPORTING),
+            ),
+            authority=work_only,
+        )
+    with pytest.raises(FollowupError, match="not_found"):
+        tasks.add_evidence(
+            AddEvidenceRequest(
+                "op-ev-3",
+                "followup_missing",
+                _ref(engine, work, "on Monday", role=EvidenceRole.SUPPORTING),
+            ),
+            authority=_owner(engine),
+        )
+
+
+@pytest.mark.xfail(strict=True, reason="decide lands in Task 7")
+def test_add_evidence_marks_closed_items_and_enforces_capacity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import open_brain_engine.engine.followups as module
+
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(
+        engine, "Ship the report on Monday. Done now.", delivery="d1", tier=PrivacyTier.WORK
+    )
+    item = _item(engine, tasks, capture, "Ship the report")
+    dismissed = tasks.decide(  # type: ignore[attr-defined]
+        DecideRequest("op-d1", item.item_id, 1, DecisionAction.DISMISS), authority=_owner(engine)
+    )
+    assert dismissed.state is FollowupState.DISMISSED
+    flagged = tasks.add_evidence(
+        AddEvidenceRequest(
+            "op-ev-1",
+            item.item_id,
+            _ref(engine, capture, "Done now", role=EvidenceRole.RESOLUTION),
+        ),
+        authority=_owner(engine),
+    )
+    assert (flagged.state, flagged.new_evidence_since_decision, flagged.version) == (
+        FollowupState.DISMISSED,
+        True,
+        3,
+    )
+    monkeypatch.setattr(module, "MAX_EVIDENCE_PER_ITEM", 2)
+    with pytest.raises(FollowupError, match="capacity_reached"):
+        tasks.add_evidence(
+            AddEvidenceRequest(
+                "op-ev-2",
+                item.item_id,
+                _ref(engine, capture, "on Monday", role=EvidenceRole.SUPPORTING),
+            ),
+            authority=_owner(engine),
+        )
+
+
+def test_add_evidence_replays_and_detects_conflicts(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(
+        engine, "Ship the report on Monday. Dana agreed.", delivery="d1", tier=PrivacyTier.WORK
+    )
+    item = _item(engine, tasks, capture, "Ship the report")
+    request = AddEvidenceRequest(
+        "op-ev-1", item.item_id, _ref(engine, capture, "Dana agreed", role=EvidenceRole.SUPPORTING)
+    )
+    first = tasks.add_evidence(request, authority=_owner(engine))
+    assert tasks.add_evidence(request, authority=_owner(engine)) == first
+    with pytest.raises(FollowupError, match="operation_conflict"):
+        tasks.add_evidence(
+            AddEvidenceRequest(
+                "op-ev-1",
+                item.item_id,
+                _ref(engine, capture, "on Monday", role=EvidenceRole.SUPPORTING),
+            ),
             authority=_owner(engine),
         )

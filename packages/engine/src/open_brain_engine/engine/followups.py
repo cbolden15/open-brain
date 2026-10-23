@@ -20,7 +20,9 @@ from open_brain_engine.core.models import PrivacyTier
 
 from .cursors import binding_digest
 from .followup_contracts import (
+    MAX_EVIDENCE_PER_ITEM,
     MAX_ITEMS,
+    AddEvidenceRequest,
     EvidenceRef,
     FollowupDecisionRow,
     FollowupError,
@@ -416,6 +418,54 @@ class FollowupTasks:
                 prior_state=None,
                 prior_version=0,
                 evidence_ids=evidence_ids,
+            )
+            return item
+
+    # -- add evidence ----------------------------------------------------------
+
+    def add_evidence(
+        self, request: AddEvidenceRequest, *, authority: EffectiveAuthority
+    ) -> FollowupItem:
+        authority.require("followup-propose")
+        digest = binding_digest(request_wire(request))
+        with self._write() as connection:
+            stored, evidence = self._visible_item(connection, request.item_id, authority=authority)
+            projector = RecordProjector(self._engine.profile, connection, authority)
+            tier = self._verify_evidence(connection, projector, request.evidence)
+            replayed = self._replay(connection, request.operation_id, digest)
+            if replayed is not None:
+                return replayed
+            if tier.value != stored.privacy_tier:
+                raise FollowupError("tier_mismatch")
+            current = effective_item(stored, self._today())
+            if current.state is FollowupState.SUPERSEDED:
+                raise FollowupError("invalid_request")
+            if len(evidence) >= MAX_EVIDENCE_PER_ITEM:
+                raise FollowupError("capacity_reached")
+            now = self._now()
+            evidence_id = self._insert_evidence(
+                connection, stored.item_id, request.evidence, now, "evidence_" + str(uuid4())
+            )
+            item = replace(
+                stored,
+                version=stored.version + 1,
+                updated_at=now,
+                new_evidence_since_decision=(
+                    stored.new_evidence_since_decision
+                    or current.state in {FollowupState.DISMISSED, FollowupState.RESOLVED}
+                ),
+            )
+            self._store_item(connection, item, insert=False)
+            self._log(
+                connection,
+                item=item,
+                operation_id=request.operation_id,
+                digest=digest,
+                principal_id=authority.principal_id,
+                action="add_evidence",
+                prior_state=stored.state,
+                prior_version=stored.version,
+                evidence_ids=(evidence_id,),
             )
             return item
 
