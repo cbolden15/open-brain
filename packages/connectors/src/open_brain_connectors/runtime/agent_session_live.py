@@ -12,7 +12,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import BinaryIO, Literal, cast
 
 from open_brain_engine.capture.redaction import redact_text
 
@@ -40,7 +40,8 @@ from open_brain_connectors.runtime.source_registry import (
 )
 
 _CLIENTS = frozenset({"claude_code", "codex"})
-_MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024
+# Lines stream one at a time; the cap bounds work, not memory. Tool output dominates size.
+_MAX_TRANSCRIPT_BYTES = 128 * 1024 * 1024
 _MAX_MESSAGES = 64
 _MAX_TEXT = 65_536
 _MAX_SUMMARY_MESSAGES = 4
@@ -344,27 +345,37 @@ def _read_messages(
         stat = path.stat()
         if stat.st_dev != event.transcript_device or stat.st_ino != event.transcript_inode:
             raise _SessionFormatError("session_transcript_changed")
-        raw = path.read_bytes()
+        if stat.st_size > _MAX_TRANSCRIPT_BYTES:
+            raise _SessionFormatError("session_transcript_too_large")
+        with path.open("rb") as handle:
+            return _parse_messages(event, handle, stats)
     except OSError as error:
         raise _SessionFormatError("session_transcript_unavailable") from error
-    if len(raw) > _MAX_TRANSCRIPT_BYTES:
-        raise _SessionFormatError("session_transcript_too_large")
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise _SessionFormatError("session_unsupported_format") from error
+
+
+def _parse_messages(
+    event: QueuedSessionEvent, handle: BinaryIO, stats: dict[str, object] | None
+) -> tuple[_Message, ...]:
     messages: list[_Message] = []
     content_hash = hashlib.sha256()
     contains_secret = False
     codex_meta_seen = False
-    lines = text.splitlines()
-    for position, line in enumerate(lines):
+    remaining = _MAX_TRANSCRIPT_BYTES
+    for raw_line in handle:
+        # An appending client can grow the file after stat; the bound still holds.
+        remaining -= len(raw_line)
+        if remaining < 0:
+            raise _SessionFormatError("session_transcript_too_large")
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise _SessionFormatError("session_unsupported_format") from error
         if not line.strip():
             continue
         try:
             value = json.loads(line)
         except json.JSONDecodeError:
-            if position == len(lines) - 1 and not raw.endswith(b"\n"):
+            if not raw_line.endswith(b"\n"):
                 break
             raise _SessionFormatError("session_unsupported_format") from None
         if event.client == "claude_code":
@@ -376,9 +387,10 @@ def _read_messages(
         if message is not None:
             content_hash.update(json.dumps([message.role, message.text]).encode("utf-8"))
             contains_secret = contains_secret or _contains_secret((message,))
-            messages.append(message)
+            # An oversized paste stays hashed and screened but never enters the window.
             if len(message.text) > _MAX_TEXT:
-                raise _SessionFormatError("session_transcript_too_large")
+                continue
+            messages.append(message)
             while (
                 len(messages) > _MAX_MESSAGES
                 or sum(len(item.text) for item in messages) > _MAX_TEXT

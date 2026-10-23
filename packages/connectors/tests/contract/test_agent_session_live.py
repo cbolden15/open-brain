@@ -8,7 +8,7 @@ import pytest
 
 from open_brain_connectors.runtime.agent_session_hooks import enqueue_hook_event, queued_events
 from open_brain_connectors.runtime.agent_session_live import AgentSessionLiveSource
-from open_brain_connectors.runtime.live_common import LiveSourceError
+from open_brain_connectors.runtime.live_common import LiveBatch, LiveSourceError
 
 
 def _claude_transcript(
@@ -157,6 +157,81 @@ def test_secret_in_older_history_is_not_lost_by_recent_window(tmp_path: Path) ->
                          _options("claude_code", project), None)
     assert not batch.intakes
     assert "session_quarantined_secret" in batch.notices
+
+
+def _fetch_claude(tmp_path: Path, project: Path, transcript: Path) -> LiveBatch:
+    root = tmp_path / "queue"
+    _enqueue(root, project, transcript)
+    source = AgentSessionLiveSource(root)
+    return source.fetch(
+        source.selection(client="claude_code", project_path=project),
+        _options("claude_code", project),
+        None,
+    )
+
+
+def _user_record(project: Path, text: str) -> str:
+    return json.dumps(
+        {
+            "type": "user",
+            "sessionId": "session-123",
+            "cwd": str(project),
+            "message": {"role": "user", "content": text},
+        }
+    )
+
+
+def test_transcript_beyond_former_eight_mebibyte_limit_is_captured(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "large.jsonl"
+    tool_record = json.dumps({"type": "tool", "data": "x" * 8192}) + "\n"
+    tool_noise = tool_record * 1100
+    transcript.write_text(tool_noise + _claude_transcript(project, "session-123"))
+    assert transcript.stat().st_size > 8 * 1024 * 1024
+    batch = _fetch_claude(tmp_path, project, transcript)
+    assert batch.notices == ()
+    assert any("The queue has one event." in intake.text for intake in batch.intakes)
+
+
+def test_oversized_message_is_skipped_without_refusing_session(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "oversized.jsonl"
+    oversized = _user_record(project, "pasted log " + "y" * 70_000)
+    transcript.write_text(oversized + "\n" + _claude_transcript(project, "session-123"))
+    batch = _fetch_claude(tmp_path, project, transcript)
+    assert batch.notices == ()
+    assert batch.intakes
+    for intake in batch.intakes:
+        assert "pasted log" not in intake.text
+        assert "The queue has one event." in intake.text
+
+
+def test_secret_in_oversized_message_still_quarantines(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "oversized-secret.jsonl"
+    oversized = _user_record(project, "token=synthetic-private-value " + "y" * 70_000)
+    transcript.write_text(oversized + "\n" + _claude_transcript(project, "session-123"))
+    batch = _fetch_claude(tmp_path, project, transcript)
+    assert not batch.intakes
+    assert batch.notices == ("session_quarantined_secret",)
+
+
+def test_transcript_beyond_hard_limit_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_connectors.runtime import agent_session_live
+
+    monkeypatch.setattr(agent_session_live, "_MAX_TRANSCRIPT_BYTES", 1024)
+    project = tmp_path / "project"
+    project.mkdir()
+    transcript = tmp_path / "huge.jsonl"
+    transcript.write_text(_claude_transcript(project, "session-123") * 20)
+    batch = _fetch_claude(tmp_path, project, transcript)
+    assert not batch.intakes
+    assert batch.notices == ("session_transcript_too_large",)
 
 
 def test_identifiers_and_personal_details_do_not_quarantine_a_session(tmp_path: Path) -> None:
