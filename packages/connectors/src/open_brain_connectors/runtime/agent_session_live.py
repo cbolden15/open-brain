@@ -12,7 +12,9 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import BinaryIO, Literal, cast
+
+from open_brain_engine.capture.redaction import redact_text
 
 from open_brain_connectors.runtime.agent_session import (
     AgentSessionRecord,
@@ -30,6 +32,7 @@ from open_brain_connectors.runtime.live_common import (
     LiveSourceError,
     local_source_privacy,
 )
+from open_brain_connectors.runtime.session_secrets import contains_session_secret
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake
 from open_brain_connectors.runtime.source_registry import (
     D4_AGENT_SESSION_SOURCE,
@@ -37,12 +40,11 @@ from open_brain_connectors.runtime.source_registry import (
 )
 
 _CLIENTS = frozenset({"claude_code", "codex"})
-_MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024
+# Lines stream one at a time; the cap bounds work, not memory. Tool output dominates size.
+_MAX_TRANSCRIPT_BYTES = 128 * 1024 * 1024
 _MAX_MESSAGES = 64
 _MAX_TEXT = 65_536
 _MAX_SUMMARY_MESSAGES = 4
-_PRIVATE_KEY = re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")
-_CREDENTIAL_URL = re.compile(r"(?i)https?://[^\s/@:]+:[^\s/@]+@")
 
 SessionClient = Literal["claude_code", "codex"]
 
@@ -343,31 +345,42 @@ def _read_messages(
         stat = path.stat()
         if stat.st_dev != event.transcript_device or stat.st_ino != event.transcript_inode:
             raise _SessionFormatError("session_transcript_changed")
-        raw = path.read_bytes()
+        if stat.st_size > _MAX_TRANSCRIPT_BYTES:
+            raise _SessionFormatError("session_transcript_too_large")
+        with path.open("rb") as handle:
+            return _parse_messages(event, handle, stats)
     except OSError as error:
         raise _SessionFormatError("session_transcript_unavailable") from error
-    if len(raw) > _MAX_TRANSCRIPT_BYTES:
-        raise _SessionFormatError("session_transcript_too_large")
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise _SessionFormatError("session_unsupported_format") from error
+
+
+def _parse_messages(
+    event: QueuedSessionEvent, handle: BinaryIO, stats: dict[str, object] | None
+) -> tuple[_Message, ...]:
     messages: list[_Message] = []
     content_hash = hashlib.sha256()
     contains_secret = False
     codex_meta_seen = False
-    lines = text.splitlines()
-    for position, line in enumerate(lines):
+    session_root: Path | None = None
+    remaining = _MAX_TRANSCRIPT_BYTES
+    for raw_line in handle:
+        # An appending client can grow the file after stat; the bound still holds.
+        remaining -= len(raw_line)
+        if remaining < 0:
+            raise _SessionFormatError("session_transcript_too_large")
+        try:
+            line = raw_line.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise _SessionFormatError("session_unsupported_format") from error
         if not line.strip():
             continue
         try:
             value = json.loads(line)
         except json.JSONDecodeError:
-            if position == len(lines) - 1 and not raw.endswith(b"\n"):
+            if not raw_line.endswith(b"\n"):
                 break
             raise _SessionFormatError("session_unsupported_format") from None
         if event.client == "claude_code":
-            _validate_claude_envelope(value, event)
+            session_root = _validate_claude_envelope(value, event, session_root)
             message = _claude_message(value)
         else:
             codex_meta_seen = _validate_codex_meta(value, event) or codex_meta_seen
@@ -375,9 +388,10 @@ def _read_messages(
         if message is not None:
             content_hash.update(json.dumps([message.role, message.text]).encode("utf-8"))
             contains_secret = contains_secret or _contains_secret((message,))
-            messages.append(message)
+            # An oversized paste stays hashed and screened but never enters the window.
             if len(message.text) > _MAX_TEXT:
-                raise _SessionFormatError("session_transcript_too_large")
+                continue
+            messages.append(message)
             while (
                 len(messages) > _MAX_MESSAGES
                 or sum(len(item.text) for item in messages) > _MAX_TEXT
@@ -390,11 +404,36 @@ def _read_messages(
     return tuple(messages)
 
 
-def _validate_claude_envelope(value: object, event: QueuedSessionEvent) -> None:
+def _validate_claude_envelope(
+    value: object, event: QueuedSessionEvent, root: Path | None
+) -> Path | None:
+    """Bind every record to one session and one directory tree; return the tree root.
+
+    Claude records the shell's current directory, which moves into worktrees and
+    subdirectories. The first record anchors the tree; the hook may run anywhere in it.
+    """
     if not isinstance(value, dict) or value.get("type") not in {"user", "assistant"}:
-        return
-    if value.get("sessionId") != event.session_id or not _matches_project(value.get("cwd"), event):
+        return root
+    cwd = _resolved_directory(value.get("cwd"))
+    if value.get("sessionId") != event.session_id or cwd is None:
         raise _SessionFormatError("session_identity_mismatch")
+    if root is None:
+        if not Path(event.project_path).is_relative_to(cwd):
+            raise _SessionFormatError("session_identity_mismatch")
+        return cwd
+    if not cwd.is_relative_to(root):
+        raise _SessionFormatError("session_identity_mismatch")
+    return root
+
+
+def _resolved_directory(value: object) -> Path | None:
+    # A worktree removed before the turn ends no longer exists but stays inside its tree.
+    if type(value) is not str or "\x00" in value or not Path(value).is_absolute():
+        return None
+    try:
+        return Path(value).resolve()
+    except OSError:
+        return None
 
 
 def _validate_codex_meta(value: object, event: QueuedSessionEvent) -> bool:
@@ -489,15 +528,7 @@ def _clean_text(value: str) -> str | None:
 
 
 def _contains_secret(messages: Sequence[_Message]) -> bool:
-    joined = "\n".join(message.text for message in messages)
-    if _PRIVATE_KEY.search(joined) or _CREDENTIAL_URL.search(joined):
-        return True
-    try:
-        from open_brain_engine.capture.redaction import has_redaction_finding
-
-        return has_redaction_finding(joined)
-    except ValueError:
-        return True
+    return contains_session_secret("\n".join(message.text for message in messages))
 
 
 def _intakes(
@@ -524,8 +555,9 @@ def _intakes(
         session_id=turn_id,
         revision_id=revision,
         client_name=event.client,
-        summary=summary,
-        transcript=transcript if capture_transcript else None,
+        # The gate quarantined credentials; stored bodies still follow the redaction policy.
+        summary=redact_text(summary),
+        transcript=redact_text(transcript) if capture_transcript else None,
         transcript_selected=capture_transcript,
     )
     all_intakes = adapter.intakes(selection, record, privacy=local_source_privacy())

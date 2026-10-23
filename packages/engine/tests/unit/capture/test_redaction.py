@@ -42,6 +42,19 @@ def test_redaction_finding_helper_uses_the_approved_policy() -> None:
     assert has_redaction_finding("Synthetic research note") is False
 
 
+def test_email_ending_a_sentence_is_redacted() -> None:
+    email = "owner" + "@" + "example.test"
+
+    assert has_redaction_finding("Ask " + email + ".") is True
+    assert has_redaction_finding("Ask " + email + ". Then reply.") is True
+    assert has_redaction_finding("Mail " + "team" + "@" + "mail.example.co.uk" + "!") is True
+    assert has_redaction_finding("Visit example.test. Then reply.") is False
+
+
+def test_sentence_email_fix_carries_a_new_policy_version() -> None:
+    assert REDACTION_POLICY_VERSION == "open-brain-redaction-v2"
+
+
 def test_approved_redactor_has_no_policy_configuration_surface() -> None:
     redactor = VersionedCaptureRedactor()
 
