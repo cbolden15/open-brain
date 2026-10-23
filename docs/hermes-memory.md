@@ -10,8 +10,9 @@ and retries. These source tests do not establish installed or live acceptance.
 
 Use `client="hermes"` with `run_harness("enqueue", config_path, client, payload)`.
 The host supplies an absolute, existing `project_path` representing its configured
-source scope. A current explicit source rule must classify that scope as personal
-or work and permit sharing. A channel name or a model's claimed tier is not a
+source scope. The capture's tier comes from the matching source rule; without
+one, Hermes captures are `unknown` unless the owner sets a Hermes entry in the
+policy's `client_defaults`. A channel name or a model's claimed tier is not a
 source rule.
 
 ```json
@@ -42,35 +43,37 @@ present it must be an ISO timestamp with timezone. Source IDs must be opaque
 locators, not credentials or private configuration.
 
 Tool and system records, plus entries marked `authored: false`, are omitted
-entirely before custody. Hosts must mark injected reference context as unauthored.
+entirely before capture. Hosts must mark injected reference context as unauthored.
 The adapter retains Hermes attribution and canonical source IDs in citations;
 it does not impersonate Pi. Existing clients retain their original citation
 encoding, and older envelopes remain readable.
 
-Unknown, secret, public, excluded, and local-only scopes are refused for Hermes.
-Authored confidentiality markings and `local_only: true` also refuse capture.
-Credential screening covers every retained authored message before persistence.
-Refusals retain only denial metadata, with no refused message body. A later
-restriction blocks earlier session material from cloud release; replay cannot
-remove it. Parent and origin mappings supplied by a Hermes payload are refused.
+Excluded scopes and scopes whose rule tier is `secret` are refused. A local-only
+rule, an authored confidentiality marking, or `local_only: true` lowers the tier
+to `unknown`, so no cloud reader can see it. Credential screening covers every
+retained authored message and refuses the capture before anything is written.
+Parent and origin fields in a Hermes payload are ignored; no session or fork
+lineage is tracked.
 
-Enqueue uses the existing destination-bound durable outbox without opening the
-Brain. `queued` means local custody, not indexed memory. `drain` opens only the
-existing identity-matched destination and submits normal engine source revisions.
-A trusted relay may instead use `run_harness("capture", ...)` or:
+Enqueue appends the event to the destination-bound retry spool without opening
+the Brain. `queued` means the event waits in the spool, not indexed memory.
+`drain` opens only the existing identity-matched destination and submits normal
+engine source revisions. A trusted relay may instead use
+`run_harness("capture", ...)` or:
 
 ```sh
 open-brain harness capture --client hermes --config /absolute/private/bridge.json --json
 ```
 
-Capture reads the event from stdin, enqueues it, and synchronously delivers only
-its bounded requests through the existing engine journal and outbox receipts.
-`acknowledged` means canonical capture and routing completed; `success_empty`
-means conservative selection found no useful memory. Receipt replay returns the
-same capture IDs. `queued`, `refused`, and `unavailable` must remain visible to
-the host and must not be treated as canonical acknowledgement. A missing or
-mismatched destination is never bootstrapped by this operation. Events with more
-than sixteen custody chunks remain queued for later bounded drain commands.
+Capture reads the event from stdin and delivers it inline through the existing
+engine journal. Only requests whose delivery failed or was unavailable are
+appended to the spool, and the result is then `queued`. If the Brain cannot be
+opened, the event is spooled and the result is `unavailable`. `acknowledged`
+means canonical capture and routing completed; `success_empty` means
+conservative selection found no useful memory. Replaying the same event returns
+the same capture and delivery IDs. `queued`, `refused`, and `unavailable` must
+remain visible to the host and must not be treated as canonical acknowledgement.
+A missing or mismatched destination is never bootstrapped by this operation.
 
 The selector keeps its existing conservative English facts, preferences,
 decisions, and requested complete recipes. Authorship is evidence of source,
@@ -99,33 +102,29 @@ authorization boundary.
 
 For personal planning channels, the host passes only `PrivacyTier.PERSONAL`.
 For work or operations channels, it passes only `PrivacyTier.WORK`. The configured
-source scope must match that tier. The engine intersects this singleton with
-current provider policy and destination-bound durable provider consent before
-searching, ranking, counting, or reading content. Source reads cannot fetch a
-capture from the other tier. Policy and consent are rechecked before release.
-An unknown provider, missing or revoked consent, and an empty intersection are
-denied. Neither `local_only_host=True` nor any payload flag enables Hermes to
-read unknown, confidential, or local-only memory.
+source scope must match that tier. The read uses an external-provider authority
+whose tiers are this singleton within the provider's durable consent. The core's
+owner egress policy then decides visibility before searching, ranking, counting,
+or reading content. Source reads cannot fetch a capture from the other tier.
+Consent is rechecked before release. An unknown provider, missing or revoked
+consent, and an empty intersection are denied. Hermes can never be declared
+local-only, so no payload flag or configuration lets it read `unknown` memory.
 
 Provider identity is the actual recipient selected by the host, not `hermes`.
-The current policy and consent must grant that same provider. There is no
+Durable consent must name that same provider. There is no
 cross-provider fallback. Setup assets and stdio MCP installation continue to
 support the existing native clients; Hermes requires its own trusted host.
 
 ## Replay and edits
 
-The outbox binds source text and authorship to stable source IDs within the
-configured scope and session. Repeated delivery reuses engine revisions and
-receipts. Moving a retained message's display ordinal preserves its original
-citation ordinal. Every authored Hermes source is tracked, including messages
-that produce no selected memory.
+Capture binds source text and authorship to stable source IDs within the
+configured scope and session. Repeated delivery reuses engine revisions through
+their delivery IDs. Moving a retained message's display ordinal preserves its
+original citation ordinal. Every authored Hermes source is tracked, including
+messages that produce no selected memory.
 
-Changing text under a retained source ID returns `lineage_conflict`, even when
-the new text produces no selected memory. The adapter keeps the original accepted
-source; this refusal does not reconcile the edited post or retract prior facts.
-The host must surface the conflict for explicit reconciliation. It must not
-invent a fresh ID merely to bypass edit detection. A confidentiality marking or
-credential in a later edit latches a denial before any conflicting body can be
-retained. Reusing canonical IDs across different sessions requires the host to
-keep the original configured session identity; Hermes accepts no forged fork
-lineage.
+Changing text under a retained source ID records a new revision of that source,
+tiered under current policy. A later confidentiality marking therefore lowers
+the source to `unknown` and withdraws it from cloud reads. The adapter does not
+retract facts selected from earlier text; the host decides whether an edit
+needs explicit reconciliation.

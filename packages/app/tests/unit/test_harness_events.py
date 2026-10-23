@@ -216,31 +216,6 @@ def test_native_source_identity_survives_inserted_metadata_and_rotation(tmp_path
     assert first.source_id == second.source_id
 
 
-@pytest.mark.parametrize("session", ["synthetic-session", "session_with_under.score-7", "a"])
-def test_pi_parent_metadata_resolver_accepts_sdk_custom_ids(session: str) -> None:
-    from open_brain.services.harness_events import pi_parent_session_id
-
-    assert (
-        pi_parent_session_id(f"/does-not-exist/2026-10-09T12-13-14-000Z_{session}.jsonl") == session
-    )
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "relative.jsonl",
-        "/tmp/custom.jsonl",
-        "/tmp/2026-10-09T12-13-14-000Z_bad:id.jsonl",
-        "/tmp/2026-10-09T12-13-14-000Z_" + "a" * 129 + ".jsonl",
-    ],
-)
-def test_pi_parent_metadata_resolver_refuses_unverified_filename(path: str) -> None:
-    from open_brain.services.harness_events import pi_parent_session_id
-
-    with pytest.raises(HarnessEventError, match="lineage_unavailable"):
-        pi_parent_session_id(path)
-
-
 def test_partial_trailing_utf8_is_not_a_complete_authored_record(tmp_path: Path) -> None:
     payload = hook(tmp_path, [codex_meta(tmp_path), codex_user("I prefer violet pencils.")])
     with Path(str(payload["transcript_path"])).open("ab") as stream:
@@ -306,7 +281,7 @@ def test_hermes_requires_stable_identity_and_valid_metadata(
         capture_event("hermes", payload)
 
 
-def test_hermes_rejects_duplicate_source_ids_and_forged_lineage(tmp_path: Path) -> None:
+def test_hermes_rejects_duplicate_source_ids_and_ignores_lineage_claims(tmp_path: Path) -> None:
     payload = hermes_event(tmp_path)
     messages = payload["messages"]
     assert isinstance(messages, list)
@@ -315,8 +290,12 @@ def test_hermes_rejects_duplicate_source_ids_and_forged_lineage(tmp_path: Path) 
         capture_event("hermes", payload)
     payload = hermes_event(tmp_path)
     payload["origin_sessions"] = {"mattermost:synthetic-post:user": "forged-session"}
-    with pytest.raises(HarnessEventError, match="lineage_unavailable"):
-        capture_event("hermes", payload)
+    payload["parent_session_id"] = "forged-parent"
+    # No session or fork lineage is tracked, so a claimed origin cannot rebind identity.
+    captured = capture_event("hermes", payload)
+    assert captured.session_id == payload["session_id"]
+    assert not hasattr(captured, "origin_sessions")
+    assert not hasattr(captured, "parent_session_id")
 
 
 def test_hermes_screens_authored_credentials_before_custody(tmp_path: Path) -> None:

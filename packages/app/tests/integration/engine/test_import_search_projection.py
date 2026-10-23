@@ -31,7 +31,7 @@ _FIXTURE_FILE = "capture_123e4567-e89b-42d3-a456-426614174101"
 _FILE_BODY = "Imported attachment heading\n\nThe zircondrift phrase lives only in this file body.\n"
 # Redaction shortens the first line, so a title cut before redaction differs.
 _LONG_FIRST_LINE = (
-    "Imported note about /Users/synthetic/" + "deeply/nested/" * 12 + "notes.md and the "
+    "Imported note about /srv/synthetic/" + "deeply/nested/" * 12 + "notes.md and the "
     + "beryllium " * 12
 )
 

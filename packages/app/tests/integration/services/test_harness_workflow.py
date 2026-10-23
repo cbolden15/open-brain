@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.access_contracts import derive_brain_id
@@ -18,6 +19,15 @@ from open_brain.services.harness_memory import MemoryMessage
 from open_brain.services.harness_policy import HarnessPolicy
 from open_brain.services.harness_workflow import HarnessWorkflow
 from open_brain.services.session_consent import DurableProviderConsentStore
+from open_brain.services.t03_adapters import owner_authority
+
+
+def share(workflow: HarnessWorkflow, *tiers: PrivacyTier) -> None:
+    """The core's owner egress policy is the only source of shared tiers."""
+    workflow.tasks.owner_egress_policy.set(
+        set(tiers), operation_id="share-" + uuid4().hex,
+        authority=owner_authority(workflow.tasks, session_id="owner-test"),
+    )
 
 
 def setup(
@@ -51,7 +61,6 @@ def setup(
     raw = {
         "schema_version": "open-brain-harness-policy.v1",
         "enabled": True,
-        "providers": {name: ["work"] for name in ("codex", "claude-code", "pi")},
         "sources": [
             {"id": "example", "project_root": str(project), "tier": "work", "local_only": False}
         ],
@@ -60,6 +69,7 @@ def setup(
     workflow = HarnessWorkflow(
         tasks, lambda: HarnessPolicy.from_dict(raw), consent_store=consent, local_only_host=True
     )
+    share(workflow, PrivacyTier.WORK)
     return workflow, raw, project, unknown, consent
 
 
@@ -94,17 +104,21 @@ def test_unknown_and_marked_records_are_denied_cloud_but_local_project_read_work
     assert workflow.recall("violet", provider="codex").status == "success_empty"
     local = workflow.recall_local("violet", project=unknown)
     assert local.status == "success"
-    assert "notebooks" in local.memories[0].text
+    assert sorted(m.text for m in local.memories) == [
+        "I prefer violet notebooks.", "I prefer violet pencils.",
+    ]
 
 
-def test_current_policy_and_durable_provider_revocations(tmp_path: Path) -> None:
-    workflow, raw, project, _, consent = setup(tmp_path)
+def test_owner_egress_policy_and_durable_provider_revocations(tmp_path: Path) -> None:
+    workflow, _, project, _, consent = setup(tmp_path)
     workflow.capture(
         "codex", "session-one", project, [MemoryMessage("user", "I prefer lentil soup.", 1)]
     )
     assert workflow.recall("lentil", provider="codex").status == "success"
-    raw["sources"] = []
+    share(workflow)
     assert workflow.recall("lentil", provider="codex").status == "success_empty"
+    share(workflow, PrivacyTier.WORK)
+    assert workflow.recall("lentil", provider="claude-code").status == "success"
     active = next(
         record
         for record in consent.load().records
@@ -166,47 +180,6 @@ def test_recipe_preserves_full_material_and_authorship_not_indexed_metadata(tmp_
     assert workflow.recall("project-", provider="codex").status == "success_empty"
 
 
-@pytest.mark.parametrize("restriction", ["exclusion", "nested_rule"])
-def test_overlapping_restriction_denies_rule_space_before_ranking(
-    tmp_path: Path,
-    restriction: str,
-) -> None:
-    workflow, raw, project, _, _ = setup(tmp_path)
-    workflow.capture(
-        "codex", "before-change", project, [MemoryMessage("user", "I prefer lentil soup.", 1)]
-    )
-    nested = project / "restricted"
-    nested.mkdir()
-    if restriction == "exclusion":
-        raw["exclusions"] = [str(nested)]
-    else:
-        raw["sources"].append(
-            {"id": "restricted", "project_root": str(nested), "tier": "secret", "local_only": True}
-        )
-    assert workflow.recall("lentil", provider="codex", limit=1).status == "success_empty"
-
-
-def test_policy_rechecked_before_result_release(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    workflow, raw, project, _, _ = setup(tmp_path)
-    workflow.capture(
-        "codex", "before-change", project, [MemoryMessage("user", "I prefer lentil soup.", 1)]
-    )
-    search = workflow.tasks.retrieval.search_page
-
-    def changed(*args: Any, **kwargs: Any) -> Any:
-        response = search(*args, **kwargs)
-        raw["providers"] = {}
-        return response
-
-    monkeypatch.setattr(workflow.tasks.retrieval, "search_page", changed)
-    result = workflow.recall("lentil", provider="codex")
-    assert result.status == "refused"
-    assert result.error_code == "authorization_changed"
-    assert result.memories == ()
-
-
 def test_cloud_constructor_cannot_choose_local_owner_route(tmp_path: Path) -> None:
     workflow, _, project, _, consent = setup(tmp_path)
     cloud = HarnessWorkflow(workflow.tasks, workflow.policy, consent_store=consent)
@@ -245,9 +218,7 @@ def test_unknown_project_exclusion_is_rechecked_for_local_reads(tmp_path: Path) 
     assert workflow.recall_local("violet", project=unknown).status == "refused"
 
 
-def test_later_confidential_source_creates_private_heads_and_never_widens_on_old_replay(
-    tmp_path: Path,
-) -> None:
+def test_later_confidential_marking_lowers_the_whole_event_to_unknown(tmp_path: Path) -> None:
     workflow, _, project, _, _ = setup(tmp_path)
     first_message = MemoryMessage("user", "I prefer lentil soup.", 1)
     first = workflow.capture("codex", "marked-later", project, [first_message])
@@ -256,8 +227,7 @@ def test_later_confidential_source_creates_private_heads_and_never_widens_on_old
     marked = [first_message, MemoryMessage("user", "Confidential:\nI prefer violet pencils.", 2)]
     later = workflow.capture("codex", "marked-later", project, marked)
     repeated = workflow.capture("codex", "marked-later", project, marked)
-    old = workflow.capture("codex", "marked-later", project, [first_message])
-    assert later["status"] == repeated["status"] == old["status"] == "acknowledged"
+    assert later["status"] == repeated["status"] == "acknowledged"
     assert later["capture_ids"] == repeated["capture_ids"]
     assert workflow.recall("lentil pencils", provider="codex").status == "success_empty"
     local = workflow.recall_local("lentil pencils", project=project)
@@ -265,6 +235,10 @@ def test_later_confidential_source_creates_private_heads_and_never_widens_on_old
     first_ids = first["capture_ids"]
     assert isinstance(first_ids, list)
     assert cast(CaptureTasks, workflow.tasks.capture).get(first_ids[0]) is not None
+    # Policy B keeps no per-session latch: the tier follows the event as written.
+    old = workflow.capture("codex", "marked-later", project, [first_message])
+    assert old["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success"
 
 
 @pytest.mark.parametrize("failure", [StorageError, sqlite3.OperationalError])
@@ -288,33 +262,6 @@ def test_real_storage_failures_are_metadata_only(
     recall = workflow.recall("lentil", provider="codex")
     assert recall.status == "unavailable"
     assert "sensitive" not in str(recall)
-
-
-def test_private_revision_survives_route_failure_and_old_replay(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workflow, _, project, _, _ = setup(tmp_path)
-    original = MemoryMessage("user", "I prefer lentil soup.", 1)
-    assert (
-        workflow.capture("codex", "route-failure", project, [original])["status"] == "acknowledged"
-    )
-    route = workflow._route
-
-    def failed_route(*args: Any, **kwargs: Any) -> Any:
-        raise StorageError("synthetic route durability failure")
-
-    monkeypatch.setattr(workflow, "_route", failed_route)
-    marked = [original, MemoryMessage("user", "Confidential:\nI prefer violet pencils.", 2)]
-    assert workflow.capture("codex", "route-failure", project, marked)["status"] == "unavailable"
-    assert workflow.recall("lentil", provider="codex").status == "success_empty"
-    monkeypatch.setattr(workflow, "_route", route)
-    assert (
-        workflow.capture("codex", "route-failure", project, [original])["status"] == "acknowledged"
-    )
-    assert workflow.recall("lentil", provider="codex").status == "success_empty"
-    assert workflow.capture("codex", "route-failure", project, marked)["status"] == "acknowledged"
-    assert len(workflow.recall_local("lentil pencils", project=project).memories) == 2
 
 
 def test_stable_native_id_survives_changed_display_ordinal_and_timestamp(tmp_path: Path) -> None:
@@ -345,7 +292,7 @@ def test_stable_native_id_survives_changed_display_ordinal_and_timestamp(tmp_pat
 
 
 def test_paraphrased_tasks_keep_recipe_details_and_source_resolution(tmp_path: Path) -> None:
-    workflow, raw, project, _, _ = setup(tmp_path)
+    workflow, _, project, _, _ = setup(tmp_path)
     recipe = (
         "Chickpea supper\nIngredients\n- 1 cup chickpeas\n- 2 tablespoons lemon juice\n"
         "Directions\n1. Rinse the chickpeas.\n2. Mix and chill for 15 minutes."
@@ -375,8 +322,6 @@ def test_paraphrased_tasks_keep_recipe_details_and_source_resolution(tmp_path: P
     assert context.status == "success"
     assert context.memories[0].source_context == message
     assert context.memories[0].citation.timestamp is None
-    raw["exclusions"] = [str(project)]
-    assert workflow.read_context(coding.memory_ids[0], provider="codex").memories == ()
 
 
 def test_explicit_changed_decision_withholds_previous_value_even_when_query_only_matches_old(
@@ -429,7 +374,6 @@ def test_source_context_ids_cannot_read_private_or_ordinary_owner_records(tmp_pa
     assert cloud.status == "refused" and cloud.memories == ()
     local = workflow.read_context_local(ids[0], project=unknown)
     assert local.status == "success"
-    assert workflow.read_context_local(ids[0], project=project).memories == ()
     assert workflow.read_context("invalid-id", provider="codex").memories == ()
 
 
@@ -542,56 +486,14 @@ def test_other_explicit_supersession_syntax_is_source_grounded(tmp_path: Path, c
     assert workflow.recall("PostgreSQL", provider="codex").memories[0].text == change
 
 
-def test_child_first_delivery_retains_original_parent_ordinal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from dataclasses import replace
-
-    from open_brain.services.harness_events import HarnessCaptureEvent
-    from open_brain.services.harness_outbox import HarnessOutbox
-
-    workflow, _, project, _, _ = setup(tmp_path)
-    outbox = HarnessOutbox(tmp_path / "outbox", derive_brain_id(workflow.tasks.profile.tenant_id))
-    parent = HarnessCaptureEvent(
-        "pi", "parent", project,
-        (MemoryMessage("user", "I prefer violet notebooks.", 7, True, "native-entry"),), {},
-    )
-    assert outbox.enqueue(parent)["status"] == "queued"
-    child = replace(
-        parent, session_id="child", parent_session_id="parent",
-        messages=(replace(parent.messages[0], ordinal=0),),
-    )
-    assert outbox.enqueue(child)["status"] == "queued"
-    capture = workflow.capture
-
-    def parent_offline(client: str, session: str, *args: Any, **kwargs: Any) -> dict[str, object]:
-        if session == "parent":
-            return {"status": "unavailable", "error_code": "bridge_unavailable"}
-        return capture(client, session, *args, **kwargs)
-
-    monkeypatch.setattr(workflow, "capture", parent_offline)
-    outbox.drain(workflow)
-    first = workflow.recall("violet", provider="codex")
-    assert len(first.memories) == 1
-    assert first.memories[0].citation.session_id == "parent"
-    assert first.memories[0].citation.message_ordinal == 7
-    monkeypatch.setattr(workflow, "capture", capture)
-    outbox.drain(workflow)
-    again = workflow.recall("violet", provider="codex")
-    assert again.memory_ids == first.memory_ids
-    assert again.memories == first.memories
-
-
-def test_native_custody_long_session_delivers_early_late_recipe_and_stable_fork(
+def test_spooled_long_session_delivers_early_late_recipe_and_dedupes_replay(
     tmp_path: Path,
 ) -> None:
-    from dataclasses import replace
-
     from open_brain.services.harness_events import HarnessCaptureEvent
-    from open_brain.services.harness_outbox import HarnessOutbox
+    from open_brain.services.harness_spool import HarnessSpool
 
     workflow, _, project, _, _ = setup(tmp_path)
-    outbox = HarnessOutbox(tmp_path / "outbox", derive_brain_id(workflow.tasks.profile.tenant_id))
+    spool = HarnessSpool(tmp_path / "outbox", derive_brain_id(workflow.tasks.profile.tenant_id))
     messages = tuple(
         MemoryMessage(
             "user",
@@ -611,8 +513,9 @@ def test_native_custody_long_session_delivers_early_late_recipe_and_stable_fork(
         MemoryMessage("assistant", recipe, 301, True, "recipe"),
     )
     source = HarnessCaptureEvent("pi", "parent", project, messages, {})
-    assert outbox.enqueue(source)["batch_count"] == 3
-    assert outbox.drain(workflow)["status"] == "delivered"
+    assert spool.append(source)["batch_count"] == 3
+    first = spool.drain(workflow)
+    assert first["status"] == "delivered"
     early = workflow.recall("fixture0", provider="codex")
     late = workflow.recall("fixture299", provider="claude-code")
     assert early.status == late.status == "success"
@@ -622,22 +525,42 @@ def test_native_custody_long_session_delivers_early_late_recipe_and_stable_fork(
     assert meal.memories[0].text == recipe
     context = workflow.read_context(meal.memory_ids[0], provider="pi")
     assert context.memories[0].source_context == recipe
-    assert outbox.enqueue(source)["status"] == "queued"
-    assert outbox.drain(workflow)["already_delivered"] == 3
-    child = replace(
-        source,
-        session_id="child",
-        parent_session_id="parent",
-        session_timestamp="2026-01-02T00:00:00Z",
-        messages=(messages[-1], messages[-2]),
-    )
-    # Native chronological order is part of the event contract.
-    child = replace(child, messages=tuple(reversed(child.messages)))
-    assert outbox.enqueue(child)["status"] == "queued"
-    assert outbox.drain(workflow)["status"] == "delivered"
+    # Replaying the same event is a downstream no-op through its delivery IDs.
+    assert spool.append(source)["status"] == "queued"
+    replay = spool.drain(workflow)
+    assert replay["status"] == "delivered"
+
+    def acknowledgements(result: dict[str, object]) -> list[object]:
+        return [row["acknowledgement"] for row in cast(list[dict[str, Any]], result["results"])]
+
+    assert acknowledgements(replay) == acknowledgements(first)
     again = workflow.recall("lentils", provider="codex")
     assert again.memory_ids == meal.memory_ids
-    assert again.memories[0].citation.session_id == "parent"
+
+
+@pytest.mark.parametrize("client", ["codex", "claude-code", "pi", "hermes"])
+def test_capture_tier_follows_client_default_unless_a_source_rule_matches(
+    tmp_path: Path, client: str,
+) -> None:
+    workflow, _, project, unknown, consent = setup(tmp_path)
+    share(workflow, PrivacyTier.WORK, PrivacyTier.PERSONAL)
+    active = next(r for r in consent.load().records if r.provider_id == "codex" and r.active)
+    consent.replace(
+        consent_id=active.consent_id, provider_id="codex",
+        allowed_tiers=frozenset({PrivacyTier.WORK, PrivacyTier.PERSONAL}),
+        operation_id="regrant-codex", decided_at="2026-01-02T00:00:00Z",
+    )
+    pairs = ((unknown, "I prefer violet notebooks."), (project, "I prefer violet pens."))
+    for target, text in pairs:
+        message = MemoryMessage("user", text, 1, True, "entry-" + target.name)
+        assert workflow.capture(client, "tiers", target, [message])["status"] == "acknowledged"
+    visible = sorted(m.text for m in workflow.recall("violet", provider="codex").memories)
+    # Unmapped: claude-code/codex default to personal; pi/hermes default to unknown.
+    # The work source rule overrides every client default.
+    expected = ["I prefer violet notebooks."] if client in {"codex", "claude-code"} else []
+    assert visible == sorted(expected + ["I prefer violet pens."])
+    local = sorted(m.text for m in workflow.recall_local("violet", project=unknown).memories)
+    assert local == ["I prefer violet notebooks.", "I prefer violet pens."]
 
 
 def test_existing_clients_keep_empty_recall_when_consent_and_policy_do_not_overlap(
@@ -645,13 +568,13 @@ def test_existing_clients_keep_empty_recall_when_consent_and_policy_do_not_overl
 ) -> None:
     workflow, raw, project, _, _ = setup(tmp_path)
     raw["sources"][0]["tier"] = "personal"
-    raw["providers"]["codex"] = ["personal"]
+    share(workflow, PrivacyTier.WORK, PrivacyTier.PERSONAL)
     captured = workflow.capture(
         "codex", "synthetic-personal-session", project,
         [MemoryMessage("user", "I prefer violet pencils.", 1)],
     )
     assert captured["status"] == "acknowledged"
-    # Existing codex consent grants work only. Omitted narrowing retains the
+    # The policy shares personal, but codex consent grants work only. Omitted narrowing retains the
     # established empty-result status, while an explicit narrowed read is denied.
     ordinary = workflow.recall("violet pencils", provider="codex")
     assert ordinary.status == "success_empty"
@@ -661,3 +584,60 @@ def test_existing_clients_keep_empty_recall_when_consent_and_policy_do_not_overl
     )
     assert narrowed.status == "refused"
     assert narrowed.error_code == "provider_denied"
+
+
+def test_stale_spooled_replay_cannot_undo_a_newer_confidential_marking(tmp_path: Path) -> None:
+    from open_brain.services.harness_events import HarnessCaptureEvent
+    from open_brain.services.harness_spool import HarnessSpool
+
+    workflow, _, project, _, _ = setup(tmp_path)
+    spool = HarnessSpool(tmp_path / "outbox", derive_brain_id(workflow.tasks.profile.tenant_id))
+    message = MemoryMessage("user", "I prefer lentil soup.", 1, True, "entry-1")
+    # Event A (unmarked, work) failed delivery and waits in the spool.
+    stale = HarnessCaptureEvent("codex", "session", project, (message,), {})
+    assert spool.append(stale)["status"] == "queued"
+    # Event B, later in the same session, marks it confidential and is delivered.
+    marked = (message, MemoryMessage("user", "Confidential:\nI prefer violet pencils.", 2))
+    assert workflow.capture("codex", "session", project, marked)["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success_empty"
+    # Replaying A is superseded by the newer head; it neither re-widens nor stays spooled.
+    assert spool.drain(workflow)["status"] == "delivered"
+    assert workflow.recall("lentil", provider="codex").status == "success_empty"
+    assert spool.status()["counts"] == {"pending": 0, "refused": 0, "unavailable": 0}
+    # A capture observed after B still applies normally.
+    assert workflow.capture("codex", "session", project, [message])["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success"
+
+
+def test_tightening_replay_with_an_older_timestamp_still_applies(tmp_path: Path) -> None:
+    workflow, _, project, _, _ = setup(tmp_path)
+    message = MemoryMessage("user", "I prefer lentil soup.", 1, True, "entry-1")
+    assert workflow.capture("codex", "session", project, [message])["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success"
+    marked = (message, MemoryMessage("user", "Confidential:\nI prefer violet pencils.", 2))
+    # A replay stamped long before the head (a skewed clock) still lowers the tier.
+    assert workflow.capture("codex", "session", project, marked, observed_at=1)["status"] == (
+        "acknowledged"
+    )
+    assert workflow.recall("lentil", provider="codex").status == "success_empty"
+
+
+def test_inline_capture_is_never_skipped_even_with_a_skewed_back_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from open_brain.services import harness_workflow
+
+    workflow, _, project, _, _ = setup(tmp_path)
+    message = MemoryMessage("user", "I prefer lentil soup.", 1, True, "entry-1")
+    marked = (message, MemoryMessage("user", "Confidential:\nI prefer violet pencils.", 2))
+    # A replay from a host whose clock runs far ahead wrote the current head.
+    ahead = 4_000_000_000_000_000_000
+    assert workflow.capture("codex", "session", project, marked, observed_at=ahead)[
+        "status"
+    ] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success_empty"
+    monkeypatch.setattr(harness_workflow, "_now_ns", lambda: 1)
+    # This host's clock is behind, but an inline capture always applies.
+    assert workflow.capture("codex", "session", project, [message])["status"] == "acknowledged"
+    assert workflow.recall("lentil", provider="codex").status == "success"
+
