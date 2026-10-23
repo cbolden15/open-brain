@@ -825,6 +825,8 @@ def test_configure_requires_a_private_arguments_file(tmp_path: Path) -> None:
     selected = resolve_collector_executable(_executable(tmp_path, _echo_script(CONFIGURED)))
     loose = tmp_path / "loose.json"
     loose.write_text("{}")
+    # Explicit: the process umask is global and may be 077 while another test runs.
+    loose.chmod(0o644)
     with pytest.raises(GuideAdapterError) as error:
         adapter.configure_source(
             selected, state=tmp_path / "s.json", brain=tmp_path / "b", guard_fd=0,
