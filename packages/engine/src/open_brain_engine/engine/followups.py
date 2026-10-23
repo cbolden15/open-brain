@@ -22,7 +22,10 @@ from .cursors import binding_digest
 from .followup_contracts import (
     MAX_EVIDENCE_PER_ITEM,
     MAX_ITEMS,
+    OPEN_STATES,
     AddEvidenceRequest,
+    DecideRequest,
+    DecisionAction,
     EvidenceRef,
     FollowupDecisionRow,
     FollowupError,
@@ -468,6 +471,152 @@ class FollowupTasks:
                 evidence_ids=(evidence_id,),
             )
             return item
+
+    # -- decide ----------------------------------------------------------------
+
+    def decide(self, request: DecideRequest, *, authority: EffectiveAuthority) -> FollowupItem:
+        authority.require("followup-decide")
+        digest = binding_digest(request_wire(request))
+        with self._write() as connection:
+            stored, evidence = self._visible_item(connection, request.item_id, authority=authority)
+            replayed = self._replay(connection, request.operation_id, digest)
+            if replayed is not None:
+                return replayed
+            if request.expected_version != stored.version:
+                raise FollowupError("version_conflict", current_version=stored.version)
+            today = self._today()
+            current = effective_item(stored, today)
+            now = self._now()
+            affected: tuple[str, ...] = ()
+            item = self._transition(connection, request, current, evidence, today, authority)
+            if request.action is DecisionAction.RESOLVE and request.resolution == "evidence":
+                affected = tuple(
+                    row["evidence_id"] for row in evidence if row["role"] == "resolution"
+                )
+            elif request.action is DecisionAction.CORRECT and item.due_evidence_id is not None:
+                affected = (item.due_evidence_id,)
+            item = replace(item, version=stored.version + 1, updated_at=now)
+            self._store_item(connection, item, insert=False)
+            self._log(
+                connection,
+                item=item,
+                operation_id=request.operation_id,
+                digest=digest,
+                principal_id=authority.principal_id,
+                action=request.action.value,
+                prior_state=current.state,
+                prior_version=stored.version,
+                evidence_ids=affected,
+            )
+            return item
+
+    def _transition(
+        self,
+        connection: sqlite3.Connection,
+        request: DecideRequest,
+        current: FollowupItem,
+        evidence: list[sqlite3.Row],
+        today: date,
+        authority: EffectiveAuthority,
+    ) -> FollowupItem:
+        """The next item for one decision over the effective state; refusals write nothing."""
+        action = request.action
+        state = current.state
+        if state is FollowupState.SUPERSEDED:
+            raise FollowupError("invalid_request")
+        cleared = replace(current, snoozed_until=None, snooze_return_state=None)
+        if action is DecisionAction.CONFIRM:
+            if state not in {FollowupState.SUGGESTED, FollowupState.SNOOZED}:
+                raise FollowupError("invalid_request")
+            return replace(cleared, state=FollowupState.CONFIRMED, owner_confirmed=True)
+        if action is DecisionAction.DISMISS:
+            if state not in OPEN_STATES:
+                raise FollowupError("invalid_request")
+            return replace(
+                cleared, state=FollowupState.DISMISSED, new_evidence_since_decision=False
+            )
+        if action is DecisionAction.SNOOZE:
+            assert request.snoozed_until is not None
+            if state not in OPEN_STATES or request.snoozed_until <= today:
+                raise FollowupError("invalid_request")
+            return_state = current.snooze_return_state if state is FollowupState.SNOOZED else state
+            return replace(
+                current,
+                state=FollowupState.SNOOZED,
+                snoozed_until=request.snoozed_until,
+                snooze_return_state=return_state,
+            )
+        if action is DecisionAction.CORRECT:
+            if state not in OPEN_STATES:
+                raise FollowupError("invalid_request")
+            return self._apply_corrections(current, request, evidence)
+        if action is DecisionAction.LINK:
+            return replace(current, ticket_key=request.ticket_key, ticket_url=request.ticket_url)
+        if action is DecisionAction.RESOLVE:
+            if state not in OPEN_STATES:
+                raise FollowupError("invalid_request")
+            if request.resolution == "evidence" and not any(
+                row["role"] == "resolution" for row in evidence
+            ):
+                raise FollowupError("invalid_request")
+            return replace(
+                cleared,
+                state=FollowupState.RESOLVED,
+                resolution=request.resolution,
+                new_evidence_since_decision=False,
+            )
+        if action is DecisionAction.REOPEN:
+            if state not in {FollowupState.DISMISSED, FollowupState.RESOLVED}:
+                raise FollowupError("invalid_request")
+            return replace(
+                cleared,
+                state=(
+                    FollowupState.CONFIRMED if current.owner_confirmed else FollowupState.SUGGESTED
+                ),
+                resolution=None,
+                new_evidence_since_decision=False,
+            )
+        if action is DecisionAction.SUPERSEDE:
+            assert request.superseded_by is not None
+            if state not in OPEN_STATES:
+                raise FollowupError("invalid_request")
+            target, _target_evidence = self._visible_item(
+                connection, request.superseded_by, authority=authority
+            )
+            if (
+                effective_item(target, today).state is FollowupState.SUPERSEDED
+                or target.privacy_tier != current.privacy_tier
+            ):
+                raise FollowupError("invalid_request")
+            return replace(cleared, state=FollowupState.SUPERSEDED, superseded_by=target.item_id)
+        raise FollowupError("invalid_request")
+
+    @staticmethod
+    def _apply_corrections(
+        current: FollowupItem, request: DecideRequest, evidence: list[sqlite3.Row]
+    ) -> FollowupItem:
+        corrections = request.corrections
+        assert corrections is not None
+        item = current
+        if "summary" in corrections:
+            item = replace(item, summary=str(corrections["summary"]))
+        if "project" in corrections:
+            project = corrections["project"]
+            item = replace(item, project=None if project is None else str(project))
+        if "owner" in corrections:
+            owner = OwnerKind(str(corrections["owner"]))
+            name = corrections.get("owner_name")
+            item = replace(item, owner=owner, owner_name=None if name is None else str(name))
+        if "due" in corrections:
+            due = corrections["due"]
+            if due is None:
+                item = replace(item, due=None, due_evidence_id=None)
+            else:
+                stating = str(corrections["due_evidence_id"])
+                if not any(row["evidence_id"] == stating for row in evidence):
+                    raise FollowupError("invalid_request")
+                item = replace(item, due=date.fromisoformat(str(due)), due_evidence_id=stating)
+        return item
 
     def _store_item(
         self, connection: sqlite3.Connection, item: FollowupItem, *, insert: bool

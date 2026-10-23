@@ -500,7 +500,6 @@ def test_add_evidence_refuses_other_tier_and_hidden_items(tmp_path: Path) -> Non
         )
 
 
-@pytest.mark.xfail(strict=True, reason="decide lands in Task 7")
 def test_add_evidence_marks_closed_items_and_enforces_capacity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -512,7 +511,7 @@ def test_add_evidence_marks_closed_items_and_enforces_capacity(
         engine, "Ship the report on Monday. Done now.", delivery="d1", tier=PrivacyTier.WORK
     )
     item = _item(engine, tasks, capture, "Ship the report")
-    dismissed = tasks.decide(  # type: ignore[attr-defined]
+    dismissed = tasks.decide(
         DecideRequest("op-d1", item.item_id, 1, DecisionAction.DISMISS), authority=_owner(engine)
     )
     assert dismissed.state is FollowupState.DISMISSED
@@ -562,3 +561,336 @@ def test_add_evidence_replays_and_detects_conflicts(tmp_path: Path) -> None:
             ),
             authority=_owner(engine),
         )
+
+
+def _decide(
+    tasks: FollowupTasks,
+    engine: BrainEngine,
+    item_id: str,
+    version: int,
+    action: DecisionAction,
+    *,
+    operation_id: str,
+    authority: EffectiveAuthority | None = None,
+    **fields: object,
+) -> FollowupItem:
+    return tasks.decide(
+        DecideRequest(operation_id, item_id, version, action, **fields),  # type: ignore[arg-type]
+        authority=authority or _owner(engine),
+    )
+
+
+def test_decide_confirm_dismiss_reopen_record_each_transition(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    item = _item(engine, tasks, capture, "Ship the report")
+    confirmed = _decide(tasks, engine, item.item_id, 1, DecisionAction.CONFIRM, operation_id="c1")
+    assert (confirmed.state, confirmed.owner_confirmed, confirmed.version) == (
+        FollowupState.CONFIRMED,
+        True,
+        2,
+    )
+    dismissed = _decide(tasks, engine, item.item_id, 2, DecisionAction.DISMISS, operation_id="c2")
+    assert (dismissed.state, dismissed.version) == (FollowupState.DISMISSED, 3)
+    reopened = _decide(tasks, engine, item.item_id, 3, DecisionAction.REOPEN, operation_id="c3")
+    assert (reopened.state, reopened.version) == (FollowupState.CONFIRMED, 4)
+    with pytest.raises(FollowupError, match="invalid_request"):
+        _decide(tasks, engine, item.item_id, 4, DecisionAction.REOPEN, operation_id="c4")
+    with _connect(engine) as connection:
+        rows = connection.execute(
+            "SELECT action,prior_state,new_state,prior_version,new_version FROM "
+            "followup_decisions ORDER BY sequence"
+        ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        ("propose", None, "suggested", 0, 1),
+        ("confirm", "suggested", "confirmed", 1, 2),
+        ("dismiss", "confirmed", "dismissed", 2, 3),
+        ("reopen", "dismissed", "confirmed", 3, 4),
+    ]
+
+
+def test_decide_reopen_of_never_confirmed_item_returns_to_suggested(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    item = _item(engine, tasks, capture, "Ship the report")
+    _decide(tasks, engine, item.item_id, 1, DecisionAction.DISMISS, operation_id="c1")
+    reopened = _decide(tasks, engine, item.item_id, 2, DecisionAction.REOPEN, operation_id="c2")
+    assert (reopened.state, reopened.owner_confirmed) == (FollowupState.SUGGESTED, False)
+
+
+@pytest.mark.xfail(strict=True, reason="show lands in Task 8")
+def test_decide_snooze_returns_to_prior_state_when_the_clock_passes(tmp_path: Path) -> None:
+    clock = Clock()
+    engine = _engine(tmp_path, clock)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    item = _item(engine, tasks, capture, "Ship the report")
+    _decide(tasks, engine, item.item_id, 1, DecisionAction.CONFIRM, operation_id="c1")
+    with pytest.raises(FollowupError, match="invalid_request"):
+        _decide(
+            tasks,
+            engine,
+            item.item_id,
+            2,
+            DecisionAction.SNOOZE,
+            operation_id="c2",
+            snoozed_until=date(2026, 10, 23),
+        )
+    snoozed = _decide(
+        tasks,
+        engine,
+        item.item_id,
+        2,
+        DecisionAction.SNOOZE,
+        operation_id="c3",
+        snoozed_until=date(2026, 10, 30),
+    )
+    assert (snoozed.state, snoozed.snoozed_until, snoozed.snooze_return_state) == (
+        FollowupState.SNOOZED,
+        date(2026, 10, 30),
+        FollowupState.CONFIRMED,
+    )
+    shown, _evidence, _history = tasks.show(  # type: ignore[attr-defined]
+        item.item_id, authority=_owner(engine)
+    )
+    assert shown.state is FollowupState.SNOOZED
+    clock.now = datetime(2026, 10, 30, 8, 0, tzinfo=UTC)
+    shown, _evidence, _history = tasks.show(  # type: ignore[attr-defined]
+        item.item_id, authority=_owner(engine)
+    )
+    assert (shown.state, shown.snoozed_until, shown.version) == (FollowupState.CONFIRMED, None, 3)
+    # Deciding after expiry acts on the returned state and records it as prior.
+    dismissed = _decide(tasks, engine, item.item_id, 3, DecisionAction.DISMISS, operation_id="c4")
+    assert (dismissed.state, dismissed.snoozed_until) == (FollowupState.DISMISSED, None)
+    with _connect(engine) as connection:
+        prior = connection.execute(
+            "SELECT prior_state FROM followup_decisions WHERE operation_id='c4'"
+        ).fetchone()[0]
+    assert prior == "confirmed"
+
+
+def test_decide_correct_link_resolve_and_supersede(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(
+        engine, "Ship the report by 2026-11-05. Shipped it.", delivery="d1", tier=PrivacyTier.WORK
+    )
+    item = _item(engine, tasks, capture, "Ship the report")
+    with_date = tasks.add_evidence(
+        AddEvidenceRequest(
+            "e1",
+            item.item_id,
+            _ref(engine, capture, "by 2026-11-05", role=EvidenceRole.SUPPORTING),
+        ),
+        authority=_owner(engine),
+    )
+    with _connect(engine) as connection:
+        date_evidence = connection.execute(
+            "SELECT evidence_id FROM followup_evidence WHERE item_id=? AND role='supporting'",
+            (item.item_id,),
+        ).fetchone()[0]
+    with pytest.raises(FollowupError, match="invalid_request"):
+        _decide(
+            tasks,
+            engine,
+            item.item_id,
+            with_date.version,
+            DecisionAction.CORRECT,
+            operation_id="c0",
+            corrections={"due": "2026-11-05", "due_evidence_id": "evidence_other"},
+        )
+    corrected = _decide(
+        tasks,
+        engine,
+        item.item_id,
+        with_date.version,
+        DecisionAction.CORRECT,
+        operation_id="c1",
+        corrections={
+            "owner": "other",
+            "owner_name": "Dana",
+            "due": "2026-11-05",
+            "due_evidence_id": date_evidence,
+            "project": "Atlas v2",
+            "summary": "Dana ships the report",
+        },
+    )
+    assert (
+        corrected.owner,
+        corrected.owner_name,
+        corrected.due,
+        corrected.project,
+        corrected.summary,
+        corrected.due_evidence_id,
+        corrected.state,
+    ) == (
+        OwnerKind.OTHER,
+        "Dana",
+        date(2026, 11, 5),
+        "Atlas v2",
+        "Dana ships the report",
+        date_evidence,
+        FollowupState.SUGGESTED,
+    )
+    linked = _decide(
+        tasks,
+        engine,
+        item.item_id,
+        corrected.version,
+        DecisionAction.LINK,
+        operation_id="c2",
+        ticket_key="ATL-7",
+        ticket_url="https://t.example/ATL-7",
+    )
+    assert (linked.ticket_key, linked.ticket_url) == ("ATL-7", "https://t.example/ATL-7")
+    with pytest.raises(FollowupError, match="invalid_request"):
+        _decide(
+            tasks,
+            engine,
+            item.item_id,
+            linked.version,
+            DecisionAction.RESOLVE,
+            operation_id="c3",
+            resolution="evidence",
+        )
+    tasks.add_evidence(
+        AddEvidenceRequest(
+            "e2",
+            item.item_id,
+            _ref(engine, capture, "Shipped it", role=EvidenceRole.RESOLUTION),
+        ),
+        authority=_owner(engine),
+    )
+    resolved = _decide(
+        tasks,
+        engine,
+        item.item_id,
+        linked.version + 1,
+        DecisionAction.RESOLVE,
+        operation_id="c4",
+        resolution="evidence",
+    )
+    assert (resolved.state, resolved.resolution) == (FollowupState.RESOLVED, "evidence")
+    with _connect(engine) as connection:
+        resolution_ids = json.loads(
+            connection.execute(
+                "SELECT evidence_ids_json FROM followup_decisions WHERE operation_id='c4'"
+            ).fetchone()[0]
+        )
+    assert len(resolution_ids) == 1
+
+    other = tasks.propose(
+        _propose(
+            _ref(engine, capture, "Shipped it"),
+            operation_id="p2",
+            summary="Ship the report (duplicate wording)",
+        ),
+        authority=_owner(engine),
+    )
+    with pytest.raises(FollowupError, match="not_found"):
+        _decide(
+            tasks,
+            engine,
+            other.item_id,
+            1,
+            DecisionAction.SUPERSEDE,
+            operation_id="s0",
+            superseded_by="followup_missing",
+        )
+    superseded = _decide(
+        tasks,
+        engine,
+        other.item_id,
+        1,
+        DecisionAction.SUPERSEDE,
+        operation_id="s1",
+        superseded_by=item.item_id,
+    )
+    assert (superseded.state, superseded.superseded_by) == (FollowupState.SUPERSEDED, item.item_id)
+    with pytest.raises(FollowupError, match="invalid_request"):
+        _decide(
+            tasks,
+            engine,
+            superseded.item_id,
+            superseded.version,
+            DecisionAction.LINK,
+            operation_id="s2",
+            ticket_key="X-1",
+            ticket_url="https://t.example/X-1",
+        )
+
+
+def test_decide_resolve_by_owner_statement_needs_no_evidence(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    item = _item(engine, tasks, capture, "Ship the report")
+    resolved = _decide(
+        tasks,
+        engine,
+        item.item_id,
+        1,
+        DecisionAction.RESOLVE,
+        operation_id="r1",
+        resolution="owner_statement",
+    )
+    assert (resolved.state, resolved.resolution) == (FollowupState.RESOLVED, "owner_statement")
+
+
+def test_decide_version_conflict_reports_current_version_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    item = _item(engine, tasks, capture, "Ship the report")
+    _decide(tasks, engine, item.item_id, 1, DecisionAction.CONFIRM, operation_id="c1")
+    with pytest.raises(FollowupError, match="version_conflict") as info:
+        _decide(tasks, engine, item.item_id, 1, DecisionAction.DISMISS, operation_id="c2")
+    assert info.value.current_version == 2
+    with _connect(engine) as connection:
+        assert connection.execute("SELECT count(*) FROM followup_decisions").fetchone()[0] == 2
+
+
+def test_decide_replays_same_request_and_refuses_changed_request(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    item = _item(engine, tasks, capture, "Ship the report")
+    request = DecideRequest("c1", item.item_id, 1, DecisionAction.CONFIRM)
+    first = tasks.decide(request, authority=_owner(engine))
+    assert tasks.decide(request, authority=_owner(engine)) == first
+    with pytest.raises(FollowupError, match="operation_conflict"):
+        tasks.decide(
+            DecideRequest("c1", item.item_id, 1, DecisionAction.DISMISS),
+            authority=_owner(engine),
+        )
+
+
+def test_decide_requires_followup_decide_grant(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    capture = _capture(engine, "Ship the report on Monday", delivery="d1", tier=PrivacyTier.WORK)
+    item = _item(engine, tasks, capture, "Ship the report")
+    with pytest.raises(T03Error, match="unsupported_capability"):
+        _decide(
+            tasks,
+            engine,
+            item.item_id,
+            1,
+            DecisionAction.CONFIRM,
+            operation_id="c1",
+            authority=_agent("followup-propose"),
+        )
+    confirmed = _decide(
+        tasks,
+        engine,
+        item.item_id,
+        1,
+        DecisionAction.CONFIRM,
+        operation_id="c1",
+        authority=_agent("followup-decide", "content-read"),
+    )
+    assert confirmed.state is FollowupState.CONFIRMED
