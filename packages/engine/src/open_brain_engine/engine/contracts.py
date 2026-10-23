@@ -3569,6 +3569,8 @@ class EngineTaskSet:
     embedding_policy: Any = None
     # Owner-local only; no MCP, plugin or desktop surface consumes this task.
     owner_egress_policy: Any = None
+    # Follow-up items; MCP surfaces consume it through the followup-* grants.
+    followups: Any = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

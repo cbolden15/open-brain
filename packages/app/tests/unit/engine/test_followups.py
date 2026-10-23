@@ -1069,3 +1069,15 @@ def test_show_rebuilds_quotes_and_returns_history(tmp_path: Path) -> None:
         ("add_evidence", 2),
     ]
     assert history[1].evidence_ids == (evidence[1].evidence_id,)
+
+
+def test_engine_exposes_followup_tasks(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    assert isinstance(engine.tasks.followups, FollowupTasks)
+    assert engine.tasks.followups is engine.followups
+    capture = _capture(engine, "Ship the report", delivery="d1", tier=PrivacyTier.WORK)
+    item = engine.tasks.followups.propose(
+        _propose(_ref(engine, capture, "Ship the report")), authority=_owner(engine)
+    )
+    items, _ = engine.tasks.followups.list(ListFilter(), authority=_owner(engine))
+    assert [i.item_id for i in items] == [item.item_id]

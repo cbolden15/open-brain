@@ -405,6 +405,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         from .owner_egress_policy import OwnerEgressPolicyTasks
 
         self.owner_egress_policy = OwnerEgressPolicyTasks(self)
+        from .followups import FollowupTasks
+
+        self.followups = FollowupTasks(self)
         self.capture = CaptureTasks(self)
         self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
@@ -456,6 +459,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             consumer_imports=self.consumer_imports,
             embedding_policy=self.embedding_policy,
             owner_egress_policy=self.owner_egress_policy,
+            followups=self.followups,
         )
 
     @classmethod
