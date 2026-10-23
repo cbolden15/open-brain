@@ -4,17 +4,31 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
 import pytest
+from open_brain_engine.engine import (
+    BrainEngine,
+    LocalEngineContext,
+    StateSchemaUnavailableError,
+    TextPayload,
+    local_schema,
+)
 from open_brain_engine.engine.followup_schema import (
     FOLLOWUP_MAX_ITEMS,
     FOLLOWUP_MIGRATION,
     FOLLOWUP_SCHEMA,
     followup_store_is_consistent,
+    migrate_followups,
 )
+from open_brain_engine.engine.local_migration import coordinate_local_migration
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+from open_brain_engine.engine.runtime_admission import exclusive_runtime_admission
+from open_brain_engine.storage.migrations import SchemaError
 
+from open_brain.profile import compile_single_user_local
 from open_brain.services import local_runtime_session
 
 REPO = Path(__file__).resolve().parents[5]
@@ -319,3 +333,136 @@ def test_item_capacity_trigger_stops_the_ten_thousand_and_first_row() -> None:
         )
         with pytest.raises(sqlite3.DatabaseError, match="capacity"):
             _item(connection, "one-too-many")
+
+
+def _clock() -> datetime:
+    return datetime(2026, 10, 23, tzinfo=UTC)
+
+
+def _connect(profile: LocalEngineContext) -> sqlite3.Connection:
+    connection = sqlite3.connect(profile.root / local_schema.PHASE1_STATE_DATABASE)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _schema22(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LocalEngineContext:
+    profile = compile_single_user_local(tmp_path / "brain", starter_spaces=())
+    with monkeypatch.context() as predecessor:
+        predecessor.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 22)
+        predecessor.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:22])
+        engine = BrainEngine.open(profile)
+        engine.capture.accept(TextPayload("Synthetic schema22 evidence"), delivery_id="prior.22")
+    return profile
+
+
+def test_fresh_schema23_has_an_empty_follow_up_store(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain", starter_spaces=()))
+    assert local_schema.inspect_phase1_state(engine.profile) == local_schema.SchemaState(
+        "current", 23
+    )
+    assert LOCAL_MIGRATIONS[22] == FOLLOWUP_MIGRATION
+    assert len(LOCAL_MIGRATIONS) == 23
+    with _connect(engine.profile) as connection:
+        assert [
+            tuple(row) for row in connection.execute("SELECT * FROM runtime_compatibility")
+        ] == [(1, 16, 23)]
+        for table in ("followup_items", "followup_evidence", "followup_decisions"):
+            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+        assert followup_store_is_consistent(connection)
+
+
+def test_schema22_migrates_and_preserves_predecessor_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = _schema22(tmp_path, monkeypatch)
+    with _connect(profile) as connection:
+        migrations = connection.execute("SELECT * FROM schema_migrations").fetchall()
+        captures = connection.execute("SELECT * FROM captures").fetchall()
+        policy = connection.execute("SELECT * FROM owner_egress_policy").fetchall()
+        generations = connection.execute("SELECT * FROM engine_generations").fetchall()
+    with pytest.raises((SchemaError, StateSchemaUnavailableError)):
+        BrainEngine.open(profile)
+    coordinate_local_migration(profile, clock=_clock)
+    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState("current", 23)
+    with _connect(profile) as connection:
+        assert [
+            tuple(row)
+            for row in connection.execute("SELECT * FROM schema_migrations").fetchall()[:22]
+        ] == [tuple(row) for row in migrations]
+        assert [tuple(row) for row in connection.execute("SELECT * FROM captures")] == [
+            tuple(row) for row in captures
+        ]
+        assert [
+            tuple(row) for row in connection.execute("SELECT * FROM owner_egress_policy")
+        ] == [tuple(row) for row in policy]
+        # Follow-ups change no projection policy, unlike #96.
+        assert [
+            tuple(row) for row in connection.execute("SELECT * FROM engine_generations")
+        ] == [tuple(row) for row in generations]
+        assert connection.execute("SELECT count(*) FROM followup_items").fetchone()[0] == 0
+        assert [
+            tuple(row) for row in connection.execute("SELECT * FROM runtime_compatibility")
+        ] == [(1, 16, 23)]
+    coordinate_local_migration(profile, clock=_clock)  # idempotent rerun
+    BrainEngine.open(profile)
+
+
+@pytest.mark.parametrize("opener", ["engine", "read_only"])
+def test_schema22_engine_refuses_schema23_before_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opener: str
+) -> None:
+    profile = _schema22(tmp_path, monkeypatch)
+    coordinate_local_migration(profile, clock=_clock)
+    database = profile.root / local_schema.PHASE1_STATE_DATABASE
+    before = database.read_bytes()
+    with monkeypatch.context() as previous:
+        previous.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 22)
+        previous.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:22])
+        with _connect(profile) as connection:
+            assert local_schema.classify_local_schema(connection) == local_schema.SchemaState(
+                "newer", 23
+            )
+        with pytest.raises((SchemaError, StateSchemaUnavailableError), match="schema is newer"):
+            if opener == "engine":
+                BrainEngine.open(profile)
+            else:
+                local_schema.open_local_database_read_only(profile)
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "stage,version",
+    [
+        ("followup_preflight", 22),
+        ("followup_before_commit", 22),
+        ("followup_after_commit", 23),
+    ],
+)
+def test_interrupted_cutover_is_atomic_and_rerun_is_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str, version: int
+) -> None:
+    profile = _schema22(tmp_path, monkeypatch)
+
+    def interrupt(actual: str) -> None:
+        if actual == stage:
+            raise RuntimeError("synthetic follow-up interruption")
+
+    expected = local_schema.LocalSchemaUpgradeCommittedError if version == 23 else RuntimeError
+    with exclusive_runtime_admission(profile) as admission, pytest.raises(expected):
+        migrate_followups(profile, admission=admission, clock=_clock, checkpoint=interrupt)
+    assert local_schema.inspect_phase1_state(profile).version == version
+    coordinate_local_migration(profile, clock=_clock)
+    coordinate_local_migration(profile, clock=_clock)
+    assert local_schema.inspect_phase1_state(profile) == local_schema.SchemaState("current", 23)
+    with _connect(profile) as connection:
+        rows = connection.execute("SELECT count(*) FROM schema_migrations WHERE version=23")
+        assert rows.fetchone()[0] == 1
+
+
+def test_classifier_refuses_inconsistent_follow_up_store(tmp_path: Path) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain", starter_spaces=()))
+    with _connect(engine.profile) as connection:
+        _item(connection)  # no origin evidence, no decision row
+        assert local_schema.classify_local_schema(connection) == local_schema.SchemaState(
+            "invalid", 23
+        )

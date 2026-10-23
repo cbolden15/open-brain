@@ -444,7 +444,7 @@ def test_frozen_v8_archive_restores_to_fourteen_without_reinterpreting_old_bytes
     )
     restored = BrainEngine.open(open_existing_single_user_local(destination))
     with restored._store.connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
     assert (
         HistoricalTransitionStore(restored.profile.root, restored.profile.root_identity)
         .read(baseline.operation_id)

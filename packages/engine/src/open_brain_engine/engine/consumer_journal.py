@@ -368,7 +368,12 @@ class LifecycleJournalV2(LifecycleJournal):
         ]
         if (
             (version, floor)
-            not in ((20, [(1, 15, 20)]), (21, [(1, 16, 21)]), (22, [(1, 16, 22)]))
+            not in (
+                (20, [(1, 15, 20)]),
+                (21, [(1, 16, 21)]),
+                (22, [(1, 16, 22)]),
+                (23, [(1, 16, 23)]),
+            )
             or identity is None
             or tuple(identity) != (brain_id, issuer_epoch)
             or journal_identity != [(1, JOURNAL_CONTRACT_V2, brain_id)]

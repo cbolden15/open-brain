@@ -264,6 +264,7 @@ def _migrate_issuer(
             ISSUER_STATE_SCHEMA_VERSION + 11,
             ISSUER_STATE_SCHEMA_VERSION + 12,
             ISSUER_STATE_SCHEMA_VERSION + 13,
+            ISSUER_STATE_SCHEMA_VERSION + 14,
         }:
             # Re-entry on committed schema nine verifies the stored evidence only;
             # the vault legitimately changes after the cutover and is never re-read.

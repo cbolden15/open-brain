@@ -156,7 +156,7 @@ def migrate_consumer_intake(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state in {"current", "supported_old"} and state.version in {20, 21, 22}:
+        if state.state in {"current", "supported_old"} and state.version in {20, 21, 22, 23}:
             return
         if state.state != "supported_old" or state.version != 19:
             raise T03Error("operation_pending")

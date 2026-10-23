@@ -210,7 +210,7 @@ def test_portable16_input_restores_with_no_shareable_tier(
     current = _engine(tmp_path / "current")
     restored = _restore(current, tmp_path / "archive", tmp_path / "restored")
     with _connect(restored) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
         assert read_owner_egress_policy(connection).version == 0
     assert _egress(restored, work) == (0, 0, False)
     assert _export(restored, tmp_path / "again")[OWNER_EGRESS_POLICY_PATH] == b""

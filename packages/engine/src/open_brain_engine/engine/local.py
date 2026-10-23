@@ -188,7 +188,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         assert_root_identity(profile.root, profile.root_identity)
         schema = inspect_phase1_state(profile)
         if recovery_protection_guard is not None and (
-            schema.state != "current" or schema.version not in set(range(13, 23))
+            schema.state != "current" or schema.version not in set(range(13, 24))
         ):
             raise StateSchemaUnavailableError("recovery protection requires existing schema13")
         if recovery_protection_guard is not None:
@@ -284,7 +284,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         if (
             receipt_protection_port is not None
             and schema.state != "absent"
-            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}
+            and schema.version not in {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}
         ):
             raise StateSchemaUnavailableError(
                 "receipt protection requires the schema-10 ingestion journal"
@@ -389,6 +389,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
                     20,
                     21,
                     22,
+                    23,
                 }:
                     raise
                 self._store = _LocalStore(profile, clock=self._clock, initialize=False)

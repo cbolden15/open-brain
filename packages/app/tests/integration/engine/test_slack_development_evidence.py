@@ -344,7 +344,7 @@ def test_schema15_explicit_migration_old_archive_and_forward_refusal(
     coordinate_local_migration(profile)
     upgraded = BrainEngine.open(profile)
     with local_schema.open_local_database_read_only(profile) as connection:
-        assert local_schema.classify_local_schema(connection).version == 22
+        assert local_schema.classify_local_schema(connection).version == 23
         assert connection.execute("SELECT COUNT(*) FROM development_evidence").fetchone()[0] == 0
     restored = tmp_path / "restored"
     upgraded.portability.import_clean(

@@ -29,7 +29,7 @@ def serialize_portable_v17_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=22,
+        _expected_schema=23,
     )
     raw = owner_egress_policy_sidecar(history_rows(connection))
     semantic = {

@@ -111,7 +111,7 @@ def test_mixed_history_custody_and_facets_survive_clean_roundtrip(
     assert engine.portability.import_clean(archive, destination, import_id=import_id).duplicate
     restored = BrainEngine.open(open_existing_single_user_local(destination))
     with restored._store.connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
         for table, rows in before_rows.items():
             assert [
                 tuple(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")

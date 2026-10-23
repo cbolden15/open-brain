@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Final
+from collections.abc import Callable
+from datetime import datetime
+from typing import TYPE_CHECKING, Final
 
-from open_brain_engine.storage.migrations import _migration
+from open_brain_engine.storage.migrations import _migration, apply_migrations
+from open_brain_engine.storage.sqlite import connect_database
+
+if TYPE_CHECKING:
+    from .contracts import LocalEngineContext
+    from .runtime_admission import HeldRuntimeAdmission
 
 FOLLOWUP_MAX_ITEMS: Final = 10_000
 
@@ -130,9 +137,77 @@ def followup_store_is_consistent(connection: sqlite3.Connection) -> bool:
     )
 
 
+def migrate_followups(
+    profile: LocalEngineContext,
+    *,
+    admission: HeldRuntimeAdmission,
+    clock: Callable[[], datetime],
+    checkpoint: Callable[[str], None] = lambda _stage: None,
+) -> None:
+    """Exclusively admit schema23 with an empty follow-up store, touching no other rows."""
+    from .historical_recovery import require_historical_snapshot_settled
+    from .local_schema import (
+        PHASE1_STATE_DATABASE,
+        LocalSchemaUpgradeCommittedError,
+        _MigrationClock,
+        _validate_upgrade_data,
+        classify_local_schema,
+    )
+    from .local_schema_catalog import LOCAL_MIGRATIONS
+    from .t03_contracts import T03Error
+
+    admission.validate(profile)
+    if admission.live_peer_count:
+        raise T03Error("operation_pending")
+    connection = connect_database(
+        root=profile.root,
+        database_name=PHASE1_STATE_DATABASE,
+        expected_root_identity=profile.root_identity,
+    )
+    committed = False
+    try:
+        state = classify_local_schema(connection)
+        if state.state == "current" and state.version == 23:
+            return
+        if state.state != "supported_old" or state.version != 22:
+            raise T03Error("operation_pending")
+        checkpoint("followup_preflight")
+        admission.validate(profile)
+        connection.execute("BEGIN IMMEDIATE")
+        if classify_local_schema(connection) != state:
+            raise T03Error("operation_pending")
+        require_historical_snapshot_settled(connection, profile)
+        _validate_upgrade_data(connection)
+        apply_migrations(
+            connection,
+            clock=_MigrationClock(clock),
+            migrations=LOCAL_MIGRATIONS[:23],
+            schema_version=23,
+        )
+        upgraded = classify_local_schema(connection)
+        if upgraded.state != "current" or upgraded.version != 23:
+            raise T03Error("operation_pending")
+        checkpoint("followup_before_commit")
+        require_historical_snapshot_settled(connection, profile)
+        _validate_upgrade_data(connection)
+        admission.validate(profile)
+        connection.commit()
+        committed = True
+        checkpoint("followup_after_commit")
+    except BaseException as error:
+        if connection.in_transaction:
+            connection.rollback()
+        if committed:
+            raise LocalSchemaUpgradeCommittedError("follow-up migration committed") from error
+        raise
+    finally:
+        connection.close()
+
+
 __all__ = [
     "FOLLOWUP_MAX_ITEMS",
     "FOLLOWUP_MIGRATION",
     "FOLLOWUP_SCHEMA",
     "followup_store_is_consistent",
+    "migrate_followups",
 ]

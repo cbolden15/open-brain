@@ -66,7 +66,7 @@ def migrate_slack_sharing(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state in {"current", "supported_old"} and state.version in set(range(17, 23)):
+        if state.state in {"current", "supported_old"} and state.version in set(range(17, 24)):
             return
         if state.state != "supported_old" or state.version != 16:
             raise T03Error("operation_pending")

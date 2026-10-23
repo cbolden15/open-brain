@@ -15,6 +15,7 @@ from open_brain_engine.engine import (
     StateSchemaUnavailableError,
     TextPayload,
     local_schema,
+    paging,
 )
 from open_brain_engine.engine.local_migration import coordinate_local_migration
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
@@ -40,6 +41,15 @@ from open_brain.profile import compile_single_user_local
 from open_brain.services.t03_adapters import agent_authority, owner_authority
 
 WORK = frozenset({PrivacyTier.WORK})
+
+
+@pytest.fixture(autouse=True)
+def _frozen_egress_schema22(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the predecessor cutover's exact 22/16 assertions."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 22)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:22])
+    # paging imports the constant by name; its read snapshot fences on it.
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 22)
 
 
 def _clock() -> datetime:

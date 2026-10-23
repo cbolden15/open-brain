@@ -634,7 +634,7 @@ def restored_portable_semantic_state(
     require_historical_snapshot_settled(connection, profile)
     if (
         historical_installed
-        and version in {15, 16, 17, 18, 19, 20, 21, 22}
+        and version in {15, 16, 17, 18, 19, 20, 21, 22, 23}
         and snapshot.manifest["schema_version"] in {8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
     ):
         if snapshot.manifest["schema_version"] == 17:

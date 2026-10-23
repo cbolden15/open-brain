@@ -706,7 +706,7 @@ def test_f19_legacy_v1_clean_import_has_empty_facets_after_current_admission(
     )
     assert receipt.schema_version == 1
     with sqlite3.connect(target / ".open-brain/state/phase1.sqlite3") as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 23
         assert connection.execute("SELECT count(*) FROM facet_dimensions").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM facet_events").fetchone()[0] == 0
 
