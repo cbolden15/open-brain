@@ -28,7 +28,6 @@ from .followup_contracts import (
     DecideRequest,
     DecisionAction,
     EvidenceRef,
-    EvidenceRole,
     FollowupDecisionRow,
     FollowupError,
     FollowupEvidenceView,
@@ -40,7 +39,7 @@ from .followup_contracts import (
     ProposeRequest,
     request_wire,
 )
-from .followup_visibility import evidence_ref, rebuild_quote, visible_to
+from .followup_visibility import evidence_ref, project_item, rebuild_quote, visible_to
 from .normalization import _timestamp
 from .paging import read_snapshot
 from .privacy_projection import parse_effective_privacy_json
@@ -691,40 +690,23 @@ class FollowupTasks:
 
     # -- read ------------------------------------------------------------------
 
-    def _owner_projection(
+    def _project(
         self,
         connection: sqlite3.Connection,
         item: FollowupItem,
         evidence: list[sqlite3.Row],
+        *,
         authority: EffectiveAuthority,
-    ) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...]]:
-        """Rebuild quotes; an unreadable revision marks the item retracted for the owner."""
-        projector = RecordProjector(self._engine.profile, connection, authority)
-        views = []
-        retracted = False
-        for row in evidence:
-            ref = evidence_ref(row)
-            quote: str | None
-            try:
-                record = projector.read(ref.capture_id, expected=ref.revision_id, history=True)
-                quote = rebuild_quote(record.text, ref)
-            except T03Error as error:
-                if error.code not in {"not_found", "revision_changed"}:
-                    raise
-                quote = None
-            retracted = retracted or quote is None
-            views.append(
-                FollowupEvidenceView(
-                    evidence_id=row["evidence_id"],
-                    role=EvidenceRole(row["role"]),
-                    capture_id=row["capture_id"],
-                    revision_id=row["revision_id"],
-                    quote=quote,
-                )
-            )
-        if retracted:
-            item = replace(item, evidence_retracted=True, summary=None)
-        return item, tuple(views)
+        projector: RecordProjector,
+    ) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...]] | None:
+        return project_item(
+            item,
+            [entry["evidence_id"] for entry in evidence],
+            [evidence_ref(entry) for entry in evidence],
+            connection=connection,
+            authority=authority,
+            projector=projector,
+        )
 
     @staticmethod
     def _matches(item: FollowupItem, filter: ListFilter) -> bool:
@@ -751,9 +733,21 @@ class FollowupTasks:
     ) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...], tuple[FollowupDecisionRow, ...]]:
         authority.require("followup-read")
         with read_snapshot(self._engine) as connection:
-            stored, evidence = self._visible_item(connection, item_id, authority=authority)
-            item = effective_item(stored, self._today())
-            item, views = self._owner_projection(connection, item, evidence, authority)
+            row = self._row(connection, item_id)
+            if row is None:
+                raise FollowupError("not_found")
+            evidence = self._evidence_rows(connection, item_id)
+            projector = RecordProjector(self._engine.profile, connection, authority)
+            projected = self._project(
+                connection,
+                effective_item(item_from_row(row), self._today()),
+                evidence,
+                authority=authority,
+                projector=projector,
+            )
+            if projected is None:
+                raise FollowupError("not_found")
+            item, views = projected
             history = tuple(
                 decision_from_row(row)
                 for row in connection.execute(
@@ -791,12 +785,16 @@ class FollowupTasks:
                     continue
                 stored = item_from_row(row)
                 evidence = self._evidence_rows(connection, stored.item_id)
-                refs = [evidence_ref(row) for row in evidence]
-                if not visible_to(stored, refs, authority=authority, projector=projector):
+                projected = self._project(
+                    connection,
+                    effective_item(stored, today),
+                    evidence,
+                    authority=authority,
+                    projector=projector,
+                )
+                if projected is None:
                     continue
-                item = effective_item(stored, today)
-                if authority.owner:
-                    item, _views = self._owner_projection(connection, item, evidence, authority)
+                item = projected[0]
                 if not self._matches(item, filter):
                     continue
                 if len(selected) == filter.limit:

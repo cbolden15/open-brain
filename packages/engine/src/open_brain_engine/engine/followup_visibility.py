@@ -18,7 +18,7 @@ from typing import Literal
 from open_brain_engine.core.models import PrivacyTier
 
 from .capture_lifecycle_policy import lifecycle_permits_capture
-from .followup_contracts import EvidenceRef, EvidenceRole, FollowupItem
+from .followup_contracts import EvidenceRef, EvidenceRole, FollowupEvidenceView, FollowupItem
 from .privacy_projection import parse_effective_privacy_json
 from .records import ProjectedRecord, RecordProjector
 from .t03_contracts import EffectiveAuthority, T03Error
@@ -132,6 +132,96 @@ def visible_to(
     return True
 
 
+def project_evidence(
+    evidence_id: str,
+    ref: EvidenceRef,
+    *,
+    connection: sqlite3.Connection,
+    authority: EffectiveAuthority,
+    projector: RecordProjector,
+) -> FollowupEvidenceView:
+    """One evidence row as this session sees it now (status, quote, head positions)."""
+    if not lifecycle_permits_capture(connection, ref.capture_id):
+        return FollowupEvidenceView(
+            evidence_id, ref.role, ref.capture_id, ref.revision_id, None, "retracted"
+        )
+    head = head_record(projector, ref)
+    if head is not None and head.summary["revision_id"] == ref.revision_id:
+        quote = rebuild_quote(head.text, ref)
+        if quote is None:
+            return FollowupEvidenceView(
+                evidence_id, ref.role, ref.capture_id, ref.revision_id, None, "source_changed"
+            )
+        return FollowupEvidenceView(
+            evidence_id,
+            ref.role,
+            ref.capture_id,
+            ref.revision_id,
+            quote,
+            "current",
+            ref.revision_id,
+            ref.quote_start,
+            ref.quote_end,
+        )
+    # The source moved on. Compare against the cited revision internally; never hand its text
+    # to a client session.
+    cited = revision_text(internal_projector(projector), ref)
+    original = None if cited is None else rebuild_quote(cited, ref)
+    located = None if head is None or original is None else locate_quote(head.text, original)
+    if head is not None and located is not None:
+        return FollowupEvidenceView(
+            evidence_id,
+            ref.role,
+            ref.capture_id,
+            ref.revision_id,
+            original,
+            "moved",
+            head.summary["revision_id"],
+            located[0],
+            located[1],
+        )
+    return FollowupEvidenceView(
+        evidence_id,
+        ref.role,
+        ref.capture_id,
+        ref.revision_id,
+        original if authority.owner else None,
+        "source_changed",
+    )
+
+
+def project_item(
+    item: FollowupItem,
+    evidence_ids: Sequence[str],
+    evidence_rows: Sequence[EvidenceRef],
+    *,
+    connection: sqlite3.Connection,
+    authority: EffectiveAuthority,
+    projector: RecordProjector,
+) -> tuple[FollowupItem, tuple[FollowupEvidenceView, ...]] | None:
+    """One item for one session: None when hidden, else recomputed flags and per-read quotes."""
+    if len(evidence_ids) != len(evidence_rows):
+        raise ValueError("evidence ids and rows differ in length")
+    if not visible_to(item, evidence_rows, authority=authority, projector=projector):
+        return None
+    views = tuple(
+        project_evidence(
+            evidence_id, ref, connection=connection, authority=authority, projector=projector
+        )
+        for evidence_id, ref in zip(evidence_ids, evidence_rows, strict=True)
+    )
+    retracted = any(view.status == "retracted" for view in views)
+    if retracted and not authority.owner:
+        # Retracted evidence hides the item from every client session, whatever the head says.
+        return None
+    projected = replace(
+        item,
+        evidence_retracted=retracted,
+        summary=None if retracted else item.summary,
+    )
+    return projected, views
+
+
 __all__ = [
     "EvidenceStatus",
     "evidence_ref",
@@ -140,6 +230,8 @@ __all__ = [
     "head_tier",
     "internal_projector",
     "locate_quote",
+    "project_evidence",
+    "project_item",
     "rebuild_quote",
     "revision_text",
     "visible_to",
