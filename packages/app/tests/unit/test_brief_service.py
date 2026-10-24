@@ -1151,3 +1151,26 @@ def test_family_ids_up_to_the_contract_bound_are_logged_and_acked(tmp_path: Path
     acked = brief_ack(tasks, OWNER_SESSION, log=log, family_ref="family:" + family.family_id)
     assert acked["family_ref"] == "family:" + family.family_id
     assert brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock()).items == ()
+
+
+def test_ack_needs_only_the_ack_grant_and_reads_families_under_the_session_scope(
+    tmp_path: Path,
+) -> None:
+    # brief-read and brief-ack are independent: an ack-only session still resolves the family
+    # under its own tiers and spaces (the MCP adapter gates the ack tool on brief-ack itself).
+    ack_only = BriefSessionAuthority(
+        authority=replace(WORK, capabilities=frozenset({"brief-ack"})),
+        brief_grants=frozenset({"brief-ack"}),
+        followup_grants=frozenset(),
+    )
+    freshness = _FakeFreshness((STALE_FAMILY,))
+    tasks = _tasks(tmp_path, freshness=freshness)
+    log = _log(tasks)
+    acked = brief_ack(tasks, ack_only, log=log, family_ref="family:" + STALE_FAMILY.family_id)
+    assert acked["family_ref"] == "family:" + STALE_FAMILY.family_id
+    authority, space_ids, _days = freshness.calls[-1]
+    assert "brief-read" in authority.capabilities and authority.owner is False
+    assert authority.allowed_read_tiers == WORK.allowed_read_tiers and space_ids is None
+    with pytest.raises(BriefError) as unknown:
+        brief_ack(tasks, ack_only, log=log, family_ref="family:consumer:synthetic/none:x")
+    assert unknown.value.code == "not_found"

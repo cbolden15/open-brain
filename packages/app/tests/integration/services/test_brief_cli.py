@@ -40,7 +40,7 @@ def test_brief_usage_failures_exit_two_without_bootstrap(
 
 def test_brief_help_names_the_grants_and_the_log(capsys: pytest.CaptureFixture[str]) -> None:
     assert run_cli(("brief", "--help"), environment={}) == 0
-    output = capsys.readouterr().out
+    output = " ".join(capsys.readouterr().out.split())  # argparse wraps the description
     for phrase in (
         "brief-read",
         "brief-ack",

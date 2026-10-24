@@ -79,6 +79,7 @@ from open_brain.services.brief import (
     BRIEF_GRANTS,
     BRIEF_MAX_SPACE_SELECTION,
     BriefServiceError,
+    bind_brief_operations,
     brief_ack,
     brief_generate,
     brief_last,
@@ -333,6 +334,8 @@ def run_cli(
             or parsed.allow_followup_read
             or parsed.allow_followup_propose
             or parsed.allow_followup_decide
+            or parsed.allow_brief_read
+            or parsed.allow_brief_ack
             or facet_grants_from_namespace(parsed)
         )
         or json_output
@@ -1048,6 +1051,8 @@ def _parser() -> argparse.ArgumentParser:
             "encoded review output; review grants are independent and off by default. "
             "500 follow-up reads, 200 follow-up writes and 16 MiB encoded follow-up output; "
             "follow-up grants are independent and off by default. "
+            "200 brief reads, 200 brief acks and 4 MiB encoded brief output; "
+            "brief grants are independent and off by default. "
             "valid duplicates and conflicts count. Restarting resets limits. "
             "No actions, connectors, user-managed grants, or Secure Node capabilities."
         ),
@@ -1172,6 +1177,19 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow version-bound confirm, dismiss, snooze, correct, link, resolve, reopen, "
         "and supersede decisions.",
+    )
+    mcp_parser.add_argument(
+        "--allow-brief-read",
+        action="store_true",
+        help="Allow composing today's brief: follow-up and capture-family pointers with reason "
+        "codes, ranked by fixed rules with no model; follow-up items also need "
+        "--allow-followup-read.",
+    )
+    mcp_parser.add_argument(
+        "--allow-brief-ack",
+        action="store_true",
+        help="Allow acknowledging a capture family so it leaves this session's briefs until it "
+        "changes.",
     )
     add_facet_grant_flags(mcp_parser)
 
@@ -3032,6 +3050,8 @@ def _run_local_command(
                 (parsed.allow_followup_read, "followup-read"),
                 (parsed.allow_followup_propose, "followup-propose"),
                 (parsed.allow_followup_decide, "followup-decide"),
+                (parsed.allow_brief_read, "brief-read"),
+                (parsed.allow_brief_ack, "brief-ack"),
             )
             if enabled
         )
@@ -3115,6 +3135,16 @@ def _run_local_command(
                 launcher_policy=policy_path is not None,
             ),
         )
+        briefs = bind_brief_operations(
+            tasks,
+            brief_session_authority(
+                session_authority,
+                grants=selected_grants & (FOLLOWUP_GRANTS | BRIEF_GRANTS),
+                launcher_policy=policy_path is not None,
+            ),
+            log=BriefLogStore(brief_state_dir(tasks.profile), clock=default_brief_clock),
+            clock=default_brief_clock,
+        )
         history = tasks.history
         sources = tasks.sources
         negotiated_tasks = SimpleNamespace(
@@ -3197,6 +3227,8 @@ def _run_local_command(
             followup_decide=(
                 followups["decide"] if local_callbacks and parsed.allow_followup_decide else None
             ),
+            brief=(briefs["brief"] if local_callbacks and parsed.allow_brief_read else None),
+            brief_ack=(briefs["ack"] if local_callbacks and parsed.allow_brief_ack else None),
             negotiated=negotiated,
             facets=FacetAppAdapter(
                 facets=tasks.facets,

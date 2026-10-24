@@ -30,6 +30,8 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain.services.brief_authority import BriefSessionAuthority, visibility_key
 from open_brain.services.brief_contracts import (
     BRIEF_FOLLOWUP_SCAN_LIMIT,
+    BRIEF_GRANT_ACK,
+    BRIEF_GRANT_READ,
     BRIEF_GRANTS,
     BRIEF_MAX_FAMILY_ITEMS,
     BRIEF_MAX_ITEMS,
@@ -616,6 +618,11 @@ def brief_ack(
     ``version_conflict`` and the caller retries."""
     family_id = parse_family_ref(family_ref)
     authority = session.authority
+    if BRIEF_GRANT_ACK in session.brief_grants:
+        # brief-read and brief-ack are independent grants. The freshness task gates on
+        # brief-read, so an ack-only session resolves the family under its own tiers, spaces
+        # and egress; only the capability gate is satisfied, never the scope widened.
+        authority = replace(authority, capabilities=authority.capabilities | {BRIEF_GRANT_READ})
     try:
         report = tasks.source_freshness.freshness(
             authority, space_ids=None, stale_days=BRIEF_STALE_DAYS_DEFAULT
