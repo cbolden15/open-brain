@@ -47,6 +47,23 @@ def test_startup_budget_failure_is_retained() -> None:
     assert isinstance(result["warm"], dict) and result["warm"]["passed"] is True
 
 
+def test_interference_spikes_in_identical_layouts_do_not_fail_the_budget() -> None:
+    # Hosted-runner cold samples from identical layouts; host interference only adds time.
+    result = summarize(
+        {
+            "cold": {
+                "baseline": [1.19, 1.65, 1.35, 1.30, 1.93],
+                "candidate": [2.26, 2.03, 1.28, 2.07, 1.11],
+            },
+            "warm": {
+                "baseline": [0.69, 0.91, 0.72, 0.67, 0.70],
+                "candidate": [0.68, 0.66, 0.66, 0.73, 0.65],
+            },
+        }
+    )
+    assert result["passed"] is True
+
+
 @pytest.mark.parametrize("values", [[1.0] * 4, [float("nan")] * 5, [float("inf")] * 5, [0.0] * 5])
 def test_missing_or_invalid_samples_cannot_pass(values: list[float]) -> None:
     with pytest.raises(ValueError, match="five valid"):
