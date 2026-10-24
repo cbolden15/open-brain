@@ -1,13 +1,29 @@
 version: 2
 updates:
-  - package-ecosystem: pip
+  # The uv workspace: pyproject.toml files and uv.lock are updated together.
+  - package-ecosystem: uv
     directory: "/"
     schedule:
       interval: weekly
+    exclude-paths:
+      - "archive/**"
     groups:
       python-dependencies:
         patterns:
           - "*"
+  # No version updates. The workspace belongs to the uv entry, and the remaining requirements
+  # files are hash-pinned against source manifests or archived, so a bare bump cannot pass CI.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    exclude-paths:
+      - "pyproject.toml"
+      - "packages/**"
+      - "tools/nw0_*/**"
+      - "release/open-brain-graphify/**"
+      - "archive/**"
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
