@@ -11,7 +11,7 @@ PORTABLE_V18_SCHEMA_CATALOG = {
     "schema_version": 18,
     "state_schema_version": 23,
     "minimum_runtime_session_version": 16,
-    "migration23_sha256": "d58d8d268ff72a2ce8c6fd7618cb210ce4e790210a40f95172780cdef4bcaad5",
+    "migration23_sha256": "d24a103131bd5e2addf3ce266faf0a52c99fddeeb9f70b5d89d0c47f41d6975a",
     "followups_evidence": 1,
 }
 PORTABLE_V18_SCHEMA_CATALOG_DIGEST = sha256(

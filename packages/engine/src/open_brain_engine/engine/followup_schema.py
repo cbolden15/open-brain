@@ -37,7 +37,7 @@ FOLLOWUP_SCHEMA: tuple[str, ...] = (
    AND (snoozed_until IS NULL OR snoozed_until {_DATE})),
  snooze_return_state TEXT CHECK((state='snoozed')=(snooze_return_state IS NOT NULL)
    AND (snooze_return_state IS NULL OR snooze_return_state IN ('suggested','confirmed'))),
- ticket_key TEXT CHECK(ticket_key IS NULL OR length(ticket_key) BETWEEN 1 AND 256),
+ ticket_key TEXT CHECK(ticket_key IS NULL OR length(ticket_key) BETWEEN 1 AND 200),
  ticket_url TEXT CHECK(ticket_url IS NULL
    OR (ticket_key IS NOT NULL AND length(ticket_url) BETWEEN 1 AND 2048)),
  privacy_tier TEXT NOT NULL CHECK(privacy_tier IN ('public','work','personal','secret','unknown')),

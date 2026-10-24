@@ -222,6 +222,13 @@ def test_item_check_constraints_accept_each_valid_shape() -> None:
         _item(connection, "h", kind="question", owner="unknown")
 
 
+def test_ticket_key_is_capped_at_the_contract_limit() -> None:
+    with _memory() as connection:
+        _item(connection, "a", ticket_key="T" * 200)
+        with pytest.raises(sqlite3.IntegrityError):
+            _item(connection, "b", ticket_key="T" * 201)
+
+
 def test_items_are_retained_and_version_moves_by_exactly_one() -> None:
     with _memory() as connection:
         _item(connection)
