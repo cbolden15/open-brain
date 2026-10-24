@@ -135,8 +135,10 @@ Each provider returns candidates with reason codes. The composer merges, sorts a
    `source_freshness(authority, space_ids, stale_days)` returns, for every family the authority can
    read: `family_id`, `kind` (`consumer_namespace` or `markdown_import`), `space_id`, newest
    `recorded_at`, capture count, and count of captures with availability `missing` or
-   `inaccessible`. Retired captures are excluded. It reads `source_namespaces`, `logical_sources` and
-   `source_revisions` only; no schema change.
+   `inaccessible`. Retired captures are excluded. It reads `source_namespaces`, `logical_sources`,
+   `source_revisions` and, to classify Markdown-import captures, `markdown_import_revisions`, all
+   read-only; no schema change. A capture with no space reports `space_id` as `unassigned`, which a
+   space selection never matches.
 
 Ranking is fixed and explainable:
 
