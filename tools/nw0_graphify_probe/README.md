@@ -74,7 +74,10 @@ reset. The [Linux kernel documentation](https://www.kernel.org/doc/html/latest/a
 limits this technique to testing/debugging; it is never run on the development Mac.
 The warm series starts with one untimed invocation per layout. Each invocation has a 60-second
 deadline, 16 KiB log cap, process-group cleanup and temporary-directory check. Every measured sample
-is retained; additional median budgets remain 500 ms cold and 200 ms warm. The path-free
+is retained. The budgets compare each layout's fastest sample: the candidate may add at most
+500 ms cold and 200 ms warm. Hosted-runner interference only adds time, and on macOS it moved
+single cold samples by more than a second, enough to push a median over budget for identical
+layouts. A real cost of the dormant helper raises every sample, including the fastest. The path-free
 `startup-verification.json` identifies the exact base/helper bytes and records all samples, including
 a budget failure. Helper activation, first installation and the complete journey are separate gates.
 

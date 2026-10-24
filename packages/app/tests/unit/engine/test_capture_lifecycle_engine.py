@@ -16,7 +16,9 @@ from open_brain_engine.engine.capture_lifecycle_contracts import (
     LifecycleRequest,
     digest,
 )
+from open_brain_engine.engine.capture_lifecycle_journal import LifecycleJournal
 from open_brain_engine.engine.capture_lifecycle_policy import lifecycle_permits_capture
+from open_brain_engine.engine.consumer_journal import LifecycleJournalV2
 from open_brain_engine.engine.t03_contracts import (
     EffectiveAuthority,
     HistoryListRequest,
@@ -101,6 +103,31 @@ def _history(engine: BrainEngine, capture: str) -> str:
     text = content["text"]
     assert isinstance(text, str)
     return text
+
+
+def test_staging_verifies_the_journal_a_bounded_number_of_times_per_segment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Each verification replays the whole journal, so per-segment verifications must
+    # not grow with group size or staging a large session becomes cubic.
+    calls = [0]
+    for journal_class in (LifecycleJournal, LifecycleJournalV2):
+        verify = journal_class._verify_state
+
+        def counted(self: LifecycleJournal, _verify: object = verify) -> object:
+            calls[0] += 1
+            return _verify(self)  # type: ignore[operator]
+
+        monkeypatch.setattr(journal_class, "_verify_state", counted)
+
+    def verifications_per_segment(size: int) -> float:
+        engine = BrainEngine.open(compile_single_user_local(tmp_path / f"brain-{size}"))
+        request, group, segments = _group(engine, tuple(f"synthetic {i}" for i in range(size)))
+        calls[0] = 0
+        _stage(engine, request, group, segments)
+        return calls[0] / size
+
+    assert verifications_per_segment(16) <= verifications_per_segment(4) * 1.2
 
 
 def test_staging_is_hidden_across_restart_then_whole_group_activates(tmp_path: Path) -> None:

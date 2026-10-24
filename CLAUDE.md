@@ -1,7 +1,7 @@
 # Open Brain
 
 **GitHub:** `cbolden15/open-brain`
-**Stack:** Python 3.14, uv workspace packages, SQLite, Markdown, PyInstaller, Homebrew; Tauri/Rust and React/TypeScript for the separate desktop
+**Stack:** Python 3.14, uv workspace packages, SQLite, Markdown, PyInstaller, Homebrew; TypeScript for the Obsidian plugin
 
 ## Quick reference
 
@@ -13,11 +13,10 @@
 | Native distribution audit | `make native-audit` |
 | Native integration smoke | `make native-integration-smoke` |
 | Complete contributor check | `make contributor-check` |
-| Desktop native proof (macOS) | `make desktop-native-proof`, then a separate native UI check |
 | Product authority | `docs/product-family.md` |
 | Acceptance | `docs/acceptance/five-minute-install.md` |
 
-Use `docs/install.md` for the core release and tap instructions. The desktop contributor build is not a public desktop release.
+Use `docs/install.md` for the core release and tap instructions.
 
 ## Product boundary
 
@@ -28,10 +27,10 @@ export. Open Brain never requires root, operating-system capabilities, namespace
 containers, a daemon, or another background service. The enabled plugin owns one foreground
 `open-brain plugin` child over inherited stdio and stops it on unload.
 
-The separately packaged Tauri companion in `packages/desktop` follows
-`docs/architecture/decisions/0017-desktop-companion-boundary.md`. D1 provides local capture/search
-and shared CLI/desktop agent setup against the same Brain. Priority Gmail, Drive and selected
-Claude Code/Codex capture share `packages/collector/src/open_brain_collector/live_manager.py`.
+The Tauri desktop companion was archived to `archive/open-brain-desktop` on 2026-10-23; it was
+never released. It is excluded from the workspace, Makefile and CI. Priority Gmail, Drive and
+selected Claude Code/Codex capture share `packages/collector/src/open_brain_collector/live_manager.py`,
+and the collector CLI exposes the source operations headlessly.
 The existing Slack implementation is deferred from the active priority milestone.
 The optional collector owns scheduling, credential references, private Unix control IPC, and service
 permissions. Source enablement and background service installation are separate opt-ins. The
@@ -60,11 +59,11 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `packages/app/src/open_brain/services/plugin_bridge.py` | Bounded `open-brain-client` protocol version 1 server and plugin-session lifecycle |
 | `packages/app/src/open_brain/services/managed_providers.py` | Consent-gated, bounded OpenAI, Anthropic, and Gemini direct adapters |
 | `packages/obsidian-plugin` | Desktop-only Obsidian source, bounded stdio client, and compiled plugin checks |
-| `packages/desktop` | Optional Tauri/React UI, native stdio bridge, local capture/search, and agent setup |
 | `packages/connectors` | Optional connector distribution; not a default dependency |
 | `packages/collector` | Optional collector distribution; not a default or native base dependency |
 | `archive/open-brain-secure-node` | Historical Secure Node implementation; excluded from builds and tests |
 | `archive/legacy` | Historical predecessor; excluded from the workspace, builds, imports, and tests |
+| `archive/open-brain-desktop` | Archived Tauri desktop companion; excluded from builds, tests and CI |
 | `tools/open_brain_dev/base_native.py` | Paired native build, module audit, component manifest, and formula renderer |
 | `release/open-brain/open-brain.spec` | One-folder core and optional onedir foreground harness specification |
 | `release/open-brain-graphify` | Pinned, patched, separately frozen Graphify structural helper |
@@ -124,8 +123,8 @@ make native-integration-smoke
 make contributor-check
 ```
 
-`make contributor-check` runs `make verify`, `make native-integration-smoke`, and `make desktop-native`.
-It covers the plugin and desktop test suites, native desktop compilation, and Homebrew integration. GUI timing
+`make contributor-check` runs `make verify` and `make native-integration-smoke`.
+It covers the plugin test suite and Homebrew integration. GUI timing
 and real-provider evidence remain separate exact-candidate checks. Private release audits remain
 separate owner checks.
 
@@ -140,7 +139,7 @@ the active package.
 Agent setup uses `agent setup` in the CLI and named plugin operations. The CLI supports separate
 capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose, review-decide,
 followup-read, followup-propose, and followup-decide grants,
-all off by default; desktop/plugin setup currently
+all off by default; plugin setup currently
 exposes capture/search. `space` and `inbox` commands share `services/space_inbox.py` with explicitly
 injected MCP callbacks. Routing changes assignment/search metadata, not publication or source trust.
 Preview IDs bind configuration preimages and grants; only owned fragments may

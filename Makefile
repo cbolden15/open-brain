@@ -1,4 +1,4 @@
-.PHONY: dev build test test-fast test-integration test-tiers-audit test-profile lint typecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit embedding-native smoke homebrew-smoke native-integration-smoke verify contributor-check
+.PHONY: dev build test test-shard test-fast test-integration test-tiers-audit test-profile lint typecheck plugin-build plugin-test audit audit-history native native-audit embedding-native smoke homebrew-smoke native-integration-smoke verify verify-without-tests contributor-check contributor-check-without-tests
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain/open-brain
@@ -17,10 +17,6 @@ EMBEDDING_ARCHIVE_OPTION = $(if $(wildcard $(EMBEDDING_ARCHIVE)),--embedding-arc
 # and EMBEDDING_REQUIRED=1 turns it into a failure.
 EMBEDDING_REQUIRED ?= 0
 EMBEDDING_GUARD = $(if $(wildcard $(EMBEDDING_ARCHIVE)),:,$(if $(filter 1,$(EMBEDDING_REQUIRED)),$(error embedding archive missing: $(EMBEDDING_ARCHIVE)),echo "embedding role skipped: no archive at $(EMBEDDING_ARCHIVE); set EMBEDDING_REQUIRED=1 to fail"))
-DESKTOP_DIR = packages/desktop
-DESKTOP_TAURI_DIR = $(DESKTOP_DIR)/src-tauri
-DESKTOP_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
-DESKTOP_MACOS_APP = $(DESKTOP_TAURI_DIR)/target/release/bundle/macos/Open Brain Desktop.app
 
 dev:
 	PYTHONPATH=packages/app/src:packages/connectors/src:packages/engine/src uv run python -m open_brain --version
@@ -34,6 +30,11 @@ build: plugin-build
 
 test:
 	uv run --frozen pytest -q -n auto
+
+# One of COUNT parallel CI jobs; shards 1 through COUNT together run the complete suite.
+test-shard:
+	@test -n "$(SHARD)" || (echo "SHARD must be INDEX/COUNT, for example SHARD=1/4" >&2; exit 2)
+	uv run --frozen pytest -q -n auto -p tools.open_brain_dev.pytest_shard --shard "$(SHARD)"
 
 # Development tiers only; `make test` and `make verify` always run the complete suite.
 test-fast:
@@ -63,32 +64,6 @@ plugin-build:
 
 plugin-test: plugin-build
 	npm --prefix packages/obsidian-plugin test
-
-desktop-install:
-	npm --prefix $(DESKTOP_DIR) ci --ignore-scripts --no-audit --no-fund
-
-desktop-test: desktop-install
-	npm --prefix $(DESKTOP_DIR) run typecheck
-	npm --prefix $(DESKTOP_DIR) test
-	npm --prefix $(DESKTOP_DIR) run build
-	uv run --frozen pytest -q $(DESKTOP_DIR)/tests
-	cargo fmt --manifest-path $(DESKTOP_TAURI_DIR)/Cargo.toml -- --check
-	cargo test --locked --manifest-path $(DESKTOP_TAURI_DIR)/Cargo.toml -- --test-threads=1
-
-desktop-runtime: native
-	node $(DESKTOP_DIR)/scripts/prepare-runtime.mjs $(NATIVE_ARTIFACT) $(NATIVE_GRAPHIFY_ARTIFACT) $(NATIVE_MANIFEST) $(DESKTOP_TAURI_DIR)/binaries $(DESKTOP_TARGET)
-
-desktop-native: desktop-test desktop-runtime
-	@if test "$$(uname -s)" = Darwin; then \
-		npm --prefix $(DESKTOP_DIR) run tauri -- build --bundles app && \
-		codesign --verify --deep --strict --verbose=2 "$(DESKTOP_MACOS_APP)"; \
-	else \
-		npm --prefix $(DESKTOP_DIR) run tauri -- build --bundles appimage; \
-	fi
-
-desktop-native-proof: desktop-native
-	@test "$$(uname -s)" = Darwin || (echo "desktop-native-proof currently requires macOS arm64" >&2; exit 2)
-	"$(DESKTOP_MACOS_APP)/Contents/MacOS/open-brain-desktop" --d0-proof-json
 
 audit:
 	@test -n "$(PRIVATE_DENYLIST)" || (echo "PRIVATE_DENYLIST is required" >&2; exit 2)
@@ -124,6 +99,12 @@ native-integration-smoke: homebrew-smoke
 contributor-check:
 	$(MAKE) verify
 	$(MAKE) native-integration-smoke
-	$(MAKE) desktop-native
 
-verify: lint typecheck test build plugin-test desktop-test
+# CI runs these beside parallel `test-shard` jobs instead of `contributor-check`.
+contributor-check-without-tests:
+	$(MAKE) verify-without-tests
+	$(MAKE) native-integration-smoke
+
+verify: lint typecheck test verify-without-tests
+
+verify-without-tests: lint typecheck build plugin-test

@@ -1,8 +1,17 @@
 # ADR 0017: Separate desktop companion and collector boundaries
 
-Status: accepted product boundary; implementation acceptance is tracked separately
+Status: desktop companion retired on 2026-10-23; the collector boundaries remain accepted
 
 Date: 2026-09-14
+
+## Amendment, 2026-10-23
+
+The owner retired the desktop companion. It had no users and was never released. Its source moved
+from `packages/desktop` to `archive/open-brain-desktop`, outside the workspace, Makefile and CI.
+The collector decisions below still apply: separate lifetime, explicit source enablement, a
+separately installed background service, and private Unix control IPC. The collector CLI provides
+the source operations headlessly. Statements below about `packages/desktop`, D0/D1 and desktop
+release gates describe the retired companion. A future desktop needs a new decision.
 
 ## Context
 

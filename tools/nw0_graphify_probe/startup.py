@@ -8,7 +8,6 @@ import math
 import os
 import platform
 import shutil
-import statistics
 import time
 from pathlib import Path
 
@@ -37,6 +36,7 @@ def cold_command(environment: dict[str, str], system: str) -> list[str]:
 
 
 def summarize(samples: dict[str, dict[str, list[float]]]) -> dict[str, object]:
+    """Compare each layout's fastest sample; hosted-runner interference only adds time."""
     summary: dict[str, object] = {}
     for mode, budget in (("cold", 0.5), ("warm", 0.2)):
         pair = samples[mode]
@@ -45,10 +45,10 @@ def summarize(samples: dict[str, dict[str, list[float]]]) -> dict[str, object]:
             for series in pair.values()
         ):
             raise ValueError("five valid observations per layout are required")
-        medians = {name: statistics.median(series) for name, series in pair.items()}
-        delta = medians["candidate"] - medians["baseline"]
+        fastest = {name: min(series) for name, series in pair.items()}
+        delta = fastest["candidate"] - fastest["baseline"]
         summary[mode] = {
-            "medians_seconds": medians,
+            "fastest_seconds": fastest,
             "added_seconds": delta,
             "budget_seconds": budget,
             "passed": delta <= budget,
