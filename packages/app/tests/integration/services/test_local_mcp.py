@@ -32,6 +32,9 @@ from open_brain.profile import compile_single_user_local
 from open_brain.services.launcher_policy import LauncherPolicyError
 from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.local_mcp import (
+    MAX_FOLLOWUP_READ_CALLS,
+    MAX_FOLLOWUP_RESPONSE_BYTES,
+    MAX_FOLLOWUP_WRITE_CALLS,
     MAX_MESSAGE_BYTES,
     MAX_ORGANIZATION_READ_CALLS,
     MAX_ORGANIZATION_RESPONSE_BYTES,
@@ -40,6 +43,7 @@ from open_brain.services.local_mcp import (
     MAX_REVIEW_PROPOSAL_CALLS,
     MAX_REVIEW_READ_CALLS,
     MAX_REVIEW_RESPONSE_BYTES,
+    MCP_REGISTERED_TOOLS,
 )
 from open_brain.services.local_mcp import LocalMcpAdapter as _LocalMcpAdapter
 from open_brain.services.local_operations import (
@@ -985,7 +989,7 @@ def test_cli_and_mcp_share_semantic_dataset_results_and_export(
     assert "source_ref" not in json.dumps(mcp_result)
     export = tmp_path / "export"
     assert run_cli(("export", str(export), "--verify", "--data-dir", str(root), "--json")) == 0
-    assert json.loads(capsys.readouterr().out)["schema_version"] == 17
+    assert json.loads(capsys.readouterr().out)["schema_version"] == 18
     assert all((export / relative).is_file() for relative in V5_SIDECAR_PATHS)
     assert not any(".open-brain" in path.parts for path in export.rglob("*"))
     assert not any(path.suffix in {".sqlite", ".sqlite3"} for path in export.rglob("*"))
@@ -2584,3 +2588,330 @@ def test_capture_submit_refuses_stale_epoch_and_wrong_brain_policies(tasks: Any)
         destination_bound_authority(tasks, _destination_policy(tasks, issuer_epoch=99))
     with pytest.raises(LauncherPolicyError, match="destination_mismatch"):
         destination_bound_authority(tasks, _destination_policy(tasks, brain_id="brn_" + "q" * 26))
+
+
+FOLLOWUP_ITEM = "followup_3e6e8e2c-e638-47c6-8195-4bd6f306d67b"
+FOLLOWUP_EVIDENCE = {
+    "capture_id": REVIEW_CAPTURE,
+    "revision_id": REVIEW_CAPTURE,
+    "quote_start": 0,
+    "quote_end": 5,
+    "quote_sha256": "b" * 64,
+    "role": "origin",
+}
+FOLLOWUP_DECIDE = {
+    "operation_id": "op",
+    "item_id": FOLLOWUP_ITEM,
+    "expected_version": 1,
+    "action": "confirm",
+}
+
+
+def _followup_ok(_arguments: Mapping[str, object]) -> dict[str, object]:
+    return {"outcome": "ok", "data": {"item": {"item_id": FOLLOWUP_ITEM}}, "code": None}
+
+
+def test_followup_capabilities_are_independently_listed_and_enforced() -> None:
+    readers = LocalMcpAdapter(followup_list=_followup_ok, followup_show=_followup_ok)
+    proposer = LocalMcpAdapter(followup_propose=_followup_ok, followup_add_evidence=_followup_ok)
+    decider = LocalMcpAdapter(followup_decide=_followup_ok)
+    assert {tool["name"] for tool in readers.list_tools()} == {
+        "brain_catalog",
+        "brain_followup_list",
+        "brain_followup_show",
+    }
+    assert {tool["name"] for tool in proposer.list_tools()} == {
+        "brain_catalog",
+        "brain_followup_propose",
+        "brain_followup_add_evidence",
+    }
+    assert {tool["name"] for tool in decider.list_tools()} == {
+        "brain_catalog",
+        "brain_followup_decide",
+    }
+    for tool in (*readers.list_tools(), *proposer.list_tools(), *decider.list_tools()):
+        if tool["name"] == "brain_catalog":
+            continue
+        assert tool["inputSchema"]["additionalProperties"] is False
+        assert "untrusted" in tool["description"]
+    propose_arguments = {
+        "operation_id": "op",
+        "kind": "commitment",
+        "summary": "Send the deck",
+        "owner": "self",
+        "evidence": [FOLLOWUP_EVIDENCE],
+    }
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        readers.call_tool("brain_followup_propose", propose_arguments)
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        readers.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        proposer.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        proposer.call_tool("brain_followup_list", {})
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        decider.call_tool("brain_followup_propose", propose_arguments)
+    assert readers.call_tool("brain_followup_list", {})["outcome"] == "ok"
+    assert proposer.call_tool("brain_followup_propose", propose_arguments)["outcome"] == "ok"
+    assert decider.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)["outcome"] == "ok"
+
+
+def test_followup_tools_validate_shapes_pass_refusals_and_enforce_quotas() -> None:
+    def refused(_arguments: Mapping[str, object]) -> dict[str, object]:
+        return {"outcome": "refused", "data": {"current_version": 4}, "code": "version_conflict"}
+
+    adapter = LocalMcpAdapter(followup_list=_followup_ok, followup_decide=refused)
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool("brain_followup_list", {"limit": "ten"})
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool("brain_followup_list", {"unexpected": True})
+    assert (adapter._followup_read_calls, adapter._followup_write_calls) == (0, 0)
+    result = adapter.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)
+    assert result == {
+        "outcome": "refused",
+        "data": {"current_version": 4},
+        "code": "version_conflict",
+    }
+    assert adapter._followup_write_calls == 1
+    adapter._followup_read_calls = MAX_FOLLOWUP_READ_CALLS - 1
+    adapter.call_tool("brain_followup_list", {})
+    with pytest.raises(McpCallError, match="^session_followup_read_limit$"):
+        adapter.call_tool("brain_followup_list", {})
+    adapter._followup_write_calls = MAX_FOLLOWUP_WRITE_CALLS
+    with pytest.raises(McpCallError, match="^session_followup_write_limit$"):
+        adapter.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)
+    adapter._followup_write_calls = 0
+    adapter._followup_response_bytes = MAX_FOLLOWUP_RESPONSE_BYTES
+    with pytest.raises(McpCallError, match="^session_followup_response_limit$"):
+        adapter.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)
+
+
+def test_followup_tool_limits_match_the_engine_contracts() -> None:
+    adapter = LocalMcpAdapter(
+        followup_list=_followup_ok, followup_propose=_followup_ok, followup_decide=_followup_ok
+    )
+    tools = cast(
+        dict[str, Any],
+        {tool["name"]: tool["inputSchema"]["properties"] for tool in adapter.list_tools()},
+    )
+    propose = tools["brain_followup_propose"]
+    decide = tools["brain_followup_decide"]
+    corrections = decide["corrections"]["properties"]
+    assert tools["brain_followup_list"]["project"]["maxLength"] == 128
+    assert propose["project"]["maxLength"] == propose["owner_name"]["maxLength"] == 128
+    assert propose["summary"]["maxLength"] == 280
+    assert corrections["project"]["maxLength"] == corrections["owner_name"]["maxLength"] == 128
+    assert decide["ticket_key"]["maxLength"] == 200
+    assert decide["ticket_url"]["maxLength"] == 2048
+    assert decide["expected_version"]["minimum"] == 1
+
+    url = "https://example.test/"
+    link = {**FOLLOWUP_DECIDE, "action": "link", "ticket_key": "k" * 200}
+    assert adapter.call_tool(
+        "brain_followup_decide", {**link, "ticket_url": url + "u" * (2048 - len(url))}
+    )["outcome"] == "ok"
+    for arguments in (
+        {**link, "ticket_url": url + "u" * (2049 - len(url))},
+        {**link, "ticket_key": "k" * 201},
+    ):
+        with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+            adapter.call_tool("brain_followup_decide", arguments)
+    assert adapter.call_tool("brain_followup_list", {"project": "p" * 128})["outcome"] == "ok"
+    with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+        adapter.call_tool("brain_followup_list", {"project": "p" * 129})
+    base = {
+        "operation_id": "op",
+        "kind": "commitment",
+        "summary": "Send the deck",
+        "owner": "other",
+        "evidence": [FOLLOWUP_EVIDENCE],
+    }
+    assert adapter.call_tool(
+        "brain_followup_propose", {**base, "owner_name": "n" * 128, "project": "p" * 128}
+    )["outcome"] == "ok"
+    for proposal in (
+        {**base, "owner_name": "n" * 129},
+        {**base, "owner_name": "n", "project": "p" * 129},
+    ):
+        with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+            adapter.call_tool("brain_followup_propose", proposal)
+
+
+def test_followup_tools_are_registered_with_their_grants() -> None:
+    registered = {cast(str, tool["name"]): tool for tool in MCP_REGISTERED_TOOLS}
+    assert registered["brain_followup_list"]["required_grants"] == ["followup-read"]
+    assert registered["brain_followup_show"]["required_grants"] == ["followup-read"]
+    assert registered["brain_followup_propose"]["required_grants"] == ["followup-propose"]
+    assert registered["brain_followup_add_evidence"]["required_grants"] == ["followup-propose"]
+    assert registered["brain_followup_decide"]["required_grants"] == ["followup-decide"]
+
+
+@pytest.mark.parametrize(
+    ("flags", "tools"),
+    (
+        (("--allow-followup-read",), {"brain_followup_list", "brain_followup_show"}),
+        (
+            ("--allow-followup-propose",),
+            {"brain_followup_propose", "brain_followup_add_evidence"},
+        ),
+        (("--allow-followup-decide",), {"brain_followup_decide"}),
+    ),
+)
+def test_live_followup_stdio_lists_only_granted_tools(
+    tasks: Any, flags: tuple[str, ...], tools: set[str]
+) -> None:
+    process = _start(tasks.profile.root, *flags)
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        listed = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert {tool["name"] for tool in listed["result"]["tools"]} == {"brain_catalog", *tools}
+        denied_name = next(
+            name
+            for name in (
+                "brain_followup_decide",
+                "brain_followup_propose",
+                "brain_followup_list",
+            )
+            if name not in tools
+        )
+        denied = _exchange(process, _call(denied_name, {}, 3))
+        assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
+        if "brain_followup_list" in tools:
+            listed_items = _exchange(process, _call("brain_followup_list", {}, 4))
+            payload = listed_items["result"]["structuredContent"]
+            assert payload == {
+                "outcome": "ok",
+                "data": {"items": [], "next_cursor": None, "truncated": False},
+                "code": None,
+            }
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=10) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def test_mcp_without_any_grant_still_refuses_and_followup_flags_count_as_grants(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "brain"
+    assert run_cli(("mcp", "--data-dir", str(root))) == 2
+    capsys.readouterr()
+    assert run_cli(("mcp", "--help", "--allow-followup-read"), environment={}) == 0
+    output = capsys.readouterr().out
+    for phrase in ("--allow-followup-read", "--allow-followup-propose", "--allow-followup-decide"):
+        assert phrase in output
+
+
+def _followup_fixture_items(tasks: Any) -> tuple[str, str]:
+    """One Work and one Personal item proposed by the owner; returns their item IDs."""
+    from hashlib import sha256
+
+    from open_brain_engine.engine.followup_contracts import (
+        EvidenceRef,
+        EvidenceRole,
+        FollowupKind,
+        OwnerKind,
+        ProposeRequest,
+    )
+
+    from open_brain.services.t03_adapters import owner_authority
+
+    owner = owner_authority(tasks, session_id="owner-fixture")
+    ids: list[str] = []
+    for tier, text, operation in (
+        (PrivacyTier.WORK, "Synthetic work promise: send the deck", "op-work"),
+        (PrivacyTier.PERSONAL, "Synthetic personal promise: call the dentist", "op-personal"),
+    ):
+        capture_id = tasks.capture.accept(
+            TextPayload(text), delivery_id=operation, privacy_tier=tier
+        ).capture_id
+        start = text.index("promise")
+        end = start + len("promise")
+        ref = EvidenceRef(
+            capture_id,
+            capture_id,
+            start,
+            end,
+            sha256(text[start:end].encode("utf-8")).hexdigest(),
+            EvidenceRole.ORIGIN,
+        )
+        item = tasks.followups.propose(
+            ProposeRequest(
+                operation_id=operation,
+                kind=FollowupKind.COMMITMENT,
+                summary=text,
+                project=None,
+                owner=OwnerKind.SELF,
+                owner_name=None,
+                due=None,
+                due_evidence_index=None,
+                evidence=(ref,),
+            ),
+            authority=owner,
+        )
+        ids.append(item.item_id)
+    return ids[0], ids[1]
+
+
+def test_unscoped_followup_mcp_is_work_only_while_owner_cli_sees_all(
+    tasks: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    work_item, personal_item = _followup_fixture_items(tasks)
+    root = tasks.profile.root
+
+    assert run_cli(("followup", "list", "--json", "--data-dir", str(root))) == 0
+    owner_view = json.loads(capsys.readouterr().out)
+    assert {row["item_id"] for row in owner_view["data"]["items"]} == {work_item, personal_item}
+
+    # A review grant beside the follow-up grant makes the session owner-authority; the
+    # follow-up callbacks must still be clamped to Work.
+    for flags in (("--allow-followup-read",), ("--allow-followup-read", "--allow-review-read")):
+        process = _start(root, *flags)
+        try:
+            assert "result" in _exchange(process, INITIALIZE)
+            listed = _exchange(process, _call("brain_followup_list", {}, 2))
+            payload = listed["result"]["structuredContent"]
+            assert payload["outcome"] == "ok"
+            assert [row["item_id"] for row in payload["data"]["items"]] == [work_item]
+            shown = _exchange(
+                process, _call("brain_followup_show", {"item_id": personal_item}, 3)
+            )
+            assert shown["result"]["structuredContent"] == {
+                "outcome": "refused",
+                "data": None,
+                "code": "not_found",
+            }
+            visible = _exchange(process, _call("brain_followup_show", {"item_id": work_item}, 4))
+            assert visible["result"]["structuredContent"]["outcome"] == "ok"
+            assert visible["result"]["structuredContent"]["data"]["decisions"]
+            assert "principal_id" not in json.dumps(visible)
+            assert str(tasks.profile.owner_actor_id) not in json.dumps(visible)
+            assert process.stdin is not None
+            process.stdin.close()
+            assert process.wait(timeout=10) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+
+
+def test_scoped_followup_tools_require_the_session_grant() -> None:
+    scoped = EffectiveAuthority(
+        "mcp-test-agent", "mcp-test-session", frozenset({"followup-read"}), None
+    )
+    adapter = LocalMcpAdapter(
+        authority=scoped,
+        followup_list=_followup_ok,
+        followup_show=_followup_ok,
+        followup_decide=_followup_ok,
+    )
+    assert {tool["name"] for tool in adapter.list_tools()} == {
+        "brain_catalog",
+        "brain_followup_list",
+        "brain_followup_show",
+    }
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        adapter.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)

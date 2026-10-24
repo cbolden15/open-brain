@@ -1285,6 +1285,9 @@ def _agent_setup(
         "allow_review_read",
         "allow_review_propose",
         "allow_review_decide",
+        "allow_followup_read",
+        "allow_followup_propose",
+        "allow_followup_decide",
     }
     if operation == "agent.setup.apply":
         required.add("preview_id")
@@ -1309,6 +1312,9 @@ def _agent_setup(
             allow_review_read=arguments.get("allow_review_read", False),
             allow_review_propose=arguments.get("allow_review_propose", False),
             allow_review_decide=arguments.get("allow_review_decide", False),
+            allow_followup_read=arguments.get("allow_followup_read", False),
+            allow_followup_propose=arguments.get("allow_followup_propose", False),
+            allow_followup_decide=arguments.get("allow_followup_decide", False),
             client=arguments["client"],
             environment=environment,
             project_dir=arguments.get("project_dir"),
@@ -1332,6 +1338,9 @@ def _agent_setup(
         allow_review_read=arguments.get("allow_review_read", False),
         allow_review_propose=arguments.get("allow_review_propose", False),
         allow_review_decide=arguments.get("allow_review_decide", False),
+        allow_followup_read=arguments.get("allow_followup_read", False),
+        allow_followup_propose=arguments.get("allow_followup_propose", False),
+        allow_followup_decide=arguments.get("allow_followup_decide", False),
         client=arguments["client"],
         environment=environment,
         preview_id=arguments["preview_id"],

@@ -791,6 +791,7 @@ class PortabilityReceipt:
             15,
             16,
             17,
+            18,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -3569,6 +3570,8 @@ class EngineTaskSet:
     embedding_policy: Any = None
     # Owner-local only; no MCP, plugin or desktop surface consumes this task.
     owner_egress_policy: Any = None
+    # Follow-up items; MCP surfaces consume it through the followup-* grants.
+    followups: Any = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

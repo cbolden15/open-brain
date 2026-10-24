@@ -24,12 +24,13 @@ def serialize_portable_v17_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    _expected_schema: int = 22,
 ) -> PortableV5StateEvidence:
     base = serialize_portable_v16_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=22,
+        _expected_schema=_expected_schema,
     )
     raw = owner_egress_policy_sidecar(history_rows(connection))
     semantic = {

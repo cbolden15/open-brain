@@ -804,8 +804,10 @@ class ConsumerIntakeTasks:
     ) -> dict[str, object]:
         _uuid4(operation_id)
         self._owner(authority)
-        with read_snapshot(self._engine) as connection:
-            journal = _successor(connection)
+        # The status read runs inside the bounded writer fence: a same-process
+        # reader fails fast while another runner holds the writer, and commit
+        # calls this right after releasing its own fence.
+        with self._transaction(authority) as journal:
             prepared = _load(journal, operation_id)
             if prepared is None:
                 raise ConsumerIntakeError("operation_not_found")

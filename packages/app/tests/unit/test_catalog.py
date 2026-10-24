@@ -84,9 +84,9 @@ def test_catalog_is_deterministic_json_safe_and_evidence_paths_exist() -> None:
     )
     assert first["schema_version"] == 2
     compatibility = cast(dict[str, object], first["compatibility"])
-    assert compatibility["portable_metadata"] == 17
+    assert compatibility["portable_metadata"] == 18
     assert compatibility["runtime_session"] == 16
-    assert compatibility["state_schema"] == 22
+    assert compatibility["state_schema"] == 23
     assert cast(dict[str, object], first["acceptance"])["trusted_certifications"] == []
     root = Path(__file__).resolve().parents[4]
     evidence = cast(list[dict[str, str]], cast(dict[str, object], first["acceptance"])["evidence"])
@@ -160,10 +160,15 @@ def test_cli_catalog_uses_parser_registration_before_root_selection(
         ("harness", "source"),
         ("harness", "setup"),
         ("harness", "mcp"),
+        ("followup", "list"),
+        ("followup", "show"),
+        ("followup", "propose"),
+        ("followup", "add-evidence"),
+        ("followup", "decide"),
     }
     obsidian = next(item for item in commands if item["command"] == ["obsidian-plugin", "install"])
     assert obsidian["positional_choices"] == {"action": "install"}
-    assert len(commands) == 110
+    assert len(commands) == 115
     assert run_cli(("catalog", "--json", "--schema-version", "1")) == 2
     assert run_cli(("catalog", "--json", "--unknown")) == 2
 
@@ -179,7 +184,7 @@ def test_owner_privacy_repair_is_installed_but_excluded_from_every_catalog_conte
     assert parsed.command == "privacy"
     assert parsed.privacy_action == "repair"
     commands = cli_registrations(_parser())
-    assert len(commands) == 110
+    assert len(commands) == 115
     assert ("privacy", "repair") not in {
         tuple(cast(list[str], command["command"])) for command in commands
     }
@@ -280,6 +285,11 @@ def test_registered_mcp_catalog_matches_all_injected_tools() -> None:
         review_approve=operations,
         review_reject=operations,
         review_edit_and_approve=operations,
+        followup_list=operations,
+        followup_show=operations,
+        followup_propose=operations,
+        followup_add_evidence=operations,
+        followup_decide=operations,
     )
     # Capture and negotiated tools need concrete engine adapters; account for their names here.
     actual = (

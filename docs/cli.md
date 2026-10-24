@@ -14,7 +14,7 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | Command family | Purpose / reference |
 |---|---|
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
-| `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 16](portable-brain-v16.md) |
+| `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 18](portable-brain-v18.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
 | `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
 | `consent grant/inspect/replace/revoke` | Owner-only durable external-provider consent for scoped sessions |
@@ -30,6 +30,7 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | `space create/list/rename`, `inbox list/route`, `source route/inspect/withdraw` | Explicit organization and owner source lifecycle; [spaces](spaces-inbox.md), [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
 | `sharing preview/inspect/approve/reject/revoke` | Owner-approved exact saved-Markdown copy; [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
 | `review propose/list/show/approve/reject/edit-and-approve` | Source-bound drafts and inspected decisions; [review](review-publication.md) |
+| `followup list/show/propose/add-evidence/decide` | Commitments and open questions with exact-quote evidence and kept history; [follow-ups](followups.md) |
 | `agent setup` | Preview/apply/remove client fragments with explicit grants; [agent setup](agent-setup.md) |
 | `workspace` | Setup/status/refresh, note lifecycle/conflicts and recovery; [workspace recovery](managed-workspace-recovery.md) |
 | `historical recover` | Owner-only forward completion of a retained historical-authority transition before ordinary startup |
@@ -46,8 +47,8 @@ Sharing is owner-local. `preview`, `approve`, `reject`, and `revoke` require a
 closed version-1 JSON `--request-file`; `inspect` takes a preview or approval ID.
 The CLI prints a pending approval as pending and never treats a canonical review
 approval as external sharing. Sharing was introduced at schema/runtime/Portable
-12/7/7. The current candidate reports 21/16/16. See
-[Portable 16](portable-brain-v16.md) for current export and import behavior;
+12/7/7. The current candidate reports 23/16/18. See
+[Portable 18](portable-brain-v18.md) for current export and import behavior;
 the [docs index](README.md) lists the earlier formats, including
 [Portable 8](portable-brain-v8.md) and [Portable 7](portable-brain-v7.md).
 
@@ -181,8 +182,9 @@ provider and current owner consent; it cannot select a provider, change consent 
 a link, resolve a conflict, or mutate a note. Until a provider adapter is configured, refresh returns
 `provider_not_configured` without an inference attempt. The process owns no listener and ends at EOF.
 
-Capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose and
-review-decide are independent `--allow-...` flags; workspace-read and graph-refresh are additional
+Capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose,
+review-decide, followup-read, followup-propose and followup-decide are independent `--allow-...`
+flags; workspace-read and graph-refresh are additional
 manual MCP grants. A scoped deployment passes `--session-policy` with one absolute trusted
 `launcher-policy.v1` path. The session receives only the intersection of policy capabilities,
 selected `--allow-...` flags, injected implementations, and the scoped-safe operation matrix.

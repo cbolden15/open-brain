@@ -47,6 +47,9 @@ def _preview(
     review_read: object = False,
     review_propose: object = False,
     review_decide: object = False,
+    followup_read: object = False,
+    followup_propose: object = False,
+    followup_decide: object = False,
     action: str = "configure",
     environment: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -62,6 +65,9 @@ def _preview(
         allow_review_read=review_read,
         allow_review_propose=review_propose,
         allow_review_decide=review_decide,
+        allow_followup_read=followup_read,
+        allow_followup_propose=followup_propose,
+        allow_followup_decide=followup_decide,
         action=action,
         runtime_path=runtime,
         environment=environment or {"HOME": str(selection.home)},
@@ -83,6 +89,9 @@ def _apply(
     review_read: object = False,
     review_propose: object = False,
     review_decide: object = False,
+    followup_read: object = False,
+    followup_propose: object = False,
+    followup_decide: object = False,
     action: str = "configure",
     environment: dict[str, object] | None = None,
     write_file: agent_setup_module.FileWriter | None = None,
@@ -99,6 +108,9 @@ def _apply(
         allow_review_read=review_read,
         allow_review_propose=review_propose,
         allow_review_decide=review_decide,
+        allow_followup_read=followup_read,
+        allow_followup_propose=followup_propose,
+        allow_followup_decide=followup_decide,
         action=action,
         preview_id=preview["preview_id"],
         runtime_path=runtime,
@@ -909,3 +921,160 @@ def test_codex_server_extensions_outside_owned_block_are_not_removed(
     with pytest.raises(AgentSetupFailure, match="setup_conflict"):
         _preview(selection, runtime, client="codex", project=project, action="remove")
     assert config.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("grant", "flag", "tools"),
+    (
+        (
+            "followup_read",
+            "--allow-followup-read",
+            ("brain_followup_list", "brain_followup_show"),
+        ),
+        (
+            "followup_propose",
+            "--allow-followup-propose",
+            ("brain_followup_propose", "brain_followup_add_evidence"),
+        ),
+        ("followup_decide", "--allow-followup-decide", ("brain_followup_decide",)),
+    ),
+)
+def test_followup_grants_are_independent_preview_bound_and_documented(
+    tmp_path: Path, grant: str, flag: str, tools: tuple[str, ...]
+) -> None:
+    home = tmp_path / "home"
+    project = home / grant
+    project.mkdir(parents=True)
+    runtime = _runtime(tmp_path)
+    selection = _selection(home)
+    followup_read = grant == "followup_read"
+    followup_propose = grant == "followup_propose"
+    followup_decide = grant == "followup_decide"
+    preview = _preview(
+        selection,
+        runtime,
+        client="codex",
+        project=project,
+        capture=False,
+        search=False,
+        followup_read=followup_read,
+        followup_propose=followup_propose,
+        followup_decide=followup_decide,
+    )
+    permissions = cast(dict[str, bool], preview["permissions"])
+    assert permissions[grant] is True
+    assert {"followup_read", "followup_propose", "followup_decide"} <= set(permissions)
+    assert sum(permissions[name] for name in permissions if name.startswith("followup_")) == 1
+    _apply(
+        selection,
+        runtime,
+        preview,
+        client="codex",
+        project=project,
+        capture=False,
+        search=False,
+        followup_read=followup_read,
+        followup_propose=followup_propose,
+        followup_decide=followup_decide,
+    )
+    parsed = tomllib.loads((project / ".codex/config.toml").read_text(encoding="utf-8"))
+    args = parsed["mcp_servers"]["open-brain"]["args"]
+    assert args[-1] == flag
+    for other in ("--allow-followup-read", "--allow-followup-propose", "--allow-followup-decide"):
+        assert (other in args) is (other == flag)
+    for other in ("--allow-review-read", "--allow-review-propose", "--allow-review-decide"):
+        assert other not in args
+    instructions = (project / "AGENTS.md").read_text(encoding="utf-8")
+    for tool in tools:
+        assert f"`{tool}`" in instructions
+    assert "expected version" in instructions
+    assert "never writes to a ticket system" in instructions
+    assert "untrusted data" in instructions
+    assert "Work items only" in instructions
+
+
+def test_followup_grants_default_off_and_absent_from_legacy_previews(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    runtime = _runtime(tmp_path)
+    selection = _selection(home)
+    preview = _preview(selection, runtime, client="claude-code", project=project)
+    permissions = cast(dict[str, object], preview["permissions"])
+    assert "followup_read" not in permissions
+    assert "followup_propose" not in permissions
+    assert "followup_decide" not in permissions
+    _apply(selection, runtime, preview, client="claude-code", project=project)
+    config = json.loads((project / ".mcp.json").read_text(encoding="utf-8"))
+    args = config["mcpServers"]["open-brain"]["args"]
+    assert not any(arg.startswith("--allow-followup-") for arg in args)
+    with pytest.raises(AgentSetupFailure, match="setup_preview_stale"):
+        _apply(
+            selection,
+            runtime,
+            preview,
+            client="claude-code",
+            project=project,
+            followup_read=True,
+        )
+
+
+def test_followup_grants_reject_non_boolean_values(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    with pytest.raises(AgentSetupFailure, match="invalid_arguments"):
+        _preview(
+            _selection(home),
+            _runtime(tmp_path),
+            client="codex",
+            project=project,
+            followup_read="yes",
+        )
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_cli_and_plugin_bridge_forward_followup_grants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, apply: bool
+) -> None:
+    import open_brain.services.local_entrypoints as cli
+    import open_brain.services.plugin_bridge as bridge
+
+    received: list[dict[str, object]] = []
+
+    def setup(_selection: object, **values: object) -> dict[str, object]:
+        received.append(values)
+        return {"status": "tested"}
+
+    name = "apply_agent_setup" if apply else "preview_agent_setup"
+    monkeypatch.setattr(cli, name, setup)
+    monkeypatch.setattr(bridge, name, setup)
+    monkeypatch.setattr(bridge, "resolve_agent_runtime", lambda _value: tmp_path / "runtime")
+    runtime = _runtime(tmp_path)
+    selection = LocalRootSelection(tmp_path, None, tmp_path / "brain", "darwin")
+    args = ["agent", "setup", "--client", "codex", "--scope", "user", "--runtime", str(runtime)]
+    args += ["--allow-followup-read", "--allow-followup-decide", "--json"]
+    if apply:
+        args += ["--apply", "--preview-id", "setup_test"]
+    parsed = cli._parser().parse_args(args)
+    assert cli._run_agent_setup(parsed, selection=selection, environment={}, json_output=True) == 0
+    values: dict[str, object] = {
+        "action": "configure",
+        "allow_capture": False,
+        "allow_search": False,
+        "allow_followup_read": True,
+        "allow_followup_decide": True,
+        "client": "codex",
+        "scope": "user",
+    }
+    if apply:
+        values["preview_id"] = "setup_test"
+    operation = "agent.setup.apply" if apply else "agent.setup.preview"
+    assert bridge._agent_setup(
+        selection, operation, values, base_executable=None, environment={}
+    ) == {"status": "tested"}
+    for forwarded in received:
+        assert forwarded["allow_followup_read"] is True
+        assert forwarded["allow_followup_propose"] is False
+        assert forwarded["allow_followup_decide"] is True
+    assert len(received) == 2

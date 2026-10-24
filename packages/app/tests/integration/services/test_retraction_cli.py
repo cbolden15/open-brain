@@ -69,7 +69,7 @@ def test_cli_preview_commit_and_lost_ack_status(
     assert _output(capsys) == receipt
     assert engine.retrieval.search("PRIVATE_SYNTHETIC") == ()
     assert _cli(root, "export", str(tmp_path / "archive"), "--verify") == 0
-    assert _output(capsys)["schema_version"] == 17
+    assert _output(capsys)["schema_version"] == 18
     assert _cli(root, "status") == 0
     assert _output(capsys)["portable_export"] == "verified"
 

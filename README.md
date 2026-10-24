@@ -237,6 +237,10 @@ For complete current text add `--allow-content-read`; retained revision access r
 `--allow-review-read`, `--allow-review-propose`, and `--allow-review-decide` flags. A decision can
 publish only with the token from an inspection of the proposal. See [agent setup](docs/agent-setup.md)
 and [review/publication](docs/review-publication.md). Owner CLI operations do not need MCP grants.
+Commitments and open questions use independent `--allow-followup-read`,
+`--allow-followup-propose`, and `--allow-followup-decide` flags; items cite exact quotes in
+captures the session can read, and nothing is written to a ticket system or sent as a message.
+See [follow-ups](docs/followups.md).
 
 Each process permits 500 valid capture attempts and 16 MiB of aggregate UTF-8 capture input, 2,000
 valid search attempts, 500 workspace reads with 16 MiB of output, and 20 graph refresh requests with

@@ -49,7 +49,7 @@ CAPABILITIES = {
     "compatibility": {
         "schema": PHASE1_STATE_SCHEMA_VERSION,
         "runtime": RUNTIME_SESSION_VERSION,
-        "portable": 17,
+        "portable": 18,
     },
 }
 ACCOUNT = "account:" + "c" * 64

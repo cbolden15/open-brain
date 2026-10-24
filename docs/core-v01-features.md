@@ -11,17 +11,17 @@ Local documentation checks do not promote catalog acceptance.
 | Coordinate | Candidate value | Meaning |
 |---|---|---|
 | Core / engine package | `0.1.0` / exactly `0.1.0` | Core requires the matching engine |
-| Local state schema | `22` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
+| Local state schema | `23` | Incompatible coordinates refuse; same-coordinate older binaries are not fenced |
 | Runtime session | `16` | Stop old sessions and upgrade clients together |
 | Task contract | `t03.v1` | Negotiated search/read/history/source-route DTOs |
 | Catalog schema | `2` | Joined implementation, package, authorization and acceptance metadata |
 | Plugin bridge | `1` | Existing bounded inherited-stdio envelope |
-| Portable metadata | `17` | Versioned evidence; distinct from live database schema |
+| Portable metadata | `18` | Versioned evidence; distinct from live database schema |
 
 Supported Portable 1–3 imports remain implementation compatibility; standalone Portable 4 import
-is refused, and standalone clean restore accepts Portable 5 through 17. Portable 7 clean restore preserves current identity, privacy, issuer, managed source and sharing
+is refused, and standalone clean restore accepts Portable 5 through 18. Portable 7 clean restore preserves current identity, privacy, issuer, managed source and sharing
 evidence. [Portable 9](portable-brain-v9.md) adds explicitly versioned retained import evidence
-and mixed historical operations. [Portable 12](portable-brain-v12.md) retains owner-approved Slack Work sharing and immutable recall selections. Later formats add capture lifecycle ([13](portable-brain-v13.md)), owner retraction ([14](portable-brain-v14.md)), conversation intake ([15](portable-brain-v15.md)) the local embedding policy ([16](portable-brain-v16.md)) and the owner egress policy history (17). A catalog version is not a protocol or database upgrade instruction.
+and mixed historical operations. [Portable 12](portable-brain-v12.md) retains owner-approved Slack Work sharing and immutable recall selections. Later formats add capture lifecycle ([13](portable-brain-v13.md)), owner retraction ([14](portable-brain-v14.md)), conversation intake ([15](portable-brain-v15.md)) the local embedding policy ([16](portable-brain-v16.md)), the owner egress policy history (17) and follow-up items ([18](portable-brain-v18.md)). A catalog version is not a protocol or database upgrade instruction.
 
 ## Surface and claim boundaries
 
@@ -32,11 +32,12 @@ and mixed historical operations. [Portable 12](portable-brain-v12.md) retains ow
 | Conversation intake | Internal ChatGPT/Claude normalized plans, owner `consumer-import` preview/body/commit/status/recover/halt, atomic conversations and Portable15 evidence; [intake](consumer-intake.md), [from coding agents](consumer-intake-agents.md) | Synthetic acceptance; both external parsers inactive, so new ChatGPT/Claude archives return `unsupported_profile`; no end-user importer claim |
 | Offline semantic search | Opt-in local model in a separate embedding resource, `embedding status/enable/disable/rebuild`, `search-page --mode`, derived vector cache, `embedding_health`; [semantic search](semantic-search.md) | Not network egress; off until enabled; lexical fallback with a `model_unavailable` warning; cache is not part of Portable export |
 | Owner retraction | `retract preview/commit/status` for a capture or trusted capture session; [owner retraction](owner-retraction.md), [impact](retraction-impact.md) | Owner-local only; no MCP, plugin or desktop command; no purge certification for backups or earlier exports |
+| Follow-ups | `followup list/show/propose/add-evidence/decide`; `brain_followup_*` under `followup-read`, `followup-propose`, `followup-decide`; [guide](followups.md) | Client-detected only; exact-quote evidence with kept history; Work-only MCP sessions by default; no ticket write or outgoing message; [Portable 18](portable-brain-v18.md) |
 | Owner-defined facets | `facet dimension/value/assignment/query/history/vault`; [design](design/owner-defined-facets-stage-one.md) | Owner CLI and Obsidian workflows; [Portable 10](portable-brain-v10.md) |
 | Harness memory | Foreground `harness` bridge and optional lifecycle adapters for Codex, Claude Code and Pi; [setup](harness-setup.md), [memory](harness-memory.md) | Native acceptance in progress; synthetic events do not prove live capture or recall |
 | Retrieval | Lexical search by default, optional local hybrid mode, paged filters, complete projected reads, retained history and explicit relationships | Independent content/history grants for MCP; cursors can become stale |
 | Managed vault | `workspace setup`, `status`, `refresh`; approved canonical pages | Sibling `Open Brain Vault`; routing alone does not publish; no `vault` CLI |
-| Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Nine independent grants, off by default; synthetic setup proof is not live client/provider acceptance |
+| Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Twelve independent grants, off by default; synthetic setup proof is not live client/provider acceptance |
 | MCP | Foreground stdio; `tools/list`, `brain_catalog`, grant-filtered callable tools; optional whole-session launcher policy and durable external-provider consent | No-grant startup refused; authority is the intersection of policy, selected flags, injected implementations, and the scoped-safe matrix; live revocation terminates the process |
 | Obsidian | Packaged desktop plugin, explicit staging/activation, existing capture/routing/review/read workflow | Assets and bridge registration do not prove UI use; exact-candidate GUI gate remains open |
 | Graphify | Separately packaged structural helper | Paired resource; rebuildable graph is not source evidence |

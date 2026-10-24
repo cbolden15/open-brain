@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
@@ -486,6 +487,35 @@ def test_concurrent_exact_commit_reconciles_inside_writer_fence(
     assert _counts(result)["committed"] == 1
     assert _rows(engine, "SELECT count(*) FROM captures") == [(1,)]
     assert _rows(engine, "SELECT count(*) FROM consumer_approvals") == [(1,)]
+
+
+def test_recovery_waits_for_a_writer_held_by_another_thread(
+    tmp_path: Path,
+    active_profiles: None,
+) -> None:
+    engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
+    plan = _plan()
+    preview = engine.consumer_imports.preview_consumer_import(plan, authority=_owner(engine))
+    first = engine.consumer_imports.commit_consumer_import(
+        cast(str, preview["preview_id"]), plan.operation_id, plan, authority=_owner(engine)
+    )
+    held = Event()
+
+    def hold_writer_briefly() -> None:
+        with engine._writer_lease.acquire_shared_writer():
+            held.set()
+            time.sleep(0.3)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        holder = executor.submit(hold_writer_briefly)
+        assert held.wait(timeout=10)
+        # Another runner owns the writer: recovery must wait for the fence, not
+        # fail fast on the same-process lease.
+        result = engine.consumer_imports.recover_consumer_import(
+            plan.operation_id, authority=_owner(engine)
+        )
+        holder.result(timeout=20)
+    assert result == first
 
 
 def test_recovery_reconciles_another_runner_completed_group(

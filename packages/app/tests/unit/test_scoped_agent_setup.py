@@ -442,6 +442,9 @@ def test_claude_owned_json_edit_preserves_unrelated_bytes_and_roundtrips(
         "allow_organize",
         "allow_review_propose",
         "allow_review_decide",
+        "allow_followup_read",
+        "allow_followup_propose",
+        "allow_followup_decide",
     ],
 )
 def test_scoped_setup_rejects_additional_grants(configured: dict[str, Any], grant: str) -> None:
