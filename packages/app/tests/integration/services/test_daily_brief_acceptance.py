@@ -584,6 +584,26 @@ def test_last_dated_brief_stays_readable_when_followup_reads_fail(brain: Brain) 
 
     brain.monkeypatch.setattr(FollowupTasks, "list", outage)
 
+    # While every follow-up read fails and the latest logged brief still holds follow-up items,
+    # `brief last` prints that saved brief and marks each unreadable follow-up item withheld,
+    # keeping its logged reason codes.
+    original_show = FollowupTasks.show
+    brain.monkeypatch.setattr(FollowupTasks, "show", outage)
+    during = brain.cli("brief", "last")
+    assert during["generated_at"] == first["generated_at"]
+    assert during["since"] is None
+    assert _refs(during) == _refs(first)
+    first_reasons = {item["ref"]: item["reasons"] for item in first["items"]}
+    held = [item for item in during["items"] if item["ref"].startswith("followup:")]
+    assert {item["ref"] for item in held} >= {_ref(items["due"])}
+    for item in held:
+        assert item["status"] == "withheld"
+        assert item["reasons"] and item["reasons"] == first_reasons[item["ref"]]
+    assert all(
+        item["status"] == "logged" for item in during["items"] if item["ref"].startswith("family:")
+    )
+    brain.monkeypatch.setattr(FollowupTasks, "show", original_show)
+
     # The provider failure is reported, the other provider still appears, and the brief is saved.
     degraded = brain.brief()
     _assert_well_formed(degraded)

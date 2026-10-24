@@ -1,6 +1,6 @@
 # Daily brief P1 brief: contracts, session authority and the engine `source_freshness` task (plan Tasks 1–5)
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief`
+Repo root (worktree): `$WORKTREE`
 Branch: `feat/daily-brief` (base `f21dfb9`: follow-ups work from #119 plus the daily brief spec and plan). Never push, never switch branches, never touch another worktree. Do not `cd` to the main checkout.
 
 ## Sources of truth (in order)
@@ -29,7 +29,7 @@ Leave the tree clean.
 
 ## Output contract
 
-Write the full report to `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief/.superpowers/sdd/P1-report.md`: status (DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED), commits (hash + subject), files changed, exact commands with pass/fail counts, every deviation from the plan, and anything Package 2 must know (final signatures of `brief_session_authority`, `visibility_key`, `SourceFreshnessTasks.freshness`, `FamilyFreshness`, `FreshnessReport`, the capability registration). Reply with only: status, commit range, one-line test summary, concerns.
+Write the full report to `$WORKTREE/.superpowers/sdd/P1-report.md`: status (DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED), commits (hash + subject), files changed, exact commands with pass/fail counts, every deviation from the plan, and anything Package 2 must know (final signatures of `brief_session_authority`, `visibility_key`, `SourceFreshnessTasks.freshness`, `FamilyFreshness`, `FreshnessReport`, the capability registration). Reply with only: status, commit range, one-line test summary, concerns.
 
 ## Sensitive data
 

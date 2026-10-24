@@ -7,7 +7,7 @@ You write ONE package's tasks. An integrator merges the three sections into
 ## Source of truth
 
 - Spec (authoritative, revision 2): `docs/superpowers/specs/2026-10-24-daily-brief-design.md`
-- Worktree: `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief`, branch
+- Worktree: `$WORKTREE`, branch
   `feat/daily-brief`, baseline commit `f6541c0`. It already contains the follow-ups work (#3,
   PR #119) you build on: `packages/engine/src/open_brain_engine/engine/followups.py`,
   `followup_contracts.py`, `followup_visibility.py`, `packages/app/src/open_brain/services/followups.py`,

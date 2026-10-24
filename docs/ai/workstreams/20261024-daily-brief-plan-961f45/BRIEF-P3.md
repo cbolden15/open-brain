@@ -1,6 +1,6 @@
 # Daily brief P3 brief: acceptance, documentation and the gate (plan Tasks 15–18)
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief`
+Repo root (worktree): `$WORKTREE`
 Branch: `feat/daily-brief` (Packages 1 and 2, Tasks 1–13, are committed and reviewed ahead of you). Never push, never switch branches, never touch another worktree. Do not `cd` to the main checkout.
 
 ## Sources of truth (in order)
@@ -18,7 +18,7 @@ Exactly the files named in Tasks 15–18: `packages/app/tests/integration/servic
 
 ## Verification (yours)
 
-Each task's own test commands as written. Task 18 is the frozen-tree gate: commit everything first, confirm `git status --short` is empty, then run `make verify`, `make native-audit`, `make homebrew-smoke`, the brief test set under `umask 022` and the acceptance and docs tests under `umask 077` with `--basetemp` under `/private/tmp`, `git diff --check`, `actionlint .github/workflows/ci.yml`. No checkout writes during `make verify` (TESTING-013). If the only failure is a known flake (TESTING-014, or the Google Calendar drip-feed deadline test), rerun that test alone and report both results. Save gate logs under `/private/tmp/claude-501/-Users-calebbolden-Projects-oss-open-brain-public/13f12ea3-573b-4447-85c4-49e62d133082/scratchpad/brief-gate/` and name them in the report.
+Each task's own test commands as written. Task 18 is the frozen-tree gate: commit everything first, confirm `git status --short` is empty, then run `make verify`, `make native-audit`, `make homebrew-smoke`, the brief test set under `umask 022` and the acceptance and docs tests under `umask 077` with `--basetemp` under `/private/tmp`, `git diff --check`, `actionlint .github/workflows/ci.yml`. No checkout writes during `make verify` (TESTING-013). If the only failure is a known flake (TESTING-014, or the Google Calendar drip-feed deadline test), rerun that test alone and report both results. Save gate logs under `$SCRATCHPAD/brief-gate/` and name them in the report.
 
 ## Commit policy
 
@@ -30,7 +30,7 @@ Leave the tree clean. Never push.
 
 ## Output contract
 
-Write the full report to `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief/.superpowers/sdd/P3-report.md`: status (DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED), commits (hash + subject), files changed, exact gate commands with pass/fail counts and log paths, every deviation from the plan, and any Package 1 or 2 defect found. Reply with only: status, commit range, one-line gate summary, concerns.
+Write the full report to `$WORKTREE/.superpowers/sdd/P3-report.md`: status (DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED), commits (hash + subject), files changed, exact gate commands with pass/fail counts and log paths, every deviation from the plan, and any Package 1 or 2 defect found. Reply with only: status, commit range, one-line gate summary, concerns.
 
 ## Sensitive data
 

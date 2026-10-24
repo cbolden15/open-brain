@@ -12,6 +12,8 @@ Planned: one task-tdd-implementer and one task-spec-compliance-reviewer per pack
 | 4 | task-spec-compliance-reviewer | P2 | opus | APPROVED_WITH_FIXES; I1 due items starved past the 500 scan; I2 ack-only sessions (capability lift, unreadable key, fingerprint leak); I3 client space IDs evicting owner key files; sent to child 3 (resumed); fixed in e5c0f35 (370 covering tests pass; decided scan keeps a documented 500-row bound, no ListFilter field for new evidence); re-review: I2, I3, Minor 1 RESOLVED; I1 due part RESOLVED, decided part NOT_RESOLVED (500 oldest decided rows starve new evidence). Second wave sent to child 3: engine `ListFilter.new_evidence` filter + decided scan uses it; owner key files exempt from the 16-key eviction (residual I3 gap with 5+ real spaces); fixed in ab0159b and 667577f (554 covering tests pass; owner marker follows `authority.owner`); re-review: all RESOLVED (no MCP session reaches the brief with `owner=True`; launcher-policy authority hard-codes `owner=False`; no wire, schema or Portable change). P2 APPROVED, complete at 667577f |
 | 5 | task-tdd-implementer | P3 Tasks 15–18 | opus | DONE; `502db0f..a9ace6c` plus the review-fix docs commit; 8 acceptance tests; audit object budget raised to 600,000 (coordinator decision, f3ea292); gate green at `f3ea292`; review APPROVED_WITH_FIXES, I1 (ack scope sentence in `docs/daily-brief.md`) and three doc minors fixed in the review-fix commit |
 | 6 | task-spec-compliance-reviewer | P3 | opus | APPROVED_WITH_FIXES; one Important (guide said acks follow the `--space` selection; they live under the unselected key) and 7 Minor; see `.superpowers/sdd/P3-review.md` |
+| 7 | general-purpose (final whole-branch review) | 54110bc..0b47ba4 | fable | With fixes: 0 Critical, 0 Important, 10 Minor; 3 required before merge plus Minors 1-2 taken; fixed in 10a2adb and the `docs(brief): final review fixes` commit |
+| 8 | general-purpose (final fix) | 0b47ba4..HEAD | opus | DONE; 10a2adb canonical `newest_recorded_at` (Minor 1) and the brief.py comment (Minor 3); docs commit: outage test calls `brief last` while follow-up reads fail (P3 Minor 3), UTC due-date sentence (Minor 2), lock wording and the 2026-10-16 gotcha tense (Minor 9), local paths in this directory replaced with `$SCRATCHPAD` and `$WORKTREE`; final gate in `$GATE/verify-final.log` |
 
 Coordinator decisions on P2 findings that touched the plan (recorded here and in the spec, owner may override): I2 → `brain_brief_ack` requires both `brief-read` and `brief-ack`; ack without read is `unsupported_capability`; the grant flags stay independent. I3 → a selected space ID the session cannot see or that does not exist is `invalid_request` on every surface, before the visibility key is computed.
 
@@ -20,7 +22,8 @@ Minor findings carried to the final review (from `.superpowers/sdd/P1-review.md`
 ## Task 18 frozen-tree gate
 
 Frozen HEAD `6693b5a`, merge-base with `main` `fc5ef95`. Logs are under `$GATE` =
-`/private/tmp/claude-501/-Users-calebbolden-Projects-oss-open-brain-public/13f12ea3-573b-4447-85c4-49e62d133082/scratchpad/brief-gate`.
+`$SCRATCHPAD/brief-gate`, where `$SCRATCHPAD` is the coordinator session's scratchpad
+directory and `$WORKTREE` (in the package briefs and `STATE.md`) is this branch's worktree.
 
 | Date | Step | Command | Result | Log |
 |---|---|---|---|---|
@@ -56,3 +59,15 @@ rerun on the frozen HEAD `f3ea292`:
 | 2026-10-24 | gate | brief test set (19 files) + `test_native_artifact_audit.py`, umask 022, /private/tmp basetemp | exit=0 (548 passed) | $GATE/basetemp-umask022-2.log |
 | 2026-10-24 | gate | acceptance + docs tests, umask 077, /private/tmp basetemp | exit=0 (21 passed) | $GATE/basetemp-umask077-2.log |
 | 2026-10-24 | gate | frozen HEAD | f3ea292 | $GATE/HEAD-budget |
+
+## After merge
+
+Deferred from the final review's triage, in suggested order: push a `space_id` predicate into the
+`source_freshness` SQL and give `brief_ack` a single-family path; let `brief last` report a log
+that was set aside instead of printing "No saved brief"; export a public alias for
+`_managed_copy_identity` from `sharing.py`; prune acks whose family no longer appears at generate
+time; move key-file eviction after the CAS create; export one family-ref pattern from
+`brief_contracts` and build the other three copies from it. Whether due dates should follow the
+local calendar instead of UTC is a follow-ups question, not a brief one. `CLAUDE.md:77` ("Artifact
+audit limits ... remain fixed") now conflicts with the `MAX_OBJECTS` raise and is left untouched
+as an owner decision.

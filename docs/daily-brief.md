@@ -9,8 +9,8 @@ When nothing needs attention, the brief says so instead of filling the list.
 The brief is composed by rules, with no model call, no network path and no subprocess. A client
 may reword it for you. Open Brain never writes a note, sends a message or changes a follow-up
 when you read a brief. The only files a brief writes are its own log, described below, and the
-empty `.open-brain/state/.write.lock` the log writer creates beside `briefs/`. Both are
-rebuildable views, not Portable content.
+empty `.open-brain/state/.write.lock` the log writer creates beside `briefs/`. The log is a
+rebuildable view, and neither file is Portable content.
 
 Follow-up items come from the store described in [commitments and open questions](followups.md).
 
@@ -57,6 +57,9 @@ A brief never carries quote text, summaries or titles. To read what a follow-up 
 | `followup_open` | A suggested or confirmed follow-up you own has no due date today or past | `open_owned` |
 | `source_unavailable` | A capture family holds captures whose availability is missing or inaccessible | `captures_unavailable`, plus `no_capture_since` when the family is also stale |
 | `source_stale` | A capture family's newest capture is older than the stale window | `no_capture_since` |
+
+Due dates are compared against the UTC calendar date of the engine clock, the same rule
+follow-ups use.
 
 A capture family is the unit you mean by "a source": one agent session source (a consumer
 namespace, identified as `consumer:<connector_name>/<connection_id>:<space_id>`) or the Markdown

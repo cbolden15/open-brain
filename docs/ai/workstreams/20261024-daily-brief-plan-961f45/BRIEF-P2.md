@@ -1,6 +1,6 @@
 # Daily brief P2 brief: log store, composer, owner CLI, MCP tools and grants (plan Tasks 6–13)
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief`
+Repo root (worktree): `$WORKTREE`
 Branch: `feat/daily-brief` (Package 1, Tasks 1–5, is committed and reviewed ahead of you). Never push, never switch branches, never touch another worktree. Do not `cd` to the main checkout.
 
 ## Sources of truth (in order)
@@ -30,7 +30,7 @@ Leave the tree clean.
 
 ## Output contract
 
-Write the full report to `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief/.superpowers/sdd/P2-report.md`: status (DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED), commits (hash + subject), files changed, exact commands with pass/fail counts, every deviation from the plan, and anything Package 3 must know (the final CLI parser shape, MCP tool names and argument schemas, the grant flag names, the log file layout, what `brief last` prints). Reply with only: status, commit range, one-line test summary, concerns.
+Write the full report to `$WORKTREE/.superpowers/sdd/P2-report.md`: status (DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED), commits (hash + subject), files changed, exact commands with pass/fail counts, every deviation from the plan, and anything Package 3 must know (the final CLI parser shape, MCP tool names and argument schemas, the grant flag names, the log file layout, what `brief last` prints). Reply with only: status, commit range, one-line test summary, concerns.
 
 ## Sensitive data
 

@@ -518,7 +518,7 @@ file alongside focused adapter tests. The equality assertion remains mandatory.
 The same candidate passed all source checks but failed the macOS native harness
 archive audit: its shared module closure decoded 500,261 objects against a
 500,000-object aggregate cap. The measured local scan took 6.67 seconds without
-content findings. The cap is now 550,000; the 30-second worker CPU limit and all
+content findings. The cap was raised to 550,000; the 30-second worker CPU limit and all
 content rules remain intact. Exercise the actual native archive after foreground
 CLI additions, and test that the object budget remains aggregate across payloads.
 Category: Build Pipeline.
