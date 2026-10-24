@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import replace
 from datetime import timedelta
@@ -11,7 +12,7 @@ from uuid import uuid4
 import pytest
 from open_brain_engine.core.access_contracts import derive_brain_id
 from open_brain_engine.core.models import PrivacyTier
-from open_brain_engine.engine import BrainEngine, TextPayload
+from open_brain_engine.engine import BrainEngine, TextPayload, historical_visibility
 from open_brain_engine.engine.consent_contracts import EgressMode
 from open_brain_engine.engine.normalization import _timestamp
 from open_brain_engine.engine.source_freshness import (
@@ -375,3 +376,86 @@ def test_report_is_frozen_and_sorted(tmp_path: Path) -> None:
         report.families = ()  # type: ignore[misc]
     with pytest.raises(AttributeError):
         report.families[0].stale = True  # type: ignore[misc]
+
+
+def _copy_marked_source(engine: BrainEngine, connection_id: str, text: str) -> str:
+    """A namespace source whose capture carries a sharing-copy custody signal (sharing.py).
+
+    The intake refuses reserved sharing-copy references, so the marker is written by SQL on an
+    ordinary head, the same way the other row-state fixtures here are written.
+    """
+    head = _namespace_source(engine, connection_id, text).head
+    _sql(
+        engine,
+        "UPDATE captures SET source_reference=? WHERE capture_id=?",
+        "urn:open-brain:sharing-copy:v1:synthetic",
+        head,
+    )
+    return head
+
+
+def _mark_missing(engine: BrainEngine, head: str) -> None:
+    _sql(engine, "UPDATE logical_sources SET availability='missing' WHERE head_capture_id=?", head)
+
+
+def test_unavailable_managed_heads_stay_hidden_from_non_owner_sessions(tmp_path: Path) -> None:
+    clock = Clock(FROZEN)
+    engine = _engine(tmp_path, clock)
+    copy_head = _copy_marked_source(engine, "copy", "Synthetic shared copy")
+    original = _namespace_source(engine, "original", "Synthetic managed original")
+    plain = _namespace_source(engine, "plain", "Synthetic ordinary session")
+    # A managed-source delivery receipt for the head makes it a managed original (sharing.py).
+    _sql(
+        engine,
+        "INSERT INTO managed_source_deliveries(delivery_id,envelope_sha256,envelope_bytes,"
+        "source_id,destination_brain_id,issuer_epoch,expected_head,expected_lifecycle_version,"
+        "source_delivery_id,receipt_json) SELECT 'synthetic.managed.1',?,?,source_id,?,1,NULL,0,"
+        "'synthetic.managed.source.1',? FROM logical_sources WHERE head_capture_id=?",
+        "0" * 64,
+        b"synthetic",
+        derive_brain_id(engine.profile.tenant_id),
+        json.dumps({"source_receipt": {"capture_id": original.head}}),
+        original.head,
+    )
+    work_only = _agent(BRIEF_READ_CAPABILITY)
+    available = set(_by_id(_freshness(engine, work_only)))
+    assert "consumer:synthetic/copy:unassigned" not in available  # sharing eligibility denies it
+    for head in (copy_head, original.head, plain.head):
+        _mark_missing(engine, head)
+    # Unavailable managed heads fail closed for a non-owner; an ordinary one is still counted.
+    hidden = _by_id(_freshness(engine, work_only))
+    assert set(hidden) == {"consumer:synthetic/plain:unassigned"}
+    assert hidden["consumer:synthetic/plain:unassigned"].unavailable_count == 1
+    # The owner counts every unavailable head.
+    owned = _by_id(_freshness(engine, _owner(engine)))
+    assert set(owned) == {
+        "consumer:synthetic/copy:unassigned",
+        "consumer:synthetic/original:unassigned",
+        "consumer:synthetic/plain:unassigned",
+    }
+    assert all(family.unavailable_count == 1 for family in owned.values())
+
+
+def test_unavailable_heads_respect_the_historical_fence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = Clock(FROZEN)
+    engine = _engine(tmp_path, clock)
+    plain = _namespace_source(engine, "plain", "Synthetic ordinary session")
+    _mark_missing(engine, plain.head)
+    work_only = _agent(BRIEF_READ_CAPABILITY)
+    assert set(_by_id(_freshness(engine, work_only))) == {"consumer:synthetic/plain:unassigned"}
+    calls: list[str] = []
+
+    def deny(_connection: object, _profile: object, capture_id: str, **_kwargs: object) -> bool:
+        calls.append(capture_id)
+        return False
+
+    monkeypatch.setattr(historical_visibility, "historical_capture_visibility", deny)
+    assert _freshness(engine, work_only).families == ()
+    assert calls == [plain.head]
+    # Owner current reads never consult the non-owner historical fence.
+    assert set(_by_id(_freshness(engine, _owner(engine)))) == {
+        "consumer:synthetic/plain:unassigned"
+    }
+    assert calls == [plain.head]

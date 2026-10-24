@@ -17,11 +17,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
+from .consent_contracts import EgressMode
 from .mcp_eligibility import capture_visible
 from .normalization import _timestamp
 from .paging import read_snapshot
 from .records import RecordProjector
-from .sharing import require_capture_eligibility
+from .sharing import _managed_copy_identity, require_capture_eligibility
 from .t03_contracts import EffectiveAuthority, T03Error
 
 if TYPE_CHECKING:
@@ -122,6 +123,45 @@ def _recorded_at(value: object) -> datetime | None:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
+def _unavailable_head_admitted(
+    connection: sqlite3.Connection,
+    head: str,
+    authority: EffectiveAuthority,
+    engine: BrainEngine,
+    *,
+    external: bool,
+) -> bool:
+    """``sharing_eligible`` for a non-owner without its availability test, failing closed."""
+    from .historical_visibility import historical_capture_visibility
+
+    historical = historical_capture_visibility(
+        connection,
+        engine.profile,
+        head,
+        local_history=not external,
+        provider_id=authority.provider_id,
+        brain_id=authority.brain_id,
+        issuer_epoch=authority.issuer_epoch,
+    )
+    if historical is not None:
+        return historical
+    revision = connection.execute(
+        "SELECT r.source_id,r.source_bytes,c.source_reference,c.delivery_id,c.privacy_json,"
+        "c.provenance_json FROM source_revisions r LEFT JOIN captures c USING(capture_id) "
+        "WHERE r.capture_id=?",
+        (head,),
+    ).fetchone()
+    if revision is None or _managed_copy_identity(connection, head, revision):
+        return False
+    managed_original = connection.execute(
+        "SELECT 1 FROM managed_source_deliveries WHERE source_id=? "
+        "AND receipt_json IS NOT NULL "
+        "AND json_extract(receipt_json,'$.source_receipt.capture_id')=? LIMIT 1",
+        (revision["source_id"], head),
+    ).fetchone()
+    return managed_original is None
+
+
 def _readable(
     connection: sqlite3.Connection,
     projector: RecordProjector,
@@ -134,15 +174,20 @@ def _readable(
     """The current-read rules of ``RecordProjector.source`` (records.py:131-155) for one head.
 
     Sharing eligibility itself requires ``availability = 'available'`` (sharing.py, the
-    ``OWNER_CURRENT`` and ``LOCAL_CURRENT`` modes), so it applies to available heads only; an
-    unavailable head is counted when it passes every other rule.
+    ``OWNER_CURRENT`` and ``LOCAL_CURRENT`` modes), so it applies to available heads only. An
+    unavailable head is counted for the local owner once it passes the other rules; for any other
+    session it must also pass the non-owner historical fence, and a sharing-managed copy or managed
+    original fails closed.
     """
     if not capture_visible(connection, head, authority):
         return False
     if not projector.source_revision_readable(head):
         return False
     if not available:
-        return True
+        external = authority.egress_mode is EgressMode.EXTERNAL_PROVIDER
+        if authority.owner and not external:
+            return True
+        return _unavailable_head_admitted(connection, head, authority, engine, external=external)
     try:
         require_capture_eligibility(
             connection, head, authority, history=False, profile=engine.profile
