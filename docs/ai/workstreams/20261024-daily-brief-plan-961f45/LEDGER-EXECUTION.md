@@ -32,6 +32,10 @@ Frozen HEAD `6693b5a`, merge-base with `main` `fc5ef95`. Logs are under `$GATE` 
 | 2026-10-24 | gate | brief test set (19 files), umask 022, /private/tmp basetemp | exit=0 (429 passed) | $GATE/basetemp-umask022.log |
 | 2026-10-24 | gate | acceptance + docs tests, umask 077, /private/tmp basetemp | exit=0 (21 passed) | $GATE/basetemp-umask077.log |
 | 2026-10-24 | gate | frozen HEAD | 6693b5a | $GATE/HEAD |
+| 2026-10-24 | gate | `make verify` after the gotcha commit, HEAD 1f6718b | exit=2 (9502 passed, 1 failed, 26 errors: nested-pytest `TimeoutExpired` at 60 s in `test_harness_acceptance.py` and `test_pytest_timing.py` under host load average up to 11; no `source_changed_during_run`) | $GATE/verify-2.log |
+| 2026-10-24 | gate | those two files alone (retry) | exit=0 (45 passed) | $GATE/verify-2-timeouts-rerun.log |
+| 2026-10-24 | gate | `make verify` again, HEAD 1f6718b | exit=0 (pytest 9529 passed, 9 skipped; plugin 702 passed) | $GATE/verify-3.log |
+| 2026-10-24 | gate | HEAD after ledger | 1f6718b | $GATE/HEAD-after-ledger |
 
 New gotchas: BUILD-021 (audit object budget), TESTING-017 (plugin process-group test under load).
 The native audit is blocked on an owner decision; audit limits stay fixed under the project rules.
