@@ -2744,3 +2744,171 @@ def test_followup_tools_are_registered_with_their_grants() -> None:
     assert registered["brain_followup_propose"]["required_grants"] == ["followup-propose"]
     assert registered["brain_followup_add_evidence"]["required_grants"] == ["followup-propose"]
     assert registered["brain_followup_decide"]["required_grants"] == ["followup-decide"]
+
+
+@pytest.mark.parametrize(
+    ("flags", "tools"),
+    (
+        (("--allow-followup-read",), {"brain_followup_list", "brain_followup_show"}),
+        (
+            ("--allow-followup-propose",),
+            {"brain_followup_propose", "brain_followup_add_evidence"},
+        ),
+        (("--allow-followup-decide",), {"brain_followup_decide"}),
+    ),
+)
+def test_live_followup_stdio_lists_only_granted_tools(
+    tasks: Any, flags: tuple[str, ...], tools: set[str]
+) -> None:
+    process = _start(tasks.profile.root, *flags)
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        listed = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert {tool["name"] for tool in listed["result"]["tools"]} == {"brain_catalog", *tools}
+        denied_name = next(
+            name
+            for name in (
+                "brain_followup_decide",
+                "brain_followup_propose",
+                "brain_followup_list",
+            )
+            if name not in tools
+        )
+        denied = _exchange(process, _call(denied_name, {}, 3))
+        assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
+        if "brain_followup_list" in tools:
+            listed_items = _exchange(process, _call("brain_followup_list", {}, 4))
+            payload = listed_items["result"]["structuredContent"]
+            assert payload == {
+                "outcome": "ok",
+                "data": {"items": [], "next_cursor": None, "truncated": False},
+                "code": None,
+            }
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=10) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def test_mcp_without_any_grant_still_refuses_and_followup_flags_count_as_grants(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "brain"
+    assert run_cli(("mcp", "--data-dir", str(root))) == 2
+    capsys.readouterr()
+    assert run_cli(("mcp", "--help", "--allow-followup-read"), environment={}) == 0
+    output = capsys.readouterr().out
+    for phrase in ("--allow-followup-read", "--allow-followup-propose", "--allow-followup-decide"):
+        assert phrase in output
+
+
+def _followup_fixture_items(tasks: Any) -> tuple[str, str]:
+    """One Work and one Personal item proposed by the owner; returns their item IDs."""
+    from hashlib import sha256
+
+    from open_brain_engine.engine.followup_contracts import (
+        EvidenceRef,
+        EvidenceRole,
+        FollowupKind,
+        OwnerKind,
+        ProposeRequest,
+    )
+
+    from open_brain.services.t03_adapters import owner_authority
+
+    owner = owner_authority(tasks, session_id="owner-fixture")
+    ids: list[str] = []
+    for tier, text, operation in (
+        (PrivacyTier.WORK, "Synthetic work promise: send the deck", "op-work"),
+        (PrivacyTier.PERSONAL, "Synthetic personal promise: call the dentist", "op-personal"),
+    ):
+        capture_id = tasks.capture.accept(
+            TextPayload(text), delivery_id=operation, privacy_tier=tier
+        ).capture_id
+        start = text.index("promise")
+        end = start + len("promise")
+        ref = EvidenceRef(
+            capture_id,
+            capture_id,
+            start,
+            end,
+            sha256(text[start:end].encode("utf-8")).hexdigest(),
+            EvidenceRole.ORIGIN,
+        )
+        item = tasks.followups.propose(
+            ProposeRequest(
+                operation_id=operation,
+                kind=FollowupKind.COMMITMENT,
+                summary=text,
+                project=None,
+                owner=OwnerKind.SELF,
+                owner_name=None,
+                due=None,
+                due_evidence_index=None,
+                evidence=(ref,),
+            ),
+            authority=owner,
+        )
+        ids.append(item.item_id)
+    return ids[0], ids[1]
+
+
+def test_unscoped_followup_mcp_is_work_only_while_owner_cli_sees_all(
+    tasks: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    work_item, personal_item = _followup_fixture_items(tasks)
+    root = tasks.profile.root
+
+    assert run_cli(("followup", "list", "--json", "--data-dir", str(root))) == 0
+    owner_view = json.loads(capsys.readouterr().out)
+    assert {row["item_id"] for row in owner_view["data"]["items"]} == {work_item, personal_item}
+
+    # A review grant beside the follow-up grant makes the session owner-authority; the
+    # follow-up callbacks must still be clamped to Work.
+    for flags in (("--allow-followup-read",), ("--allow-followup-read", "--allow-review-read")):
+        process = _start(root, *flags)
+        try:
+            assert "result" in _exchange(process, INITIALIZE)
+            listed = _exchange(process, _call("brain_followup_list", {}, 2))
+            payload = listed["result"]["structuredContent"]
+            assert payload["outcome"] == "ok"
+            assert [row["item_id"] for row in payload["data"]["items"]] == [work_item]
+            shown = _exchange(
+                process, _call("brain_followup_show", {"item_id": personal_item}, 3)
+            )
+            assert shown["result"]["structuredContent"] == {
+                "outcome": "refused",
+                "data": None,
+                "code": "not_found",
+            }
+            visible = _exchange(process, _call("brain_followup_show", {"item_id": work_item}, 4))
+            assert visible["result"]["structuredContent"]["outcome"] == "ok"
+            assert process.stdin is not None
+            process.stdin.close()
+            assert process.wait(timeout=10) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+
+
+def test_scoped_followup_tools_require_the_session_grant() -> None:
+    scoped = EffectiveAuthority(
+        "mcp-test-agent", "mcp-test-session", frozenset({"followup-read"}), None
+    )
+    adapter = LocalMcpAdapter(
+        authority=scoped,
+        followup_list=_followup_ok,
+        followup_show=_followup_ok,
+        followup_decide=_followup_ok,
+    )
+    assert {tool["name"] for tool in adapter.list_tools()} == {
+        "brain_catalog",
+        "brain_followup_list",
+        "brain_followup_show",
+    }
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        adapter.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)

@@ -111,11 +111,14 @@ from open_brain.services.facets import (
     read_facet_selector_file,
 )
 from open_brain.services.followups import (
+    FOLLOWUP_GRANTS,
     FollowupServiceError,
+    bind_followup_operations,
     followup_add_evidence,
     followup_decide,
     followup_list,
     followup_propose,
+    followup_session_authority,
     followup_show,
     validate_followup_arguments,
 )
@@ -308,6 +311,9 @@ def run_cli(
             or parsed.allow_review_read
             or parsed.allow_review_propose
             or parsed.allow_review_decide
+            or parsed.allow_followup_read
+            or parsed.allow_followup_propose
+            or parsed.allow_followup_decide
             or facet_grants_from_namespace(parsed)
         )
         or json_output
@@ -1009,6 +1015,8 @@ def _parser() -> argparse.ArgumentParser:
             "500 organization reads, 500 organization writes and 16 MiB organization output; "
             "500 review reads, 100 review proposals, 100 review decisions and 16 MiB "
             "encoded review output; review grants are independent and off by default. "
+            "500 follow-up reads, 200 follow-up writes and 16 MiB encoded follow-up output; "
+            "follow-up grants are independent and off by default. "
             "valid duplicates and conflicts count. Restarting resets limits. "
             "No actions, connectors, user-managed grants, or Secure Node capabilities."
         ),
@@ -1117,6 +1125,22 @@ def _parser() -> argparse.ArgumentParser:
         "--allow-review-decide",
         action="store_true",
         help="Allow digest-bound approve, reject, and edit-and-approve decisions.",
+    )
+    mcp_parser.add_argument(
+        "--allow-followup-read",
+        action="store_true",
+        help="Allow listing and showing commitments and open questions with rebuilt quotes.",
+    )
+    mcp_parser.add_argument(
+        "--allow-followup-propose",
+        action="store_true",
+        help="Allow proposing follow-ups and attaching evidence quotes.",
+    )
+    mcp_parser.add_argument(
+        "--allow-followup-decide",
+        action="store_true",
+        help="Allow version-bound confirm, dismiss, snooze, correct, link, resolve, reopen, "
+        "and supersede decisions.",
     )
     add_facet_grant_flags(mcp_parser)
 
@@ -2743,6 +2767,9 @@ def _run_local_command(
                 (parsed.allow_review_read, "review-read"),
                 (parsed.allow_review_propose, "review-propose"),
                 (parsed.allow_review_decide, "review-decide"),
+                (parsed.allow_followup_read, "followup-read"),
+                (parsed.allow_followup_propose, "followup-propose"),
+                (parsed.allow_followup_decide, "followup-decide"),
             )
             if enabled
         )
@@ -2818,6 +2845,14 @@ def _run_local_command(
             tasks.review,
             authority=session_authority if tasks.facet_publication is not None else None,
         )
+        followups = bind_followup_operations(
+            tasks.followups,
+            authority=followup_session_authority(
+                session_authority,
+                grants=selected_grants & FOLLOWUP_GRANTS,
+                launcher_policy=policy_path is not None,
+            ),
+        )
         history = tasks.history
         sources = tasks.sources
         negotiated_tasks = SimpleNamespace(
@@ -2882,6 +2917,23 @@ def _run_local_command(
             review_reject=review.reject if local_callbacks and parsed.allow_review_decide else None,
             review_edit_and_approve=(
                 review.edit_and_approve if local_callbacks and parsed.allow_review_decide else None
+            ),
+            followup_list=(
+                followups["list"] if local_callbacks and parsed.allow_followup_read else None
+            ),
+            followup_show=(
+                followups["show"] if local_callbacks and parsed.allow_followup_read else None
+            ),
+            followup_propose=(
+                followups["propose"] if local_callbacks and parsed.allow_followup_propose else None
+            ),
+            followup_add_evidence=(
+                followups["add_evidence"]
+                if local_callbacks and parsed.allow_followup_propose
+                else None
+            ),
+            followup_decide=(
+                followups["decide"] if local_callbacks and parsed.allow_followup_decide else None
             ),
             negotiated=negotiated,
             facets=FacetAppAdapter(

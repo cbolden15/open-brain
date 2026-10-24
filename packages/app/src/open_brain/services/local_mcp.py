@@ -78,6 +78,13 @@ MAX_REVIEW_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_FOLLOWUP_READ_CALLS = 500
 MAX_FOLLOWUP_WRITE_CALLS = 200
 MAX_FOLLOWUP_RESPONSE_BYTES = 16 * 1024 * 1024
+_FOLLOWUP_TOOL_GRANTS = {
+    "brain_followup_list": "followup-read",
+    "brain_followup_show": "followup-read",
+    "brain_followup_propose": "followup-propose",
+    "brain_followup_add_evidence": "followup-propose",
+    "brain_followup_decide": "followup-decide",
+}
 _UUID4_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 
 GraphRefresh = Callable[[int, int], tuple[dict[str, object], int, int]]
@@ -899,6 +906,10 @@ class LocalMcpAdapter:
             return "capture-submit" in self.authority.capabilities and bool(
                 self.authority.allowed_capture_tiers
             )
+        followup_grant = _FOLLOWUP_TOOL_GRANTS.get(name)
+        if followup_grant is not None:
+            # Follow-up callbacks carry their own Work-only clamped authority.
+            return followup_grant in self.authority.capabilities
         if self.negotiated is None:
             return False
         operation = {
