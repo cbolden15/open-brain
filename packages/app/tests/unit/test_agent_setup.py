@@ -50,6 +50,8 @@ def _preview(
     followup_read: object = False,
     followup_propose: object = False,
     followup_decide: object = False,
+    brief_read: object = False,
+    brief_ack: object = False,
     action: str = "configure",
     environment: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -68,6 +70,8 @@ def _preview(
         allow_followup_read=followup_read,
         allow_followup_propose=followup_propose,
         allow_followup_decide=followup_decide,
+        allow_brief_read=brief_read,
+        allow_brief_ack=brief_ack,
         action=action,
         runtime_path=runtime,
         environment=environment or {"HOME": str(selection.home)},
@@ -92,6 +96,8 @@ def _apply(
     followup_read: object = False,
     followup_propose: object = False,
     followup_decide: object = False,
+    brief_read: object = False,
+    brief_ack: object = False,
     action: str = "configure",
     environment: dict[str, object] | None = None,
     write_file: agent_setup_module.FileWriter | None = None,
@@ -111,6 +117,8 @@ def _apply(
         allow_followup_read=followup_read,
         allow_followup_propose=followup_propose,
         allow_followup_decide=followup_decide,
+        allow_brief_read=brief_read,
+        allow_brief_ack=brief_ack,
         action=action,
         preview_id=preview["preview_id"],
         runtime_path=runtime,
@@ -1077,4 +1085,142 @@ def test_cli_and_plugin_bridge_forward_followup_grants(
         assert forwarded["allow_followup_read"] is True
         assert forwarded["allow_followup_propose"] is False
         assert forwarded["allow_followup_decide"] is True
+    assert len(received) == 2
+
+
+@pytest.mark.parametrize(
+    ("grant", "flag", "tools"),
+    (
+        ("brief_read", "--allow-brief-read", ("brain_brief",)),
+        ("brief_ack", "--allow-brief-ack", ("brain_brief_ack",)),
+    ),
+)
+def test_brief_grants_are_independent_preview_bound_and_documented(
+    tmp_path: Path, grant: str, flag: str, tools: tuple[str, ...]
+) -> None:
+    home = tmp_path / "home"
+    project = home / grant
+    project.mkdir(parents=True)
+    runtime = _runtime(tmp_path)
+    selection = _selection(home)
+    brief_read = grant == "brief_read"
+    brief_ack = grant == "brief_ack"
+    preview = _preview(
+        selection,
+        runtime,
+        client="codex",
+        project=project,
+        capture=False,
+        search=False,
+        brief_read=brief_read,
+        brief_ack=brief_ack,
+    )
+    permissions = cast(dict[str, bool], preview["permissions"])
+    assert permissions[grant] is True
+    assert {"brief_read", "brief_ack"} <= set(permissions)
+    assert sum(permissions[name] for name in permissions if name.startswith("brief_")) == 1
+    assert "followup_read" not in permissions
+    _apply(
+        selection,
+        runtime,
+        preview,
+        client="codex",
+        project=project,
+        capture=False,
+        search=False,
+        brief_read=brief_read,
+        brief_ack=brief_ack,
+    )
+    parsed = tomllib.loads((project / ".codex/config.toml").read_text(encoding="utf-8"))
+    args = parsed["mcp_servers"]["open-brain"]["args"]
+    assert args[-1] == flag
+    for other in ("--allow-brief-read", "--allow-brief-ack"):
+        assert (other in args) is (other == flag)
+    assert not any(arg.startswith("--allow-followup-") for arg in args)
+    instructions = (project / "AGENTS.md").read_text(encoding="utf-8")
+    for tool in tools:
+        assert f"`{tool}`" in instructions
+    assert "no model" in instructions
+    assert "untrusted data" in instructions
+    assert "brain_followup_show" in instructions
+    if brief_ack:
+        assert "returns when its state changes" in instructions
+
+
+def test_brief_grants_default_off_and_absent_from_legacy_previews(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    runtime = _runtime(tmp_path)
+    selection = _selection(home)
+    preview = _preview(selection, runtime, client="claude-code", project=project)
+    permissions = cast(dict[str, object], preview["permissions"])
+    assert "brief_read" not in permissions and "brief_ack" not in permissions
+    followup_preview = _preview(
+        selection, runtime, client="claude-code", project=project, followup_read=True
+    )
+    assert "brief_read" not in cast(dict[str, object], followup_preview["permissions"])
+    _apply(selection, runtime, preview, client="claude-code", project=project)
+    config = json.loads((project / ".mcp.json").read_text(encoding="utf-8"))
+    args = config["mcpServers"]["open-brain"]["args"]
+    assert not any(arg.startswith("--allow-brief-") for arg in args)
+    with pytest.raises(AgentSetupFailure, match="setup_preview_stale"):
+        _apply(selection, runtime, preview, client="claude-code", project=project, brief_read=True)
+    with pytest.raises(AgentSetupFailure, match="setup_preview_stale"):
+        _apply(selection, runtime, preview, client="claude-code", project=project, brief_ack=True)
+
+
+def test_brief_grants_reject_non_boolean_values(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = home / "project"
+    project.mkdir(parents=True)
+    runtime = _runtime(tmp_path)
+    for values in ({"brief_read": "yes"}, {"brief_ack": 1}):
+        with pytest.raises(AgentSetupFailure, match="invalid_arguments"):
+            _preview(_selection(home), runtime, client="codex", project=project, **values)
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_cli_and_plugin_bridge_forward_brief_grants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, apply: bool
+) -> None:
+    import open_brain.services.local_entrypoints as cli
+    import open_brain.services.plugin_bridge as bridge
+
+    received: list[dict[str, object]] = []
+
+    def setup(_selection: object, **values: object) -> dict[str, object]:
+        received.append(values)
+        return {"status": "tested"}
+
+    name = "apply_agent_setup" if apply else "preview_agent_setup"
+    monkeypatch.setattr(cli, name, setup)
+    monkeypatch.setattr(bridge, name, setup)
+    monkeypatch.setattr(bridge, "resolve_agent_runtime", lambda _value: tmp_path / "runtime")
+    runtime = _runtime(tmp_path)
+    selection = LocalRootSelection(tmp_path, None, tmp_path / "brain", "darwin")
+    args = ["agent", "setup", "--client", "codex", "--scope", "user", "--runtime", str(runtime)]
+    args += ["--allow-brief-read", "--json"]
+    if apply:
+        args += ["--apply", "--preview-id", "setup_test"]
+    parsed = cli._parser().parse_args(args)
+    assert cli._run_agent_setup(parsed, selection=selection, environment={}, json_output=True) == 0
+    values: dict[str, object] = {
+        "action": "configure",
+        "allow_capture": False,
+        "allow_search": False,
+        "allow_brief_read": True,
+        "client": "codex",
+        "scope": "user",
+    }
+    if apply:
+        values["preview_id"] = "setup_test"
+    operation = "agent.setup.apply" if apply else "agent.setup.preview"
+    assert bridge._agent_setup(
+        selection, operation, values, base_executable=None, environment={}
+    ) == {"status": "tested"}
+    for forwarded in received:
+        assert forwarded["allow_brief_read"] is True
+        assert forwarded["allow_brief_ack"] is False
+        assert forwarded["allow_followup_read"] is False
     assert len(received) == 2

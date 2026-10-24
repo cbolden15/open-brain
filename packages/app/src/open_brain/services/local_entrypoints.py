@@ -1232,6 +1232,8 @@ def _parser() -> argparse.ArgumentParser:
     agent_setup_parser.add_argument("--allow-followup-read", action="store_true")
     agent_setup_parser.add_argument("--allow-followup-propose", action="store_true")
     agent_setup_parser.add_argument("--allow-followup-decide", action="store_true")
+    agent_setup_parser.add_argument("--allow-brief-read", action="store_true")
+    agent_setup_parser.add_argument("--allow-brief-ack", action="store_true")
     agent_setup_parser.add_argument(
         "--action", choices=("configure", "remove"), default="configure"
     )
@@ -2491,6 +2493,8 @@ def _run_agent_setup(
         "allow_followup_read": parsed.allow_followup_read,
         "allow_followup_propose": parsed.allow_followup_propose,
         "allow_followup_decide": parsed.allow_followup_decide,
+        "allow_brief_read": parsed.allow_brief_read,
+        "allow_brief_ack": parsed.allow_brief_ack,
         "client": parsed.client,
         "environment": environment,
         "project_dir": parsed.project_dir,
