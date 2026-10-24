@@ -241,3 +241,39 @@ def test_refs_follow_the_contract_bound_exactly(tmp_path: Path) -> None:
     for ref in ("family:x", "family:consumer:", "family:consumer:" + "x" * 2201, "family:f-a"):
         with pytest.raises(ValueError):
             store.ack(KEY, ref, fingerprint, expected_sha256=None)
+
+
+def test_owner_files_are_exempt_from_key_eviction(tmp_path: Path) -> None:
+    clock = _Clock()
+    store, state = _store(tmp_path, clock)
+    owner_key = "c" * 64
+    fingerprint = FamilyFingerprint("2026-10-20T08:00:00Z", 0)
+    assert store.ack(
+        owner_key, "family:markdown:space_1", fingerprint, expected_sha256=None, owner=True
+    )
+    current = store.read(owner_key)
+    assert current.file is not None and current.file.owner is True
+    assert store.append(
+        owner_key, _entry("2026-10-24T09:00:00Z"), expected_sha256=current.file.sha256, owner=True
+    )
+    owner_path = state / "briefs" / f"{owner_key}.json"
+    owner_bytes = owner_path.read_bytes()
+    assert json.loads(owner_bytes)["owner"] is True
+    clients = [sha256(f"client-{index}".encode()).hexdigest() for index in range(20)]
+    for key in clients:
+        clock.tick()
+        assert store.append(key, _entry("2026-10-24T10:00:00Z"), expected_sha256=None)
+    assert owner_path.read_bytes() == owner_bytes, "the owner file is never a victim"
+    owner = store.read(owner_key)
+    assert owner.file is not None and owner.file.acks == {"family:markdown:space_1": fingerprint}
+    present = {path.stem for path in (state / "briefs").glob("*.json")}
+    assert owner_key in present and len(present - {owner_key}) == BRIEF_LOG_MAX_KEYS
+    assert set(clients[-BRIEF_LOG_MAX_KEYS:]) <= present, (
+        "client files evict each other, oldest first"
+    )
+    assert json.loads((state / "briefs" / f"{clients[-1]}.json").read_bytes())["owner"] is False
+    # A file whose owner flag is missing or not a boolean is corrupt.
+    raw = json.loads(owner_bytes)
+    del raw["owner"]
+    owner_path.write_bytes(json.dumps(raw, sort_keys=True, separators=(",", ":")).encode())
+    assert store.read(owner_key).unavailable is True

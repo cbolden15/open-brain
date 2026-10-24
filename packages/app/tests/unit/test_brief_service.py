@@ -1310,3 +1310,26 @@ def test_new_evidence_on_a_recent_decision_survives_many_older_decisions() -> No
     assert [candidate.item_id for candidate in result.candidates] == [newest.item_id]
     assert result.candidates[0].kind is BriefItemKind.FOLLOWUP_NEW_EVIDENCE
     assert result.scanned == 1 and result.truncated is False
+
+
+def test_client_selections_never_evict_the_owner_log_or_its_acks(tmp_path: Path) -> None:
+    spaces = [f"space_3e6e8e2c-e638-47c6-8195-4bd6f3{index + 500:06d}" for index in range(20)]
+    tasks = _tasks(
+        tmp_path,
+        freshness=_FakeFreshness((STALE_FAMILY,)),
+        spaces=_FakeSpaces({space: () for space in spaces}),
+    )
+    clock = _Clock()
+    log = _log(tasks, clock)
+    brief_ack(tasks, OWNER_SESSION, log=log, family_ref="family:" + STALE_FAMILY.family_id)
+    assert brief_generate(tasks, OWNER_SESSION, log=log, clock=clock).items == ()
+    owner_path = _log_path(tasks, OWNER_SESSION)
+    owner_bytes = owner_path.read_bytes()
+    assert json.loads(owner_bytes)["owner"] is True
+    for space in spaces:
+        clock.tick(minutes=1)
+        assert brief_generate(tasks, WORK_SESSION, log=log, clock=clock, space_ids=(space,)).saved
+    assert owner_path.read_bytes() == owner_bytes
+    assert len(list(owner_path.parent.glob("*.json"))) == BRIEF_LOG_MAX_KEYS + 1
+    again = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    assert again.items == () and again.since is not None, "the owner ack and history survive"

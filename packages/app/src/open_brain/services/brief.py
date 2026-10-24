@@ -630,7 +630,11 @@ def brief_generate(
         )
     )
     saved = _append_with_retry(
-        log, key, brief, expected_sha256=None if log_read.file is None else log_read.file.sha256
+        log,
+        key,
+        brief,
+        expected_sha256=None if log_read.file is None else log_read.file.sha256,
+        owner=session.authority.owner,
     )
     return replace(brief, saved=saved)
 
@@ -670,6 +674,7 @@ def brief_ack(
             family_ref,
             fingerprint,
             expected_sha256=None if current.file is None else current.file.sha256,
+            owner=session.authority.owner,
         )
     except BriefLogWriteError:
         raise BriefError("operation_pending") from None
@@ -853,7 +858,7 @@ def _reread(
 
 
 def _append_with_retry(
-    log: BriefLogStore, key: str, brief: Brief, *, expected_sha256: str | None
+    log: BriefLogStore, key: str, brief: Brief, *, expected_sha256: str | None, owner: bool
 ) -> bool:
     entry = BriefLogEntry(
         generated_at=brief.generated_at,
@@ -863,7 +868,7 @@ def _append_with_retry(
     expected = expected_sha256
     for _attempt in range(2):
         try:
-            if log.append(key, entry, expected_sha256=expected):
+            if log.append(key, entry, expected_sha256=expected, owner=owner):
                 return True
         except BriefLogWriteError:
             pass

@@ -50,7 +50,7 @@ _KINDS = frozenset(kind.value for kind in BriefItemKind)
 _CHANGES = frozenset(change.value for change in BriefChange)
 _REASONS = frozenset(reason.value for reason in BriefReasonCode)
 _COVERAGE_WORDS = frozenset({"read", "not_granted", "failed", "not_read"})
-_FILE_KEYS = frozenset({"acks", "briefs", "key", "protocol", "written_at"})
+_FILE_KEYS = frozenset({"acks", "briefs", "key", "owner", "protocol", "written_at"})
 _ENTRY_KEYS = frozenset({"coverage", "generated_at", "items"})
 _FINGERPRINT_KEYS = frozenset({"newest_recorded_at", "unavailable_count"})
 
@@ -80,6 +80,7 @@ class BriefLogFile:
     briefs: tuple[BriefLogEntry, ...]
     acks: dict[str, FamilyFingerprint]
     sha256: str | None
+    owner: bool = False
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,12 @@ class _Corrupt(ValueError):
 
 
 class BriefLogStore:
-    """One JSON file per visibility key under ``<state_dir>/briefs``; rebuildable, not Portable."""
+    """One JSON file per visibility key under ``<state_dir>/briefs``; rebuildable, not Portable.
+
+    A file written for an owner session records ``"owner": true``. The 16-key least-recently-
+    written eviction counts and removes only non-owner files, so no client selection can evict
+    the owner's history or acks.
+    """
 
     def __init__(self, state_dir: Path, *, clock: Callable[[], datetime]) -> None:
         if not isinstance(state_dir, Path) or not state_dir.is_absolute():
@@ -129,7 +135,14 @@ class BriefLogStore:
             return BriefLogRead(None, True, 0, 0)
         return BriefLogRead(file, False, len(file.briefs), len(payload))
 
-    def append(self, key: str, entry: BriefLogEntry, *, expected_sha256: str | None) -> bool:
+    def append(
+        self,
+        key: str,
+        entry: BriefLogEntry,
+        *,
+        expected_sha256: str | None,
+        owner: bool = False,
+    ) -> bool:
         _require_entry(entry)
         current = self.read(key)
         if _digest(current.file) != expected_sha256:
@@ -142,6 +155,7 @@ class BriefLogStore:
             acks,
             existing=current.file is not None,
             expected_sha256=expected_sha256,
+            owner=owner,
         )
 
     def ack(
@@ -151,6 +165,7 @@ class BriefLogStore:
         fingerprint: FamilyFingerprint,
         *,
         expected_sha256: str | None,
+        owner: bool = False,
     ) -> bool:
         if not isinstance(family_ref, str) or _FAMILY_REF.fullmatch(family_ref) is None:
             raise ValueError("invalid family ref")
@@ -162,7 +177,12 @@ class BriefLogStore:
         acks = dict(current.file.acks) if current.file is not None else {}
         acks[family_ref] = fingerprint
         return self._write(
-            key, briefs, acks, existing=current.file is not None, expected_sha256=expected_sha256
+            key,
+            briefs,
+            acks,
+            existing=current.file is not None,
+            expected_sha256=expected_sha256,
+            owner=owner,
         )
 
     def last(self, key: str) -> BriefLogEntry | None:
@@ -181,16 +201,19 @@ class BriefLogStore:
         *,
         existing: bool,
         expected_sha256: str | None,
+        owner: bool,
     ) -> bool:
+        if type(owner) is not bool:
+            raise ValueError("invalid brief log owner flag")
         written_at = _timestamp(self._clock())
-        payload = _render(key, briefs, acks, written_at=written_at)
+        payload = _render(key, briefs, acks, written_at=written_at, owner=owner)
         while len(payload) > BRIEF_LOG_MAX_FILE_BYTES and len(briefs) > 1:
             briefs = briefs[1:]
-            payload = _render(key, briefs, acks, written_at=written_at)
+            payload = _render(key, briefs, acks, written_at=written_at, owner=owner)
         if len(payload) > BRIEF_LOG_MAX_FILE_BYTES:
             raise BriefLogWriteError("brief log entry exceeds the file cap")
         try:
-            if not existing:
+            if not existing and not owner:
                 self._evict_for(key)
             atomic_replace(
                 root=self._state_dir,
@@ -211,13 +234,21 @@ class BriefLogStore:
             names = sorted(name for name in os.listdir(directory) if name.endswith(".json"))
         except FileNotFoundError:
             return
-        others = [name for name in names if name != key + ".json"]
+        # Owner files neither count toward the cap nor become victims.
+        others: dict[str, str] = {}
+        for name in names:
+            if name == key + ".json":
+                continue
+            is_owner, written_at = self._file_meta(name)
+            if not is_owner:
+                others[name] = written_at
         while len(others) >= BRIEF_LOG_MAX_KEYS:
-            victim = min(others, key=lambda name: (self._written_at(name), name))
+            victim = min(others, key=lambda name: (others[name], name))
             confined_unlink(root=self._state_dir, relative=f"{BRIEF_LOG_DIRECTORY}/{victim}")
-            others.remove(victim)
+            del others[victim]
 
-    def _written_at(self, name: str) -> str:
+    def _file_meta(self, name: str) -> tuple[bool, str]:
+        """(owner flag, written_at) of one file; unreadable files are non-owner and oldest."""
         try:
             payload = read_confined(
                 root=self._state_dir,
@@ -225,12 +256,14 @@ class BriefLogStore:
                 maximum_bytes=BRIEF_LOG_MAX_FILE_BYTES,
             )
             if payload is None:
-                return ""
+                return False, ""
             value = json.loads(payload)
         except RootConfinementError, StorageError, UnicodeDecodeError, json.JSONDecodeError:
-            return ""
-        written = value.get("written_at") if isinstance(value, dict) else None
-        return written if isinstance(written, str) else ""
+            return False, ""
+        if not isinstance(value, dict):
+            return False, ""
+        written = value.get("written_at")
+        return value.get("owner") is True, written if isinstance(written, str) else ""
 
     def _set_aside(self, key: str) -> None:
         directory = self._state_dir / BRIEF_LOG_DIRECTORY
@@ -267,6 +300,7 @@ def _render(
     acks: Mapping[str, FamilyFingerprint],
     *,
     written_at: str,
+    owner: bool,
 ) -> bytes:
     return portable_canonical_json_bytes(
         {
@@ -280,6 +314,7 @@ def _render(
                 for entry in briefs
             ],
             "key": key,
+            "owner": owner,
             "protocol": BRIEF_LOG_PROTOCOL,
             "written_at": written_at,
         }
@@ -306,6 +341,7 @@ def _parse(key: str, payload: bytes) -> BriefLogFile:
         or set(value) != _FILE_KEYS
         or value["protocol"] != BRIEF_LOG_PROTOCOL
         or value["key"] != key
+        or type(value["owner"]) is not bool
         or not isinstance(value["written_at"], str)
         or not isinstance(value["briefs"], list)
         or len(cast(list[object], value["briefs"])) > BRIEF_LOG_MAX_BRIEFS
@@ -327,7 +363,7 @@ def _parse(key: str, payload: bytes) -> BriefLogFile:
             )
     except ValueError:
         raise _Corrupt() from None
-    return BriefLogFile(key, briefs, acks, sha256(payload).hexdigest())
+    return BriefLogFile(key, briefs, acks, sha256(payload).hexdigest(), value["owner"])
 
 
 def _entry_from(value: object) -> BriefLogEntry:
