@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 from open_brain_engine import __version__
 from open_brain_engine.core.models import PrivacyTier
@@ -109,6 +109,15 @@ from open_brain.services.facets import (
     facet_cli_request,
     facet_grants_from_namespace,
     read_facet_selector_file,
+)
+from open_brain.services.followups import (
+    FollowupServiceError,
+    followup_add_evidence,
+    followup_decide,
+    followup_list,
+    followup_propose,
+    followup_show,
+    validate_followup_arguments,
 )
 from open_brain.services.historical_recovery import run_historical_recovery
 from open_brain.services.launcher_policy import LauncherPolicyError
@@ -361,6 +370,14 @@ def run_cli(
             validate_review_arguments(review_operation, review_arguments)
             parsed.review_arguments = review_arguments
         except ReviewPublicationError:
+            _write_usage_failure(json_output=json_output)
+            return 2
+    if parsed.command == "followup":
+        try:
+            followup_operation, followup_arguments = _followup_arguments(parsed)
+            validate_followup_arguments(followup_operation, followup_arguments)
+            parsed.followup_arguments = followup_arguments
+        except FollowupServiceError:
             _write_usage_failure(json_output=json_output)
             return 2
     if parsed.command == "privacy":
@@ -728,6 +745,8 @@ def _run_parsed_command(
         return _write_space_inbox_failure(error.code, json_output=json_output)
     except ReviewPublicationError as error:
         return _write_review_failure(error.code, json_output=json_output)
+    except FollowupServiceError as error:
+        return _write_followup_failure(error.code, None, json_output=json_output)
     except SharingError as error:
         return _write_sharing_failure(error.code, json_output=json_output)
     except PrivacyRepairError as error:
@@ -915,6 +934,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_t03_parsers(subparsers)
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
+    _add_followup_parsers(subparsers)
     add_retraction_parsers(subparsers, _add_local_options)
     add_embedding_parsers(subparsers, _add_local_options)
     add_consumer_parsers(subparsers, _add_local_options)
@@ -1867,6 +1887,268 @@ def _write_review_failure(code: str, *, json_output: bool) -> int:
     return 1
 
 
+def _add_followup_parsers(
+    subparsers: argparse._SubParsersAction[_RedactedArgumentParser],
+) -> None:
+    parent = subparsers.add_parser(
+        "followup",
+        help="List, propose, evidence, and decide commitments and open questions.",
+        description=(
+            "Follow-ups are commitments and open questions proposed by a client from quoted "
+            "capture evidence. Quotes are rebuilt from the cited revision on every read and are "
+            "never stored. Owner CLI commands need no MCP grants. Agent clients need independent "
+            "followup-read, followup-propose and followup-decide grants, all off by default. "
+            "Nothing here writes to a ticket system or sends a message. Limits: 280-character "
+            "summary, 50 evidence rows per item, 10,000 items per Brain, 100 rows per page."
+        ),
+        epilog=(
+            "Workflow: followup list; followup show ITEM_ID; followup decide ITEM_ID --action "
+            "confirm --expected-version N. Evidence is one JSON object per --evidence with "
+            "capture_id, revision_id, quote_start, quote_end, quote_sha256 and role."
+        ),
+    )
+    _add_local_options(parent)
+    children = parent.add_subparsers(dest="followup_action", required=True)
+
+    listing = children.add_parser("list", help="List open follow-ups.")
+    _add_local_options(listing)
+    listing.add_argument(
+        "--kind", action="append", dest="kinds", choices=("commitment", "question")
+    )
+    listing.add_argument(
+        "--state",
+        action="append",
+        dest="states",
+        choices=("suggested", "confirmed", "snoozed", "dismissed", "resolved", "superseded"),
+    )
+    listing.add_argument("--owner", choices=("self", "other", "unknown"))
+    listing.add_argument("--project")
+    listing.add_argument("--due-before", help="ISO date YYYY-MM-DD.")
+    listing.add_argument("--include-closed", action="store_true")
+    listing.add_argument("--limit", type=int, default=50)
+    listing.add_argument("--cursor")
+
+    show = children.add_parser("show", help="Show one item, its rebuilt quotes and history.")
+    _add_local_options(show)
+    show.add_argument("item_id")
+
+    propose = children.add_parser("propose", help="Propose one commitment or open question.")
+    _add_local_options(propose)
+    propose.add_argument("--kind", required=True, choices=("commitment", "question"))
+    propose.add_argument("--summary", required=True, help="One line, up to 280 characters.")
+    propose.add_argument("--owner", required=True, choices=("self", "other", "unknown"))
+    propose.add_argument("--owner-name", help="Required with --owner other.")
+    propose.add_argument("--project")
+    propose.add_argument("--due", help="ISO date; requires --due-evidence-index.")
+    propose.add_argument(
+        "--due-evidence-index", type=int, help="Index of the quote stating the date."
+    )
+    propose.add_argument(
+        "--evidence",
+        action="append",
+        dest="evidence",
+        required=True,
+        help="Repeat per quote: JSON with capture_id, revision_id, quote_start, quote_end, "
+        "quote_sha256 and role.",
+    )
+    propose.add_argument("--operation-id", help="Reuse only to retry this exact request.")
+
+    add_evidence = children.add_parser("add-evidence", help="Attach one evidence quote.")
+    _add_local_options(add_evidence)
+    add_evidence.add_argument("item_id")
+    add_evidence.add_argument("--evidence", required=True, help="One JSON evidence object.")
+    add_evidence.add_argument("--operation-id")
+
+    decide = children.add_parser("decide", help="Record one owner decision.")
+    _add_local_options(decide)
+    decide.add_argument("item_id")
+    decide.add_argument(
+        "--action",
+        required=True,
+        choices=(
+            "confirm",
+            "dismiss",
+            "snooze",
+            "correct",
+            "link",
+            "resolve",
+            "reopen",
+            "supersede",
+        ),
+    )
+    decide.add_argument("--expected-version", type=int, required=True)
+    decide.add_argument("--until", help="snooze: ISO date to return the item.")
+    decide.add_argument(
+        "--set",
+        action="append",
+        dest="corrections",
+        metavar="FIELD=VALUE",
+        help="correct: owner, owner_name, due (with due_evidence_id), project or summary; "
+        "repeat per field.",
+    )
+    decide.add_argument("--ticket-key", help="link: opaque ticket key; nothing is sent.")
+    decide.add_argument("--ticket-url", help="link: optional ticket URL.")
+    decide.add_argument("--by", dest="superseded_by", help="supersede: the replacing item ID.")
+    decide.add_argument("--resolution", choices=("evidence", "owner_statement"))
+    decide.add_argument("--operation-id")
+
+
+def _followup_arguments(parsed: argparse.Namespace) -> tuple[str, dict[str, object]]:
+    operation = cast(str, parsed.followup_action).replace("-", "_")
+    arguments: dict[str, object] = {}
+
+    def put(name: str, value: object) -> None:
+        if value is not None and value is not False:
+            arguments[name] = value
+
+    if operation == "list":
+        put("kinds", parsed.kinds)
+        put("states", parsed.states)
+        put("owner", parsed.owner)
+        put("project", parsed.project)
+        put("due_before", parsed.due_before)
+        put("include_closed", parsed.include_closed)
+        put("limit", parsed.limit)
+        put("cursor", parsed.cursor)
+        return operation, arguments
+    if operation == "show":
+        return operation, {"item_id": parsed.item_id}
+    arguments["operation_id"] = parsed.operation_id or "followup-cli-" + str(uuid.uuid4())
+    if operation == "propose":
+        arguments.update(kind=parsed.kind, summary=parsed.summary, owner=parsed.owner)
+        put("owner_name", parsed.owner_name)
+        put("project", parsed.project)
+        put("due", parsed.due)
+        put("due_evidence_index", parsed.due_evidence_index)
+        arguments["evidence"] = [_read_followup_json(item) for item in parsed.evidence]
+        return operation, arguments
+    arguments["item_id"] = parsed.item_id
+    if operation == "add_evidence":
+        arguments["evidence"] = _read_followup_json(parsed.evidence)
+        return operation, arguments
+    arguments.update(action=parsed.action, expected_version=parsed.expected_version)
+    put("snoozed_until", parsed.until)
+    put("ticket_key", parsed.ticket_key)
+    put("ticket_url", parsed.ticket_url)
+    put("superseded_by", parsed.superseded_by)
+    put("resolution", parsed.resolution)
+    if parsed.corrections:
+        corrections: dict[str, object] = {}
+        for entry in cast(list[str], parsed.corrections):
+            field, separator, value = entry.partition("=")
+            if not separator or not field:
+                raise FollowupServiceError("invalid_arguments")
+            corrections[field] = None if value == "" else value
+        arguments["corrections"] = corrections
+    return operation, arguments
+
+
+def _read_followup_json(value: object) -> dict[str, object]:
+    if not isinstance(value, str) or len(value) > 4096:
+        raise FollowupServiceError("invalid_arguments")
+    try:
+        decoded = json.loads(value)
+    except ValueError:
+        raise FollowupServiceError("invalid_arguments") from None
+    if not isinstance(decoded, dict):
+        raise FollowupServiceError("invalid_arguments")
+    return cast(dict[str, object], decoded)
+
+
+def _run_followup(parsed: argparse.Namespace, tasks: Any, *, json_output: bool) -> int:
+    operation = cast(str, parsed.followup_action).replace("-", "_")
+    arguments = cast(dict[str, object], parsed.followup_arguments)
+    authority = owner_authority(tasks, session_id="cli-followup-" + str(uuid.uuid4()))
+    handlers = {
+        "list": followup_list,
+        "show": followup_show,
+        "propose": followup_propose,
+        "add_evidence": followup_add_evidence,
+        "decide": followup_decide,
+    }
+    result = handlers[operation](tasks.followups, arguments, authority=authority)
+    if result["outcome"] != "ok":
+        return _write_followup_failure(
+            cast(str, result["code"]), result.get("data"), json_output=json_output
+        )
+    data = cast(dict[str, object], result["data"])
+    if json_output:
+        _write_json(result)
+    elif operation == "list":
+        rows = cast(list[dict[str, object]], data["items"])
+        if not rows:
+            print("No open follow-ups.")
+        for row in rows:
+            print(_terminal_text(_followup_row(row)))
+        if data["truncated"]:
+            print("Output was capped; repeat with a smaller --limit or narrower filters.")
+        if data["next_cursor"] is not None:
+            print(f"More results: repeat with --cursor {data['next_cursor']}.")
+    elif operation == "show":
+        item = cast(dict[str, object], data["item"])
+        print(_terminal_text(_followup_row(item)))
+        for row in cast(list[dict[str, object]], data["evidence"]):
+            quote = row.get("quote")
+            shown = "(quote withheld)" if quote is None else json.dumps(quote, ensure_ascii=False)
+            print(
+                _terminal_text(
+                    f"  evidence {row.get('evidence_id')} [{row.get('role')}] "
+                    f"[{row.get('status')}] {shown}"
+                )
+            )
+        for row in cast(list[dict[str, object]], data["decisions"]):
+            print(
+                _terminal_text(f"  decision {json.dumps(row, ensure_ascii=False, sort_keys=True)}")
+            )
+    else:
+        print(_terminal_text(_followup_row(cast(dict[str, object], data["item"]))))
+    return 0
+
+
+def _followup_row(item: Mapping[str, object]) -> str:
+    owner = item.get("owner")
+    owner_text = "no owner identified" if owner in {None, "unknown"} else str(owner)
+    if item.get("owner_name"):
+        owner_text = f"{owner_text} ({item['owner_name']})"
+    due = item.get("due")
+    summary = item.get("summary")
+    return (
+        f"{item.get('item_id')}  [{item.get('state')}]  {item.get('kind')}  "
+        f"{item.get('project') or '-'}  {owner_text}  "
+        f"due {due if due else 'no date stated'}  v{item.get('version')}  "
+        f"{'(summary withheld)' if summary is None else summary}"
+    )
+
+
+def _write_followup_failure(code: str, detail: object, *, json_output: bool) -> int:
+    if code == "invalid_arguments":
+        _write_usage_failure(json_output=json_output)
+        return 2
+    messages = {
+        "evidence_mismatch": "A quote position or hash does not match the current revision.",
+        "not_found": "Follow-up or cited capture not found.",
+        "tier_mismatch": "Evidence tier differs from the item's tier.",
+        "version_conflict": "The item changed. Show it again and retry with its current version.",
+        "operation_conflict": "This operation ID belongs to a different request.",
+        "duplicate_item": "An item already cites this origin quote.",
+        "invalid_request": "The request is not valid for this item or action.",
+        "capacity_reached": "This Brain or item has reached its follow-up capacity.",
+    }
+    message = messages.get(code, "Open Brain could not complete the followup command.")
+    error: dict[str, object] = {"code": code, "message": message}
+    if isinstance(detail, Mapping):
+        error.update(cast(Mapping[str, object], detail))
+    if json_output:
+        _write_json({"status": "failed", "error": error})
+    else:
+        print(message, file=sys.stderr)
+        if isinstance(detail, Mapping) and "current_version" in detail:
+            print(f"Current version: {detail['current_version']}", file=sys.stderr)
+        if isinstance(detail, Mapping) and "existing_item_id" in detail:
+            print(f"Existing item: {detail['existing_item_id']}", file=sys.stderr)
+    return 1
+
+
 def _run_agent_setup(
     parsed: argparse.Namespace,
     *,
@@ -2371,6 +2653,8 @@ def _run_local_command(
         return _run_space_inbox(parsed, SpaceInboxService(tasks.spaces), json_output=json_output)
     if parsed.command == "review":
         return _run_review(parsed, ReviewPublicationService(tasks.review), json_output=json_output)
+    if parsed.command == "followup":
+        return _run_followup(parsed, tasks, json_output=json_output)
     if parsed.command == "obsidian-plugin":
         return _run_obsidian_plugin(parsed, session, json_output=json_output)
     if parsed.command == "capture":
