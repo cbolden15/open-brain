@@ -55,6 +55,7 @@ FOLLOWUP_ERROR_CODES = frozenset(
         "capacity_reached",
     }
 )
+_REFUSAL_CODES = FOLLOWUP_ERROR_CODES | {"unsupported_capability", "operation_pending"}
 FOLLOWUP_GRANTS = frozenset({"followup-read", "followup-propose", "followup-decide"})
 
 FollowupOperation = Callable[[Mapping[str, object]], dict[str, object]]
@@ -230,7 +231,7 @@ def followup_show(
         {
             "item": _json_safe(item),
             "evidence": [_json_safe(row) for row in evidence],
-            "decisions": [_json_safe(row) for row in decisions],
+            "decisions": [_decision_view(row) for row in decisions],
         }
     )
 
@@ -475,6 +476,14 @@ def _json_safe(value: object) -> object:
     return value
 
 
+def _decision_view(row: object) -> object:
+    # Internal principal identities stay in the engine's decision log.
+    view = _json_safe(row)
+    if isinstance(view, dict):
+        view.pop("principal_id", None)
+    return view
+
+
 def _bounded_items(rows: list[object], next_cursor: str | None) -> dict[str, object]:
     selected: list[object] = []
     size = 1024
@@ -484,10 +493,16 @@ def _bounded_items(rows: list[object], next_cursor: str | None) -> dict[str, obj
             break
         selected.append(row)
         size += row_size
+    truncated = len(selected) < len(rows)
+    if truncated and selected:
+        # The engine cursor is the item ID of the last row on a page, so resuming right after
+        # the last returned row keeps every dropped row reachable. One item is bounded far
+        # below the cap, so a non-empty page always fits at least one row.
+        next_cursor = cast(str, cast(Mapping[str, object], selected[-1])["item_id"])
     return {
         "items": selected,
         "next_cursor": next_cursor,
-        "truncated": len(selected) < len(rows),
+        "truncated": truncated,
     }
 
 
@@ -497,7 +512,7 @@ def _ok(data: dict[str, object]) -> dict[str, object]:
 
 def _refusal(error: Exception) -> dict[str, object]:
     code = cast(str, getattr(error, "code", "invalid_request"))
-    if isinstance(error, FollowupError) and code not in FOLLOWUP_ERROR_CODES:
+    if code not in _REFUSAL_CODES:
         code = "invalid_request"
     detail: dict[str, object] | None = None
     current_version = getattr(error, "current_version", None)

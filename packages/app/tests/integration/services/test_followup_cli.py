@@ -126,6 +126,7 @@ def test_followup_owner_round_trip_on_a_real_capture(
     shown = json.loads(capsys.readouterr().out)["data"]
     assert [(row["quote"], row["status"]) for row in shown["evidence"]] == [(quote, "current")]
     assert [row["action"] for row in shown["decisions"]] == ["propose"]
+    assert all("principal_id" not in row for row in shown["decisions"])
 
     decide = ("followup", "decide", item["item_id"], "--action", "confirm")
     assert run_cli((*decide, "--expected-version", "1", "--data-dir", root)) == 0

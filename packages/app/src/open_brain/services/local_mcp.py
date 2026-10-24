@@ -685,7 +685,8 @@ class LocalMcpAdapter:
                 self._followup_tool(
                     "brain_followup_list",
                     "List open commitments and open questions visible to this session; "
-                    "closed items need include_closed.",
+                    "closed items need include_closed. A page is capped at 250 KB; follow "
+                    "next_cursor, which resumes right after the last returned item.",
                     {
                         "kinds": {
                             "type": "array",

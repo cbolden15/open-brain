@@ -2886,6 +2886,9 @@ def test_unscoped_followup_mcp_is_work_only_while_owner_cli_sees_all(
             }
             visible = _exchange(process, _call("brain_followup_show", {"item_id": work_item}, 4))
             assert visible["result"]["structuredContent"]["outcome"] == "ok"
+            assert visible["result"]["structuredContent"]["data"]["decisions"]
+            assert "principal_id" not in json.dumps(visible)
+            assert str(tasks.profile.owner_actor_id) not in json.dumps(visible)
             assert process.stdin is not None
             process.stdin.close()
             assert process.wait(timeout=10) == 0

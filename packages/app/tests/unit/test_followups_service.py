@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass, replace
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
@@ -262,11 +263,11 @@ def test_list_without_filters_uses_empty_sets() -> None:
     assert filter_.limit == 50
 
 
-def test_list_output_is_byte_bounded_and_marks_truncation() -> None:
+def test_list_output_is_byte_bounded_and_resumes_after_the_last_returned_row() -> None:
     tasks = _FakeFollowupTasks()
     big = tuple(
         _Item(
-            ITEM,
+            "followup_" + str(uuid.UUID(int=i, version=4)),
             FollowupKind.COMMITMENT,
             "suggested",
             "s" * 280,
@@ -280,9 +281,62 @@ def test_list_output_is_byte_bounded_and_marks_truncation() -> None:
     tasks.list_result = (big, "cursor-next")
     data = followup_list(tasks, {"limit": 100}, authority=OWNER)["data"]  # type: ignore[arg-type]
     assert isinstance(data, dict)
-    assert 0 < len(data["items"]) < 1000
-    assert data["truncated"] is True and data["next_cursor"] == "cursor-next"
+    items = cast(list[dict[str, object]], data["items"])
+    assert 0 < len(items) < 1000
+    assert data["truncated"] is True and data["next_cursor"] == items[-1]["item_id"]
     assert len(json.dumps(data, separators=(",", ":"))) <= MAX_FOLLOWUP_LIST_JSON_BYTES
+
+
+@dataclass(frozen=True)
+class _WideItem:
+    item_id: str
+    project: str
+    ticket_url: str
+
+
+class _PagingFollowupTasks:
+    """Engine list semantics: rows after the cursor item, cursor = last row when more remain."""
+
+    def __init__(self, rows: tuple[_WideItem, ...]) -> None:
+        self.rows = rows
+
+    def list(self, filter_: ListFilter, *, authority: EffectiveAuthority) -> Any:
+        start = 0
+        if filter_.cursor is not None:
+            start = [row.item_id for row in self.rows].index(filter_.cursor) + 1
+        page = self.rows[start : start + filter_.limit]
+        more = start + filter_.limit < len(self.rows)
+        return page, page[-1].item_id if more and page else None
+
+
+def test_following_cursors_over_oversized_pages_yields_every_item_once() -> None:
+    rows = tuple(
+        _WideItem(
+            "followup_" + str(uuid.UUID(int=i + 1, version=4)),
+            "é" * 128,
+            "https://example.test/" + "ü" * 2027,
+        )
+        for i in range(250)
+    )
+    tasks = _PagingFollowupTasks(rows)
+    seen: list[str] = []
+    cursor: str | None = None
+    pages = 0
+    while True:
+        arguments: dict[str, object] = {"limit": 100}
+        if cursor is not None:
+            arguments["cursor"] = cursor
+        data = followup_list(tasks, arguments, authority=OWNER)["data"]  # type: ignore[arg-type]
+        assert isinstance(data, dict)
+        assert len(json.dumps(data, separators=(",", ":"))) <= MAX_FOLLOWUP_LIST_JSON_BYTES
+        page = cast(list[dict[str, object]], data["items"])
+        seen.extend(cast(str, row["item_id"]) for row in page)
+        pages += 1
+        cursor = cast(str | None, data["next_cursor"])
+        if cursor is None:
+            break
+    assert seen == [row.item_id for row in rows]
+    assert pages > 3
 
 
 def test_propose_builds_typed_request() -> None:
@@ -417,3 +471,48 @@ def test_followup_session_authority_defers_to_a_launcher_policy() -> None:
         policy_bound, grants=frozenset({"followup-read"}), launcher_policy=True
     )
     assert same is policy_bound
+
+
+def test_unexpected_engine_codes_are_closed_to_invalid_request() -> None:
+    from open_brain_engine.engine.t03_contracts import T03Error
+
+    tasks = _FakeFollowupTasks()
+    for code, expected in (
+        ("unsupported_capability", "unsupported_capability"),
+        ("operation_pending", "operation_pending"),
+        ("revision_changed", "invalid_request"),
+        ("cursor_stale", "invalid_request"),
+    ):
+        tasks.error = T03Error(code)  # type: ignore[assignment]
+        refused = followup_show(tasks, {"item_id": ITEM}, authority=OWNER)  # type: ignore[arg-type]
+        assert refused == {"outcome": "refused", "data": None, "code": expected}
+
+
+def test_show_never_exposes_decision_principal_ids() -> None:
+    from open_brain_engine.engine.followup_contracts import FollowupDecisionRow, FollowupState
+
+    decision = FollowupDecisionRow(
+        "decision_" + str(uuid.UUID(int=7, version=4)),
+        ITEM,
+        1,
+        "op",
+        "synthetic-principal-7f3a",
+        "propose",
+        None,
+        FollowupState.SUGGESTED,
+        0,
+        1,
+        (),
+        "2026-10-23T00:00:00Z",
+    )
+    tasks = _FakeFollowupTasks()
+    tasks.show = lambda item_id, *, authority: (  # type: ignore[method-assign]
+        tasks.list_result[0][0],
+        (),
+        (decision,),
+    )
+    shown = followup_show(tasks, {"item_id": ITEM}, authority=OWNER)  # type: ignore[arg-type]
+    rendered = json.dumps(shown)
+    assert "principal_id" not in rendered and "synthetic-principal-7f3a" not in rendered
+    data = cast(dict[str, Any], shown["data"])
+    assert data["decisions"][0]["action"] == "propose"
