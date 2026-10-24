@@ -6,6 +6,7 @@ import json
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
+from datetime import date
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local, open_existing_single_user_local
 from open_brain.services.t03_adapters import owner_authority
+from packages.app.tests.unit.engine.test_followups import _new_source, _revise_source
 
 QUOTE_TEXT = "PRIVATE_SYNTHETIC_QUOTE promise to deliver the synthetic report"
 
@@ -257,6 +259,78 @@ def test_superseded_item_restores_before_or_after_its_successor(tmp_path: Path) 
     assert shown.superseded_by == newer.item_id
     assert [entry.sequence for entry in history] == [1, 2]
     assert _export(restored, tmp_path / "again") == files
+
+
+def _decide_owner(
+    engine: BrainEngine, item: FollowupItem, action: DecisionAction, **fields: Any
+) -> FollowupItem:
+    return engine.followups.decide(
+        DecideRequest("op-" + str(uuid4()), item.item_id, item.version, action, **fields),
+        authority=_owner(engine),
+    )
+
+
+def test_round_trip_keeps_decided_items_citing_an_edited_source(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    source = _new_source(engine, "Synthetic promise: send the deck by 2026-12-01")
+    cited = _ref(engine, source.head)
+    item = _propose(engine, cited)
+    _shown, (origin,), _history = engine.followups.show(item.item_id, authority=_owner(engine))
+    item = _decide_owner(
+        engine,
+        item,
+        DecisionAction.CORRECT,
+        corrections={
+            "owner": "other",
+            "owner_name": "Synthetic Dana",
+            "due": "2026-12-01",
+            "due_evidence_id": origin.evidence_id,
+        },
+    )
+    item = _decide_owner(
+        engine,
+        item,
+        DecisionAction.LINK,
+        ticket_key="SYN-1",
+        ticket_url="https://example.invalid/t/1",
+    )
+    item = _decide_owner(engine, item, DecisionAction.SNOOZE, snoozed_until=date(2099, 1, 1))
+    resolved = _propose(engine, _ref(engine, _capture(engine, "Synthetic resolved promise")))
+    resolved = _decide_owner(engine, resolved, DecisionAction.RESOLVE, resolution="owner_statement")
+    # The source moves on after the decisions; the evidence keeps citing the first revision.
+    head = _revise_source(
+        engine, source, "Edited intro. Synthetic promise: send the deck by 2026-12-01"
+    )
+    files = _export(engine, tmp_path / "archive")
+    exported = {row["item_id"]: row for row in json.loads(files[FOLLOWUPS_PATH])["items"]}
+    assert exported[item.item_id]["state"] == "snoozed"
+    assert exported[item.item_id]["owner"] == "other"
+    assert exported[item.item_id]["due"] == "2026-12-01"
+    assert exported[item.item_id]["ticket_key"] == "SYN-1"
+    assert exported[resolved.item_id]["resolution"] == "owner_statement"
+    assert {row["revision_id"] for row in json.loads(files[FOLLOWUPS_PATH])["evidence"]} >= {
+        cited.revision_id
+    }
+    assert cited.revision_id != head
+
+    restored = _restore(engine, tmp_path / "archive", tmp_path / "restored")
+    assert _export(restored, tmp_path / "again") == files
+    client = EffectiveAuthority(
+        "synthetic-client-principal",
+        "synthetic-client-session",
+        frozenset({"search", "content-read", "followup-read"}),
+        None,
+        allowed_read_tiers=frozenset({PrivacyTier.WORK}),
+    )
+    shown, (view,), history = restored.followups.show(item.item_id, authority=client)
+    assert (view.status, view.head_revision_id) == ("moved", head)
+    assert (shown.state.value, shown.owner_name, shown.ticket_key) == (
+        "snoozed",
+        "Synthetic Dana",
+        "SYN-1",
+    )
+    assert shown.due == date(2026, 12, 1) and shown.due_evidence_id == origin.evidence_id
+    assert [entry.sequence for entry in history] == [1, 2, 3, 4]
 
 
 @pytest.mark.parametrize(

@@ -203,8 +203,9 @@ def test_missing_family_refuses(tmp_path: Path) -> None:
         validated_portable_snapshot(tmp_path / "archive")
 
 
+@pytest.mark.parametrize("destination_schema", [22, 23])
 def test_portable16_input_restores_with_no_shareable_tier(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, destination_schema: int
 ) -> None:
     with monkeypatch.context() as predecessor:
         predecessor.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 21)
@@ -214,10 +215,14 @@ def test_portable16_input_restores_with_no_shareable_tier(
         work = _capture(old, PrivacyTier.WORK)
         files = _export(old, tmp_path / "archive", version=16)
     assert OWNER_EGRESS_POLICY_PATH not in files
+    # The frozen recipe destination (22) and the current schema-23 destination both restore.
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", destination_schema)
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", destination_schema)
     current = _engine(tmp_path / "current")
     restored = _restore(current, tmp_path / "archive", tmp_path / "restored")
     with _connect(restored) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == destination_schema
         assert read_owner_egress_policy(connection).version == 0
     assert _egress(restored, work) == (0, 0, False)
-    assert _export(restored, tmp_path / "again")[OWNER_EGRESS_POLICY_PATH] == b""
+    again = _export(restored, tmp_path / "again", version=destination_schema - 5)
+    assert again[OWNER_EGRESS_POLICY_PATH] == b""
