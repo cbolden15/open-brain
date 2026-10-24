@@ -40,9 +40,10 @@ _KEY = re.compile(r"^[0-9a-f]{64}$")
 _UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _EVIDENCE_ID = re.compile(r"^evidence_" + _UUID4 + "$")
 # Family IDs are "consumer:<connector_name>/<connection_id>:<space_id>" or "markdown:<space_id>"
-# (Package 1); connector names may hold spaces, so interior spaces are allowed.
-_FAMILY_REF = re.compile(r"^family:[\x21-\x7e][\x20-\x7e]{0,199}$")
-_REF = re.compile(r"^(followup|family):[\x21-\x7e][\x20-\x7e]{0,199}$")
+# (Package 1). Connector names may hold spaces and non-ASCII text, so the bound is the contract's
+# (brief_contracts._FAMILY_ID): 1..2200 non-control characters, here without a leading space.
+_FAMILY_REF = re.compile(r"^family:[^\x00-\x20\x7f][^\x00-\x1f\x7f]{0,2199}$")
+_REF = re.compile(r"^(followup|family):[^\x00-\x20\x7f][^\x00-\x1f\x7f]{0,2199}$")
 _TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$")
 _KINDS = frozenset(kind.value for kind in BriefItemKind)
 _CHANGES = frozenset(change.value for change in BriefChange)

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine.followup_contracts import (
+    MAX_EVIDENCE_PER_ITEM,
     FollowupError,
     FollowupKind,
     FollowupState,
@@ -19,23 +23,43 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain.services.brief import (
     BRIEF_GRANTS,
     BRIEF_SCAN_PAGE,
+    BriefServiceError,
     FamilyCandidate,
     FollowupCandidate,
+    _fit_response,
+    bind_brief_operations,
+    brief_ack,
+    brief_generate,
+    brief_last,
+    brief_state_dir,
     family_candidates,
     followup_candidates,
     rank_candidates,
     select_items,
+    validate_brief_arguments,
 )
+from open_brain.services.brief_authority import BriefSessionAuthority, visibility_key
 from open_brain.services.brief_contracts import (
     BRIEF_FOLLOWUP_SCAN_LIMIT,
     BRIEF_MAX_FAMILY_ITEMS,
     BRIEF_MAX_ITEMS,
+    BRIEF_RESPONSE_MAX_BYTES,
+    Brief,
     BriefChange,
+    BriefCoverage,
     BriefError,
+    BriefItem,
     BriefItemKind,
+    BriefLogCoverage,
     BriefReasonCode,
+    BriefScope,
 )
-from open_brain.services.brief_log import FamilyFingerprint
+from open_brain.services.brief_log import (
+    BriefLogStore,
+    BriefLogWriteError,
+    FamilyFingerprint,
+)
+from open_brain.services.followups import FOLLOWUP_GRANTS
 
 TODAY = date(2026, 10, 24)
 NOW = datetime(2026, 10, 24, 9, 0, tzinfo=UTC)
@@ -548,3 +572,582 @@ def test_selection_caps_items_and_families_and_counts_hidden_candidates() -> Non
     ]
     assert items[1].evidence == () and items[0].evidence == (_evidence_id(1),)
     assert items[0].reason_text == "x." and items[0].reasons == (BriefReasonCode.OPEN_OWNED,)
+
+
+OWNER_SESSION = BriefSessionAuthority(
+    authority=OWNER, brief_grants=BRIEF_GRANTS, followup_grants=FOLLOWUP_GRANTS
+)
+WORK_SESSION = BriefSessionAuthority(
+    authority=WORK,
+    brief_grants=frozenset({"brief-read"}),
+    followup_grants=frozenset({"followup-read"}),
+)
+FAMILY_ONLY_SESSION = BriefSessionAuthority(
+    authority=replace(WORK, capabilities=frozenset({"brief-read"})),
+    brief_grants=frozenset({"brief-read"}),
+    followup_grants=frozenset(),
+)
+SPACE_1 = "space_3e6e8e2c-e638-47c6-8195-4bd6f3000001"
+SPACE_2 = "space_3e6e8e2c-e638-47c6-8195-4bd6f3000002"
+
+
+class _Clock:
+    def __init__(self, now: datetime = NOW) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def tick(self, **delta: int) -> None:
+        self.now += timedelta(**delta)
+
+
+@dataclass
+class _FakeSpaces:
+    captures: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    truncated: bool = False
+
+    def space_capture_ids(self, space_id: str, *, limit: int) -> tuple[tuple[str, ...], bool]:
+        assert 1 <= limit <= 10_000
+        if space_id not in self.captures:
+            raise T03Error("not_found")
+        return self.captures[space_id], self.truncated
+
+
+def _tasks(
+    tmp_path: Path,
+    *,
+    followups: _FakeFollowups | None = None,
+    freshness: _FakeFreshness | None = None,
+    spaces: _FakeSpaces | None = None,
+) -> Any:
+    root = tmp_path / "brain"
+    (root / ".open-brain" / "state").mkdir(parents=True, exist_ok=True)
+    profile = SimpleNamespace(root=root, root_identity=(0, 0), owner_actor_id="synthetic-owner")
+    return SimpleNamespace(
+        profile=profile,
+        followups=followups or _FakeFollowups(),
+        source_freshness=freshness or _FakeFreshness(),
+        spaces=spaces or _FakeSpaces(),
+    )
+
+
+def _log(tasks: Any, clock: _Clock | None = None) -> BriefLogStore:
+    return BriefLogStore(brief_state_dir(tasks.profile), clock=clock or _Clock())
+
+
+def _log_path(
+    tasks: Any, session: BriefSessionAuthority, selected: tuple[str, ...] | None = None
+) -> Path:
+    key = visibility_key(session, selected_space_ids=selected)
+    return brief_state_dir(tasks.profile) / "briefs" / f"{key}.json"
+
+
+DUE_ITEM = _Item(
+    _item_id(1), FollowupState.CONFIRMED, due=date(2026, 10, 20), created_at="2026-10-02T09:00:00Z"
+)
+STALE_FAMILY = _Family("consumer:ns-a:" + SPACE_1, SPACE_1, "2026-10-01T09:00:00Z", 0, True)
+
+
+def test_generate_with_nothing_to_report_logs_an_entry_and_reports_since_next_time(
+    tmp_path: Path,
+) -> None:
+    tasks = _tasks(tmp_path)
+    clock = _Clock()
+    log = _log(tasks, clock)
+    brief = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    assert brief.items == () and brief.nothing_needs_attention is True
+    assert brief.since is None and brief.saved is True and brief.model == "none"
+    assert brief.generated_at == "2026-10-24T09:00:00Z"
+    assert brief.scope.space_ids is None and brief.scope.tiers == ("personal", "public", "work")
+    coverage = brief.coverage
+    assert (coverage.followups, coverage.freshness, coverage.collector) == (
+        "read",
+        "read",
+        "not_read",
+    )
+    assert (coverage.followups_scanned, coverage.followups_truncated, coverage.hidden_dropped) == (
+        0,
+        False,
+        0,
+    )
+    assert (coverage.log.entries, coverage.log.bytes, coverage.log.unavailable) == (0, 0, False)
+    path = _log_path(tasks, OWNER_SESSION)
+    assert path.exists()
+    wire = brief.to_wire()
+    assert wire["model"] == "none" and wire["saved"] is True and wire["items"] == []
+
+    size_after_first = path.stat().st_size
+    clock.tick(days=1)
+    again = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    assert again.since == "2026-10-24T09:00:00Z" and again.generated_at == "2026-10-25T09:00:00Z"
+    assert (again.coverage.log.entries, again.coverage.log.bytes) == (1, size_after_first)
+    assert log.read(visibility_key(OWNER_SESSION, selected_space_ids=None)).entries == 2
+
+
+def test_generate_marks_changed_against_the_last_brief_and_logs_pointers_only(
+    tmp_path: Path,
+) -> None:
+    followups = _FakeFollowups(items=(DUE_ITEM,))
+    tasks = _tasks(tmp_path, followups=followups, freshness=_FakeFreshness((STALE_FAMILY,)))
+    clock = _Clock()
+    log = _log(tasks, clock)
+    first = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    assert [(item.ref, item.changed, item.rank) for item in first.items] == [
+        ("followup:" + _item_id(1), BriefChange.NEW, 1),
+        ("family:" + STALE_FAMILY.family_id, BriefChange.NEW, 2),
+    ]
+    assert first.items[0].evidence == (_evidence_id(1),) and first.items[1].evidence == ()
+    clock.tick(hours=1)
+    second = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    assert [item.changed for item in second.items] == [
+        BriefChange.STILL_OPEN,
+        BriefChange.STILL_OPEN,
+    ]
+    followups.views[_item_id(1)] = (
+        _View(_evidence_id(1), "capture_a"),
+        _View(_evidence_id(2), "capture_a"),
+    )
+    clock.tick(hours=1)
+    third = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    assert [item.changed for item in third.items] == [BriefChange.CHANGED, BriefChange.STILL_OPEN]
+    assert third.since == second.generated_at
+    raw = _log_path(tasks, OWNER_SESSION).read_bytes()
+    stored = json.loads(raw)
+    assert len(stored["briefs"]) == 3
+    for entry in stored["briefs"]:
+        for item in entry["items"]:
+            assert set(item) == {"changed", "evidence", "kind", "rank", "ref", "reasons"}
+    assert b"Due 2026" not in raw and b"reason_text" not in raw and b"overdue." not in raw
+    assert b"capture_a" not in raw, "capture IDs are not logged either; only evidence IDs"
+
+
+def test_without_followup_read_the_brief_holds_family_items_only(tmp_path: Path) -> None:
+    followups = _FakeFollowups(items=(DUE_ITEM,))
+    tasks = _tasks(tmp_path, followups=followups, freshness=_FakeFreshness((STALE_FAMILY,)))
+    brief = brief_generate(tasks, FAMILY_ONLY_SESSION, log=_log(tasks), clock=_Clock())
+    assert brief.coverage.followups == "not_granted" and brief.coverage.followups_scanned == 0
+    assert [item.kind for item in brief.items] == [BriefItemKind.SOURCE_STALE]
+    assert followups.calls == []
+    assert brief.scope.tiers == ("work",)
+
+
+def test_ack_hides_a_family_until_a_component_changes_and_ignores_space_selection(
+    tmp_path: Path,
+) -> None:
+    freshness = _FakeFreshness((STALE_FAMILY,))
+    tasks = _tasks(tmp_path, freshness=freshness, spaces=_FakeSpaces({SPACE_1: ()}))
+    log = _log(tasks)
+    assert (
+        brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock()).items[0].kind
+        is BriefItemKind.SOURCE_STALE
+    )
+    acked = brief_ack(tasks, OWNER_SESSION, log=log, family_ref="family:" + STALE_FAMILY.family_id)
+    assert acked == {
+        "family_ref": "family:" + STALE_FAMILY.family_id,
+        "fingerprint": {"newest_recorded_at": "2026-10-01T09:00:00Z", "unavailable_count": 0},
+    }
+    assert brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock()).items == ()
+    scoped = brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock(), space_ids=(SPACE_1,))
+    assert scoped.items == () and scoped.coverage.families_checked == 1, (
+        "the ack applies to every selection"
+    )
+    assert _log_path(tasks, OWNER_SESSION, (SPACE_1,)).exists()
+    freshness.families = (replace(STALE_FAMILY, unavailable_count=1),)
+    returned = brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock())
+    assert [item.kind for item in returned.items] == [BriefItemKind.SOURCE_UNAVAILABLE]
+    # The ack is keyed by visibility: a different session does not inherit it.
+    assert brief_generate(tasks, FAMILY_ONLY_SESSION, log=log, clock=_Clock()).items != ()
+
+
+def test_ack_refusals(tmp_path: Path) -> None:
+    tasks = _tasks(tmp_path, freshness=_FakeFreshness((STALE_FAMILY,)))
+    log = _log(tasks)
+    for ref, code in (
+        ("family:consumer:unknown:" + SPACE_1, "not_found"),
+        ("followup:" + _item_id(1), "invalid_request"),
+        ("family:", "invalid_request"),
+    ):
+        with pytest.raises(BriefError) as refused:
+            brief_ack(tasks, OWNER_SESSION, log=log, family_ref=ref)
+        assert refused.value.code == code, ref
+
+    class _Conflicting(BriefLogStore):
+        def ack(self, *args: Any, **kwargs: Any) -> bool:
+            return False
+
+    with pytest.raises(BriefError) as conflict:
+        brief_ack(
+            tasks,
+            OWNER_SESSION,
+            log=_Conflicting(brief_state_dir(tasks.profile), clock=_Clock()),
+            family_ref="family:" + STALE_FAMILY.family_id,
+        )
+    assert conflict.value.code == "version_conflict"
+    tasks.source_freshness.error = RuntimeError("boom")
+    with pytest.raises(BriefError) as pending:
+        brief_ack(tasks, OWNER_SESSION, log=log, family_ref="family:" + STALE_FAMILY.family_id)
+    assert pending.value.code == "operation_pending"
+    tasks.source_freshness.error = T03Error("unsupported_capability")
+    with pytest.raises(BriefError) as unsupported:
+        brief_ack(tasks, OWNER_SESSION, log=log, family_ref="family:" + STALE_FAMILY.family_id)
+    assert unsupported.value.code == "unsupported_capability"
+
+
+def test_log_conflict_or_write_failure_gives_saved_false_after_one_retry(tmp_path: Path) -> None:
+    tasks = _tasks(tmp_path, followups=_FakeFollowups(items=(DUE_ITEM,)))
+
+    class _Losing(BriefLogStore):
+        attempts = 0
+
+        def append(self, *args: Any, **kwargs: Any) -> bool:
+            type(self).attempts += 1
+            return False
+
+    losing = _Losing(brief_state_dir(tasks.profile), clock=_Clock())
+    brief = brief_generate(tasks, OWNER_SESSION, log=losing, clock=_Clock())
+    assert brief.saved is False and _Losing.attempts == 2
+    assert [item.ref for item in brief.items] == ["followup:" + _item_id(1)], (
+        "the brief is still complete"
+    )
+    assert brief.to_wire()["saved"] is False
+
+    class _Broken(BriefLogStore):
+        attempts = 0
+
+        def append(self, *args: Any, **kwargs: Any) -> bool:
+            type(self).attempts += 1
+            raise BriefLogWriteError("disk")
+
+    broken = _Broken(brief_state_dir(tasks.profile), clock=_Clock())
+    assert brief_generate(tasks, OWNER_SESSION, log=broken, clock=_Clock()).saved is False
+    assert _Broken.attempts == 2
+
+
+def test_corrupt_log_file_gives_since_none_and_an_aside_copy_without_touching_other_keys(
+    tmp_path: Path,
+) -> None:
+    tasks = _tasks(tmp_path)
+    log = _log(tasks)
+    brief_generate(tasks, FAMILY_ONLY_SESSION, log=log, clock=_Clock())
+    other = _log_path(tasks, FAMILY_ONLY_SESSION)
+    other_bytes = other.read_bytes()
+    first = brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock())
+    path = _log_path(tasks, OWNER_SESSION)
+    path.write_bytes(b"{corrupt")
+    clock = _Clock()
+    clock.tick(days=1)
+    brief = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    assert brief.since is None and brief.coverage.log.unavailable is True
+    assert (brief.coverage.log.entries, brief.coverage.log.bytes) == (0, 0)
+    assert brief.saved is True
+    assert path.with_name(path.name + ".aside").read_bytes() == b"{corrupt"
+    assert json.loads(path.read_bytes())["briefs"][0]["generated_at"] == "2026-10-25T09:00:00Z"
+    assert other.read_bytes() == other_bytes
+    assert first.since is None
+
+
+def test_engine_unreadable_is_operation_pending_and_logs_nothing(tmp_path: Path) -> None:
+    tasks = _tasks(
+        tmp_path,
+        followups=_FakeFollowups(
+            list_error=sqlite3.OperationalError("unable to open database file")
+        ),
+    )
+    log = _log(tasks)
+    with pytest.raises(BriefError) as pending:
+        brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock())
+    assert pending.value.code == "operation_pending"
+    assert not _log_path(tasks, OWNER_SESSION).exists()
+    tasks = _tasks(tmp_path, freshness=_FakeFreshness(error=T03Error("operation_pending")))
+    with pytest.raises(BriefError):
+        brief_generate(tasks, OWNER_SESSION, log=_log(tasks), clock=_Clock())
+
+
+def test_partial_provider_failure_appears_in_coverage_and_the_rest_still_appears(
+    tmp_path: Path,
+) -> None:
+    tasks = _tasks(
+        tmp_path,
+        followups=_FakeFollowups(items=(DUE_ITEM,)),
+        freshness=_FakeFreshness(error=RuntimeError("boom")),
+    )
+    brief = brief_generate(tasks, OWNER_SESSION, log=_log(tasks), clock=_Clock())
+    assert brief.coverage.freshness == "failed" and brief.coverage.followups == "read"
+    assert [item.kind for item in brief.items] == [BriefItemKind.FOLLOWUP_DUE]
+    assert brief.saved is True
+    tasks = _tasks(
+        tmp_path,
+        followups=_FakeFollowups(list_error=RuntimeError("boom")),
+        freshness=_FakeFreshness((STALE_FAMILY,)),
+    )
+    brief = brief_generate(tasks, OWNER_SESSION, log=_log(tasks), clock=_Clock())
+    assert brief.coverage.followups == "failed" and brief.coverage.freshness == "read"
+    assert [item.kind for item in brief.items] == [BriefItemKind.SOURCE_STALE]
+
+
+def test_non_owner_candidates_that_no_longer_read_are_dropped_and_counted(tmp_path: Path) -> None:
+    items = (
+        DUE_ITEM,
+        _Item(
+            _item_id(2),
+            FollowupState.CONFIRMED,
+            due=date(2026, 10, 21),
+            created_at="2026-10-03T09:00:00Z",
+        ),
+    )
+    followups = _FakeFollowups(items=items, hidden=frozenset({_item_id(2)}))
+    tasks = _tasks(tmp_path, followups=followups)
+    brief = brief_generate(tasks, WORK_SESSION, log=_log(tasks), clock=_Clock())
+    assert [item.ref for item in brief.items] == ["followup:" + _item_id(1)]
+    assert brief.coverage.hidden_dropped == 1
+    encoded = json.dumps(brief.to_wire())
+    assert "withheld" not in encoded and _item_id(2) not in encoded
+    assert all(call[2] is WORK for call in followups.calls)
+
+
+def test_owner_space_selection_filters_by_evidence_captures_and_validates_spaces(
+    tmp_path: Path,
+) -> None:
+    followups = _FakeFollowups(
+        items=(
+            DUE_ITEM,
+            _Item(
+                _item_id(2),
+                FollowupState.CONFIRMED,
+                due=date(2026, 10, 21),
+                created_at="2026-10-03T09:00:00Z",
+            ),
+        ),
+        views={
+            _item_id(1): (_View(_evidence_id(1), "capture_one"),),
+            _item_id(2): (_View(_evidence_id(2), "capture_two"),),
+        },
+    )
+    freshness = _FakeFreshness(
+        (STALE_FAMILY, _Family("markdown:" + SPACE_2, SPACE_2, "2026-09-01T09:00:00Z", 0, True))
+    )
+    spaces = _FakeSpaces({SPACE_1: ("capture_one",), SPACE_2: ("capture_two",)})
+    tasks = _tasks(tmp_path, followups=followups, freshness=freshness, spaces=spaces)
+    log = _log(tasks)
+    brief = brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock(), space_ids=(SPACE_2,))
+    assert [item.ref for item in brief.items] == [
+        "followup:" + _item_id(2),
+        "family:markdown:" + SPACE_2,
+    ]
+    assert brief.scope.space_ids == (SPACE_2,) and brief.coverage.families_checked == 1
+    assert freshness.calls[-1] == (OWNER, frozenset({SPACE_2}), 7)
+    assert all(call[2] is OWNER for call in followups.calls), "owner authority is never narrowed"
+    everything = brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock())
+    assert len(everything.items) == 4 and everything.since is None, (
+        "a different selection is a different key"
+    )
+    with pytest.raises(BriefError) as unknown:
+        brief_generate(
+            tasks,
+            OWNER_SESSION,
+            log=log,
+            clock=_Clock(),
+            space_ids=("space_3e6e8e2c-e638-47c6-8195-4bd6f3000009",),
+        )
+    assert unknown.value.code == "invalid_request"
+    spaces.truncated = True
+    assert (
+        brief_generate(
+            tasks, OWNER_SESSION, log=log, clock=_Clock(), space_ids=(SPACE_1,)
+        ).coverage.followups_truncated
+        is True
+    )
+    with pytest.raises(BriefError):
+        brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock(), stale_days=0)
+    with pytest.raises(BriefError):
+        brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock(), space_ids=(SPACE_1, SPACE_1))
+
+
+def test_client_space_selection_must_stay_within_the_session_authority(tmp_path: Path) -> None:
+    narrowed = replace(WORK, space_ids=frozenset({SPACE_1}))
+    session = BriefSessionAuthority(
+        authority=narrowed,
+        brief_grants=frozenset({"brief-read"}),
+        followup_grants=frozenset({"followup-read"}),
+    )
+    followups = _FakeFollowups(items=(DUE_ITEM,))
+    freshness = _FakeFreshness((STALE_FAMILY,))
+    tasks = _tasks(tmp_path, followups=followups, freshness=freshness)
+    with pytest.raises(BriefError) as outside:
+        brief_generate(tasks, session, log=_log(tasks), clock=_Clock(), space_ids=(SPACE_2,))
+    assert outside.value.code == "invalid_request"
+    brief = brief_generate(tasks, session, log=_log(tasks), clock=_Clock(), space_ids=(SPACE_1,))
+    assert len(brief.items) == 2
+    authority, space_ids, _days = freshness.calls[-1]
+    assert (
+        authority.space_ids == frozenset({SPACE_1})
+        and authority.owner is False
+        and space_ids == frozenset({SPACE_1})
+    )
+    assert all(call[2].space_ids == frozenset({SPACE_1}) for call in followups.calls)
+    unrestricted = brief_generate(
+        tasks, WORK_SESSION, log=_log(tasks), clock=_Clock(), space_ids=(SPACE_2,)
+    )
+    assert freshness.calls[-1][0].space_ids == frozenset({SPACE_2}), (
+        "an unrestricted client is narrowed to its selection"
+    )
+    assert unrestricted.coverage.families_checked == 0
+
+
+def test_brief_last_is_owner_only_and_marks_unreadable_followups_withheld(tmp_path: Path) -> None:
+    followups = _FakeFollowups(items=(DUE_ITEM,))
+    tasks = _tasks(tmp_path, followups=followups, freshness=_FakeFreshness((STALE_FAMILY,)))
+    log = _log(tasks)
+    with pytest.raises(BriefError) as refused:
+        brief_last(tasks, WORK_SESSION, log=log)
+    assert refused.value.code == "unsupported_capability"
+    assert brief_last(tasks, OWNER_SESSION, log=log) is None
+    clock = _Clock()
+    first = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    clock.tick(days=1)
+    second = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    last: Any = brief_last(tasks, OWNER_SESSION, log=log)
+    assert last is not None
+    assert last["generated_at"] == second.generated_at and last["since"] == first.generated_at
+    assert last["model"] == "none" and last["log"] == {
+        "entries": 2,
+        "bytes": _log_path(tasks, OWNER_SESSION).stat().st_size,
+        "unavailable": False,
+    }
+    assert [(item["ref"], item["status"]) for item in last["items"]] == [
+        ("followup:" + _item_id(1), "current"),
+        ("family:" + STALE_FAMILY.family_id, "logged"),
+    ]
+    assert "reason_text" not in last["items"][0] and last["items"][0]["reasons"] == ["overdue"]
+    followups.items = (replace(DUE_ITEM, evidence_retracted=True),)
+    assert brief_last(tasks, OWNER_SESSION, log=log)["items"][0]["status"] == "withheld"  # type: ignore[index]
+    followups.hidden = frozenset({_item_id(1)})
+    assert brief_last(tasks, OWNER_SESSION, log=log)["items"][0]["status"] == "withheld"  # type: ignore[index]
+
+    def failing_show(*_args: Any, **_kwargs: Any) -> Any:
+        raise sqlite3.OperationalError("locked")
+
+    # The dated brief stays readable when follow-up reads fail, busy engine included.
+    tasks.followups = SimpleNamespace(show=failing_show)
+    assert brief_last(tasks, OWNER_SESSION, log=log)["items"][0]["status"] == "withheld"  # type: ignore[index]
+    assert brief_last(tasks, OWNER_SESSION, log=log, space_ids=(SPACE_1,)) is None
+
+
+def test_evidence_is_capped_per_item_and_the_wire_fits_the_response_cap(tmp_path: Path) -> None:
+    views = tuple(
+        _View(_evidence_id(index), "capture_a") for index in range(MAX_EVIDENCE_PER_ITEM + 20)
+    )
+    tasks = _tasks(
+        tmp_path, followups=_FakeFollowups(items=(DUE_ITEM,), views={_item_id(1): views})
+    )
+    brief = brief_generate(tasks, OWNER_SESSION, log=_log(tasks), clock=_Clock())
+    assert len(brief.items[0].evidence) == MAX_EVIDENCE_PER_ITEM and brief.saved is True
+    huge = Brief(
+        generated_at="2026-10-24T09:00:00Z",
+        scope=BriefScope(space_ids=None, tiers=("work",)),
+        items=tuple(
+            BriefItem(
+                kind=BriefItemKind.FOLLOWUP_DUE,
+                ref="followup:" + _item_id(rank),
+                reasons=(BriefReasonCode.OVERDUE,),
+                reason_text="x.",
+                evidence=tuple(_evidence_id(index) for index in range(400)),
+                changed=BriefChange.NEW,
+                rank=rank,
+            )
+            for rank in range(1, 6)
+        ),
+        nothing_needs_attention=False,
+        since=None,
+        coverage=BriefCoverage(
+            families_checked=0,
+            families_stale=0,
+            captures_unavailable=0,
+            followups_scanned=5,
+            followups_truncated=False,
+            followups="read",
+            freshness="read",
+            collector="not_read",
+            hidden_dropped=0,
+            log=BriefLogCoverage(entries=0, bytes=0, unavailable=False),
+        ),
+        model="none",
+        saved=False,
+    )
+    assert len(json.dumps(huge.to_wire())) > BRIEF_RESPONSE_MAX_BYTES
+    fitted = _fit_response(huge)
+    assert len(json.dumps(fitted.to_wire(), separators=(",", ":"))) <= BRIEF_RESPONSE_MAX_BYTES
+    assert len(fitted.items) == 5 and all(item.evidence for item in fitted.items)
+    assert (
+        max(len(item.evidence) for item in fitted.items)
+        - min(len(item.evidence) for item in fitted.items)
+        <= 1
+    )
+
+
+def test_bound_operations_validate_shapes_and_map_refusals(tmp_path: Path) -> None:
+    tasks = _tasks(tmp_path, freshness=_FakeFreshness((STALE_FAMILY,)))
+    bound = bind_brief_operations(tasks, WORK_SESSION, log=_log(tasks), clock=_Clock())
+    assert set(bound) == {"brief", "ack"}
+    result = bound["brief"]({})
+    assert result["outcome"] == "ok" and result["code"] is None
+    data: Any = result["data"]
+    assert data["model"] == "none" and data["items"][0]["ref"] == "family:" + STALE_FAMILY.family_id
+    assert data["coverage"]["followups"] == "read" and data["scope"]["tiers"] == ["work"]
+    scoped: Any = bound["brief"]({"space_ids": [SPACE_2], "stale_days": 30})["data"]
+    assert scoped["coverage"]["families_checked"] == 0
+    unknown = "family:consumer:synthetic/unknown:" + SPACE_1
+    assert bound["ack"]({"family_ref": unknown}) == {
+        "outcome": "refused",
+        "data": None,
+        "code": "not_found",
+    }
+    acked: Any = bound["ack"]({"family_ref": "family:" + STALE_FAMILY.family_id})
+    assert acked["outcome"] == "ok" and acked["data"]["fingerprint"]["unavailable_count"] == 0
+    after: Any = bound["brief"]({})["data"]
+    assert after["nothing_needs_attention"] is True
+    for operation, arguments in (
+        ("brief", {"unknown": 1}),
+        ("brief", {"space_ids": []}),
+        ("brief", {"space_ids": ["not-a-space"]}),
+        ("brief", {"space_ids": [SPACE_1, SPACE_1]}),
+        ("brief", {"space_ids": [SPACE_1] * 33}),
+        ("brief", {"stale_days": 0}),
+        ("brief", {"stale_days": 366}),
+        ("brief", {"stale_days": True}),
+        ("brief", {"stale_days": "7"}),
+        ("ack", {}),
+        ("ack", {"family_ref": "followup:x"}),
+        ("ack", {"family_ref": "family:"}),
+        ("ack", {"family_ref": "family: leading-space"}),
+        ("ack", {"family_ref": "family:" + "x" * 2201}),
+        ("ack", {"family_ref": "family:x", "extra": 1}),
+        ("unknown", {}),
+    ):
+        with pytest.raises(BriefServiceError, match="^invalid_arguments$"):
+            validate_brief_arguments(operation, arguments)
+        if operation in bound:
+            with pytest.raises(BriefServiceError):
+                bound[operation](arguments)
+
+
+def test_family_ids_up_to_the_contract_bound_are_logged_and_acked(tmp_path: Path) -> None:
+    # Connector names and connection IDs are any non-control text up to 1024 characters each,
+    # so a family ID can be long and non-ASCII; the contract admits it, so the log must too.
+    family = _Family(
+        "consumer:Équipe " + "n" * 300 + "/conn:" + SPACE_1,
+        SPACE_1,
+        "2026-10-01T09:00:00Z",
+        0,
+        True,
+    )
+    tasks = _tasks(tmp_path, freshness=_FakeFreshness((family,)))
+    log = _log(tasks)
+    brief = brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock())
+    assert [item.ref for item in brief.items] == ["family:" + family.family_id]
+    assert brief.saved is True
+    validate_brief_arguments("ack", {"family_ref": "family:" + family.family_id})
+    acked = brief_ack(tasks, OWNER_SESSION, log=log, family_ref="family:" + family.family_id)
+    assert acked["family_ref"] == "family:" + family.family_id
+    assert brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock()).items == ()
