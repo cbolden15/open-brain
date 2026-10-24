@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from open_brain_engine.core.models import PrivacyTier
 from open_brain_engine.engine.followup_contracts import (
+    AddEvidenceRequest,
+    DecideRequest,
+    DecisionAction,
     EvidenceRole,
     FollowupError,
     ListFilter,
@@ -140,7 +144,9 @@ def test_show_marks_source_changed_without_text_for_clients(tmp_path: Path) -> N
     owner_item, (owner_view,), _history = engine.followups.show(
         item.item_id, authority=_owner(engine)
     )
-    assert (owner_view.status, owner_view.quote) == ("source_changed", original)
+    # A changed source is shown without any text, to the owner as well.
+    assert (owner_view.status, owner_view.quote) == ("source_changed", None)
+    assert original not in repr(owner_view)
     assert owner_item.evidence_retracted is False and owner_item.summary == item.summary
     # Retraction of the cited revision still wins: both sessions lose the quote, the client
     # loses the item, the owner keeps a state row. (Retracting only the newer head leaves the
@@ -179,3 +185,45 @@ def test_client_list_keeps_items_citing_edited_sources(tmp_path: Path) -> None:
     _item, (view,), _history = engine.followups.show(changed_item.item_id, authority=session)
     assert (view.status, view.quote) == ("source_changed", None)
     assert "book the room" not in repr(view)
+
+
+def test_client_writes_on_an_item_with_retracted_evidence_answer_not_found(
+    tmp_path: Path,
+) -> None:
+    engine = _engine(tmp_path)
+    source = _new_source(engine, "Synthetic promise: send the deck by Friday")
+    ref = _ref(engine, source.head)
+    item = _propose(engine, ref)
+    # The head moves on and keeps the quote; only the cited older revision is retracted.
+    _revise_source(engine, source, "Edited intro added. Synthetic promise: send the deck by Friday")
+    extra = _ref(
+        engine,
+        _capture(engine, PrivacyTier.WORK, "Synthetic supporting text"),
+        role=EvidenceRole.SUPPORTING,
+    )
+    preview = engine.lifecycle.preview_retraction(
+        capture_id=ref.capture_id, authority=_owner(engine)
+    )
+    engine.lifecycle.commit_retraction(
+        str(preview["preview_id"]), str(uuid4()), authority=_owner(engine)
+    )
+    client = replace(
+        _session(PrivacyTier.WORK),
+        capabilities=frozenset(
+            {"search", "content-read", "followup-read", "followup-propose", "followup-decide"}
+        ),
+    )
+    with pytest.raises(FollowupError) as decided:
+        engine.followups.decide(
+            DecideRequest(str(uuid4()), item.item_id, item.version, DecisionAction.CONFIRM),
+            authority=client,
+        )
+    assert decided.value.code == "not_found"
+    with pytest.raises(FollowupError) as added:
+        engine.followups.add_evidence(
+            AddEvidenceRequest(str(uuid4()), item.item_id, extra), authority=client
+        )
+    assert added.value.code == "not_found"
+    with pytest.raises(FollowupError) as paged:
+        engine.followups.list(ListFilter(cursor=item.item_id), authority=client)
+    assert paged.value.code == "invalid_request"

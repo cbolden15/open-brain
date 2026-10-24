@@ -114,7 +114,8 @@ def visible_to(
     projector: RecordProjector,
 ) -> bool:
     """The owner sees every item; a client sees one only if every cited source's head reads now
-    under the session's tier, space and egress rules and that head keeps the item's tier."""
+    under the session's tier, space and egress rules, that head keeps the item's tier, and no
+    cited capture is retracted."""
     if not evidence_rows:
         return False
     if authority.owner:
@@ -124,6 +125,9 @@ def visible_to(
     except ValueError:
         return False
     if not authority.permits_read_tier(tier):
+        return False
+    # Retracted evidence hides the item from every client session, whatever the head says.
+    if evidence_retracted(projector.connection, evidence_rows):
         return False
     for ref in evidence_rows:
         head = head_record(projector, ref)
@@ -185,7 +189,7 @@ def project_evidence(
         ref.role,
         ref.capture_id,
         ref.revision_id,
-        original if authority.owner else None,
+        None,
         "source_changed",
     )
 
@@ -211,9 +215,6 @@ def project_item(
         for evidence_id, ref in zip(evidence_ids, evidence_rows, strict=True)
     )
     retracted = any(view.status == "retracted" for view in views)
-    if retracted and not authority.owner:
-        # Retracted evidence hides the item from every client session, whatever the head says.
-        return None
     projected = replace(
         item,
         evidence_retracted=retracted,

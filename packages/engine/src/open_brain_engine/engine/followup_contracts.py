@@ -349,7 +349,7 @@ class FollowupEvidenceView:
     # "moved": the source gained a revision; the exact quote appears once in the head, and
     #          head_quote_start/end give its position there.
     # "source_changed": the source gained a revision and the quote is absent or ambiguous in the
-    #          head; quote is None for client sessions (the owner may still see the original).
+    #          head; quote is None for every session, the owner included.
     # "retracted": owner retraction withheld the cited capture; quote is None for everyone.
     status: Literal["current", "moved", "source_changed", "retracted"] = "current"
     head_revision_id: str | None = None
