@@ -4,7 +4,8 @@ Item 5 of `docs/audits/2026-10-14-work-laptop-product-evaluation.md`. Builds on 
 (`docs/superpowers/specs/2026-10-23-commitments-open-questions-design.md`, PR #119).
 
 Revision 2.1 (execution amendments): `markdown_import_revisions` read, `unassigned` space, ack
-requires `brief-read`, selected space IDs validated before the key.
+requires `brief-read`, selected space IDs validated before the key, owner key files never evicted,
+engine `new_evidence` list filter.
 Revision 2, after an adversarial review: visibility key, no `withheld` items for clients,
 freshness per capture family, collector receipts deferred, per-key log files, package order.
 
@@ -134,7 +135,10 @@ Each provider returns candidates with reason codes. The composer merges, sorts a
 
 1. **Follow-ups.** Read through the follow-up service with the session authority, so visibility,
    tier and retraction rules apply unchanged. The provider scans at most 500 open items ordered by
-   due date then creation time, and sets `followups_truncated` when more exist. For `--space`, an
+   due date then creation time, and sets `followups_truncated` when more exist. The scan runs in
+   two passes against the engine list: due items first, then open items by creation time; the
+   decided-items pass uses the engine's `new_evidence` list filter so the budget counts only
+   candidates. For `--space`, an
    item's space is the set of spaces of its evidence head captures; the owner path filters by
    selected spaces explicitly, since owner authority carries no space restriction.
 2. **Capture-family freshness.** A new read-only engine task
@@ -178,8 +182,9 @@ Each key has its own file, `.open-brain/state/briefs/<key>.json`, written with `
 `expected_existing_sha256`, the `GraphProjectionStore` pattern.
 
 - A file holds the last 30 briefs and the acks for that key, and is capped at 64 KB; the oldest
-  brief is dropped first. At most 16 key files exist; the least recently written is removed when a
-  seventeenth is needed.
+  brief is dropped first. At most 16 non-owner key files exist; the least recently written is
+  removed when a seventeenth is needed. A file written by the owner CLI is marked `owner` and is
+  never evicted, so no client selection pattern can remove the owner's acks.
 - Entries hold `generated_at`, items with refs, reasons and evidence IDs, the coverage snapshot,
   and ack fingerprints. No quote text, summaries or titles.
 - Not Portable content. The log is a rebuildable view like graph state; losing it resets `since`
