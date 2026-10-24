@@ -12,3 +12,5 @@ Planned: one task-tdd-implementer and one task-spec-compliance-reviewer per pack
 | 2 | task-spec-compliance-reviewer | P1 | opus | APPROVED_WITH_FIXES; fixes applied by child 1 (resumed) in a3786da |
 | 3 | task-tdd-implementer | P2 (Tasks 5–9) | opus | done with concerns: 5 commits ab544a0..7c91f2f; verify blocked by load flakes (harness acceptance timeouts, t07-ui TESTING-014) |
 | 4 | task-spec-compliance-reviewer | P2 | opus | APPROVED_WITH_FIXES; findings 1–4 sent to child 3 (resumed); finding 5 carried into BRIEF-P3 |
+| 5 | task-tdd-implementer | P3 (Tasks 10–13) | opus | done with concerns: 4 commits 3402824..fd6f244; Portable 18; verify python/build green, plugin TESTING-014 flake passed on rerun |
+| 6 | task-spec-compliance-reviewer | P3 | opus | APPROVED_WITH_FIXES; findings 1–5 sent to child 5 (resumed) |
