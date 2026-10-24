@@ -156,9 +156,9 @@ def followup_candidates(
     items due today or earlier are scanned first (``due_before`` is exclusive, hence tomorrow)
     and the rest of the budget is filled from the general open scan, deduplicated by item ID; a
     newly created due item is never pushed out by older open items. The decided scan (dismissed
-    or resolved, ``include_closed``) is a separate ``BRIEF_FOLLOWUP_SCAN_LIMIT`` rows in creation
-    order: ``ListFilter`` cannot select ``new_evidence_since_decision``, so past that bound newer
-    decided items are not examined and ``truncated`` reports it. ``capture_filter`` is the
+    or resolved, ``include_closed``) asks the engine for ``new_evidence=True`` only, so its own
+    ``BRIEF_FOLLOWUP_SCAN_LIMIT`` rows are all candidates and decisions without new evidence
+    never consume the budget. ``capture_filter`` is the
     owner's ``--space`` selection as a set of capture IDs; an item stays when any of its evidence
     rows cites one of them. Clients never pass it: their authority's ``space_ids`` already
     governs every read.
@@ -182,7 +182,7 @@ def followup_candidates(
         open_items = [*due, *(item for item in rest if item.item_id not in seen)]
         open_more = due_more or rest_more
         decided, decided_more = _scan(
-            followups, authority, states=_DECIDED_STATES, include_closed=True
+            followups, authority, states=_DECIDED_STATES, include_closed=True, new_evidence=True
         )
         candidates = _classify(
             followups, authority, open_items, decided, today=today, capture_filter=capture_filter
@@ -205,6 +205,7 @@ def _scan(
     include_closed: bool,
     limit: int = BRIEF_FOLLOWUP_SCAN_LIMIT,
     due_before: date | None = None,
+    new_evidence: bool | None = None,
 ) -> tuple[list[FollowupItem], bool]:
     """At most ``limit`` rows; the flag is true when rows may remain (always for a zero budget)."""
     items: list[FollowupItem] = []
@@ -215,6 +216,7 @@ def _scan(
                 states=states,
                 include_closed=include_closed,
                 due_before=due_before,
+                new_evidence=new_evidence,
                 limit=min(BRIEF_SCAN_PAGE, limit - len(items)),
                 cursor=cursor,
             ),

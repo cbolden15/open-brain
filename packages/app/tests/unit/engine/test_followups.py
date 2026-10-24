@@ -993,6 +993,58 @@ def test_list_returns_a_closed_item_with_new_evidence_by_default(tmp_path: Path)
     ]
 
 
+def test_list_filters_on_new_evidence_since_decision(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    tasks = FollowupTasks(engine)
+    owner = _owner(engine)
+    quiet_capture = _capture(
+        engine, "Send the deck on Friday. Sent it.", delivery="d1", tier=PrivacyTier.WORK
+    )
+    loud_capture = _capture(
+        engine, "Book the room on Monday. Booked it.", delivery="d2", tier=PrivacyTier.WORK
+    )
+    open_capture = _capture(
+        engine, "Call the vendor next week.", delivery="d3", tier=PrivacyTier.WORK
+    )
+    quiet = _item(engine, tasks, quiet_capture, "Send the deck", operation_id="p1")
+    loud = _item(engine, tasks, loud_capture, "Book the room", operation_id="p2")
+    still_open = _item(engine, tasks, open_capture, "Call the vendor", operation_id="p3")
+    _decide(tasks, engine, quiet.item_id, 1, DecisionAction.DISMISS, operation_id="d-quiet")
+    _decide(
+        tasks,
+        engine,
+        loud.item_id,
+        1,
+        DecisionAction.RESOLVE,
+        operation_id="r-loud",
+        resolution="owner_statement",
+    )
+    tasks.add_evidence(
+        AddEvidenceRequest(
+            "e-loud",
+            loud.item_id,
+            _ref(engine, loud_capture, "Booked it", role=EvidenceRole.RESOLUTION),
+        ),
+        authority=owner,
+    )
+    decided = frozenset({FollowupState.DISMISSED, FollowupState.RESOLVED})
+
+    def ids(filter_: ListFilter) -> set[str]:
+        return {item.item_id for item in tasks.list(filter_, authority=owner)[0]}
+
+    # None leaves every existing rule unchanged.
+    assert ids(ListFilter(states=decided, include_closed=True)) == {quiet.item_id, loud.item_id}
+    assert ids(ListFilter()) == {loud.item_id, still_open.item_id}
+    # True keeps only items with evidence added after their last decision; False the rest.
+    assert ids(ListFilter(states=decided, include_closed=True, new_evidence=True)) == {loud.item_id}
+    assert ids(ListFilter(states=decided, include_closed=True, new_evidence=False)) == {
+        quiet.item_id
+    }
+    assert ids(ListFilter(new_evidence=True)) == {loud.item_id}
+    assert ids(ListFilter(new_evidence=False)) == {still_open.item_id}
+    assert ids(ListFilter(states=frozenset({FollowupState.DISMISSED}), new_evidence=True)) == set()
+
+
 def test_list_pages_with_a_cursor(tmp_path: Path) -> None:
     clock = Clock()
     engine = _engine(tmp_path, clock)

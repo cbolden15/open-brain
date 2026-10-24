@@ -138,6 +138,10 @@ class _FakeFollowups:
                     filter_.due_before is None
                     or (item.due is not None and item.due < filter_.due_before)
                 )
+                and (
+                    filter_.new_evidence is None
+                    or item.new_evidence_since_decision is filter_.new_evidence
+                )
             ),
             key=lambda item: (item.created_at, item.item_id),
         )
@@ -235,6 +239,7 @@ def test_followup_scan_pages_and_stops_at_the_cap_with_truncation() -> None:
         if call[1].states == frozenset({FollowupState.DISMISSED, FollowupState.RESOLVED})
     ]
     assert len(decided_pages) == 1 and decided_pages[0][1].include_closed is True
+    assert decided_pages[0][1].new_evidence is True, "the decided budget counts candidates only"
     assert all(call[2] is WORK for call in list_calls)
     # Open items owned by self and not due are followup_open candidates; the cap bounds them too.
     assert len(result.candidates) == BRIEF_FOLLOWUP_SCAN_LIMIT
@@ -334,7 +339,8 @@ def test_followup_classification_reasons_and_keys() -> None:
         by_id[_item_id(8)].reason_text
         == "New evidence recorded 2026-10-22T12:00:00Z after the last decision."
     )
-    assert result.scanned == 8 and result.truncated is False
+    # Five open items plus the two decided items with new evidence; item 7 is filtered out.
+    assert result.scanned == 7 and result.truncated is False
     for candidate in result.candidates:
         assert "Synthetic" not in candidate.reason_text and "summary" not in candidate.reason_text
 
@@ -1281,3 +1287,26 @@ def test_client_space_ids_that_do_not_exist_never_create_key_files(tmp_path: Pat
     with pytest.raises(BriefError) as last:
         brief_last(tasks, OWNER_SESSION, log=log, space_ids=(SPACE_2,))
     assert last.value.code == "invalid_request"
+
+
+def test_new_evidence_on_a_recent_decision_survives_many_older_decisions() -> None:
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    quiet = tuple(
+        _Item(
+            _item_id(index),
+            FollowupState.RESOLVED if index % 2 else FollowupState.DISMISSED,
+            created_at=(start + timedelta(minutes=index)).isoformat().replace("+00:00", "Z"),
+        )
+        for index in range(BRIEF_FOLLOWUP_SCAN_LIMIT + 100)
+    )
+    newest = _Item(
+        _item_id(999_998),
+        FollowupState.DISMISSED,
+        created_at="2026-10-23T09:00:00Z",
+        updated_at="2026-10-23T10:00:00Z",
+        new_evidence_since_decision=True,
+    )
+    result = followup_candidates(_FakeFollowups(items=(*quiet, newest)), WORK, today=TODAY)
+    assert [candidate.item_id for candidate in result.candidates] == [newest.item_id]
+    assert result.candidates[0].kind is BriefItemKind.FOLLOWUP_NEW_EVIDENCE
+    assert result.scanned == 1 and result.truncated is False
