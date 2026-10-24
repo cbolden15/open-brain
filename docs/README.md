@@ -15,7 +15,8 @@ Start with the [README](../README.md) for install and the MCP client examples, t
 
 - [Capture contract](capture-contract.md) and [import](import.md)
 - [Spaces and inbox](spaces-inbox.md), [workspace content](workspace-content.md),
-  [review and publication](review-publication.md) and [follow-ups](followups.md)
+  [review and publication](review-publication.md), [follow-ups](followups.md) and
+  [daily brief](daily-brief.md)
 - [Conversation intake](consumer-intake.md) and [intake from coding agents](consumer-intake-agents.md)
 - Sources: [Google Calendar](google-calendar.md), [iMessage](imessage.md) and the
   [integrations](integrations/core-sources.md) folder, including [Slack](integrations/slack.md)

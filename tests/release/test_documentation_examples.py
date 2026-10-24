@@ -233,8 +233,42 @@ def test_reference_docs_bind_followup_commands_and_grants() -> None:
         ), path
     matrix = (root / "docs/core-v01-features.md").read_text(encoding="utf-8")
     assert "| Follow-ups |" in matrix
-    assert "Twelve independent grants" in matrix
+    assert "Fourteen independent grants" in matrix
+    assert "Twelve independent grants" not in matrix
     assert "Nine independent grants" not in matrix
     index = (root / "docs/README.md").read_text(encoding="utf-8")
     assert "[follow-ups](followups.md)" in index
     assert "Portable 18 is current (local schema 23, runtime session 16)" in index
+
+
+def test_reference_docs_bind_brief_commands_and_grants() -> None:
+    root = Path(__file__).resolve().parents[2]
+    examples = extract_examples(root / "docs/first-use.md") + extract_examples(
+        root / "docs/doctor.md"
+    )
+    validate_reference_docs(root, examples)
+
+    cli = (root / "docs/cli.md").read_text(encoding="utf-8")
+    for token in (
+        "`brief`",
+        "`brief ack`",
+        "`brief last`",
+        "brief-read",
+        "brief-ack",
+        "daily-brief.md",
+    ):
+        assert token in cli, token
+    assert cli.count("23/16/18") == 1
+    for path in ("CLAUDE.md", "packages/app/CLAUDE.md", "README.md", "docs/agent-setup.md"):
+        text = (root / path).read_text(encoding="utf-8")
+        assert "brief-read" in text and "brief-ack" in text, path
+    matrix = (root / "docs/core-v01-features.md").read_text(encoding="utf-8")
+    assert "| Daily brief |" in matrix
+    assert "Fourteen independent grants" in matrix
+    index = (root / "docs/README.md").read_text(encoding="utf-8")
+    assert "[daily brief](daily-brief.md)" in index
+    assert "Portable 18 is current (local schema 23, runtime session 16)" in index
+    for path in ("CLAUDE.md", "packages/app/CLAUDE.md"):
+        text = (root / path).read_text(encoding="utf-8")
+        assert "docs/daily-brief.md" in text, path
+    assert "23/16/18" in (root / "CLAUDE.md").read_text(encoding="utf-8")

@@ -241,6 +241,9 @@ Commitments and open questions use independent `--allow-followup-read`,
 `--allow-followup-propose`, and `--allow-followup-decide` flags; items cite exact quotes in
 captures the session can read, and nothing is written to a ticket system or sent as a message.
 See [follow-ups](docs/followups.md).
+The daily brief uses independent `--allow-brief-read` and `--allow-brief-ack` flags; it is
+composed by rules on request, with no model call, and points at follow-ups and capture families
+the session can already read. See [daily brief](docs/daily-brief.md).
 
 Each process permits 500 valid capture attempts and 16 MiB of aggregate UTF-8 capture input, 2,000
 valid search attempts, 500 workspace reads with 16 MiB of output, and 20 graph refresh requests with

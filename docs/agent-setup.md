@@ -57,6 +57,14 @@ capture, search, organize or the review grants. Follow-up MCP sessions are Work-
 launcher policy allows another tier, and scoped Work evidence setup refuses these flags. See
 [follow-ups](followups.md). Owner CLI `followup` commands need no grants.
 
+For the daily brief, add `--allow-brief-read` and `--allow-brief-ack` (the `brief-read` and
+`brief-ack` grants) as separate choices. Reading composes and returns a brief; acknowledging
+records a capture family's current state so it stays out of that session's briefs until it
+changes, and needs both grants. Follow-up items appear in a client's brief only when the session
+also holds `followup-read`. Neither grant follows from any other, brief MCP sessions are Work-only
+unless a launcher policy allows another tier, and scoped Work evidence setup refuses these flags.
+See [daily brief](daily-brief.md). Owner CLI `brief` commands need no grants.
+
 Other owner-local commands are not agent grants and have no MCP tool: `retract`, `embedding`,
 `facet` and `consumer-import` (an agent with shell access can run the last, see
 [intake from coding agents](consumer-intake-agents.md)). Automatic harness memory uses the separate
