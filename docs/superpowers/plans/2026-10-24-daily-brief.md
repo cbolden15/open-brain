@@ -7668,7 +7668,7 @@ def test_stale_days_and_unknown_space_are_validated_not_guessed(brain: Brain) ->
 - [ ] **Step 2: Run the module and confirm it fails for the right reason**
 
 ```sh
-cd /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief
+cd "$WORKTREE"
 uv run --frozen pytest -q -p no:cacheprovider packages/app/tests/integration/services/test_daily_brief_acceptance.py -x
 ```
 
@@ -8519,7 +8519,7 @@ under `umask 022`, and the acceptance and docs tests under `umask 077` with a te
 - [ ] **Step 1: Freeze the tree**
 
 ```sh
-cd /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/daily-brief
+cd "$WORKTREE"
 git status --porcelain
 ```
 
