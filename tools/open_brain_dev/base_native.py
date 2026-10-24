@@ -876,7 +876,7 @@ def build_base_artifact(
         raise BaseNativeError("native build requires Python 3.14")
     if (
         importlib.metadata.version("pyinstaller") != "6.22.3"
-        or importlib.metadata.version("pyinstaller-hooks-contrib") != "2026.7"
+        or importlib.metadata.version("pyinstaller-hooks-contrib") != "2026.9"
     ):
         raise BaseNativeError("native build toolchain is not pinned")
     version = product_version(root)

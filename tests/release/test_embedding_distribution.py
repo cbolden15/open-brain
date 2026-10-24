@@ -94,7 +94,7 @@ def test_build_without_an_embedding_archive_drops_a_stale_pin_environment(
     monkeypatch.setattr(
         importlib.metadata,
         "version",
-        lambda name: {"pyinstaller": "6.22.3", "pyinstaller-hooks-contrib": "2026.7"}[name],
+        lambda name: {"pyinstaller": "6.22.3", "pyinstaller-hooks-contrib": "2026.9"}[name],
     )
     monkeypatch.setattr(subprocess, "run", run)
     with pytest.raises(Frozen):
