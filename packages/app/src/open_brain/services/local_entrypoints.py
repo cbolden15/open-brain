@@ -75,6 +75,25 @@ from open_brain.services.agent_setup import (
     preview_agent_setup,
     resolve_agent_runtime,
 )
+from open_brain.services.brief import (
+    BRIEF_GRANTS,
+    BRIEF_MAX_SPACE_SELECTION,
+    BriefServiceError,
+    brief_ack,
+    brief_generate,
+    brief_last,
+    brief_state_dir,
+    default_brief_clock,
+    validate_brief_arguments,
+)
+from open_brain.services.brief_authority import brief_session_authority
+from open_brain.services.brief_contracts import (
+    BRIEF_STALE_DAYS_DEFAULT,
+    BRIEF_STALE_DAYS_MAX,
+    BRIEF_STALE_DAYS_MIN,
+    BriefError,
+)
+from open_brain.services.brief_log import BriefLogStore
 from open_brain.services.consumer_import import (
     add_consumer_parsers,
     consumer_grammar_requested,
@@ -384,6 +403,12 @@ def run_cli(
             validate_followup_arguments(followup_operation, followup_arguments)
             parsed.followup_arguments = followup_arguments
         except FollowupServiceError:
+            _write_usage_failure(json_output=json_output)
+            return 2
+    if parsed.command == "brief":
+        try:
+            parsed.brief_arguments = _brief_arguments(parsed)
+        except BriefServiceError:
             _write_usage_failure(json_output=json_output)
             return 2
     if parsed.command == "privacy":
@@ -753,6 +778,11 @@ def _run_parsed_command(
         return _write_review_failure(error.code, json_output=json_output)
     except FollowupServiceError as error:
         return _write_followup_failure(error.code, None, json_output=json_output)
+    except BriefServiceError:
+        _write_usage_failure(json_output=json_output)
+        return 2
+    except BriefError as error:
+        return _write_brief_failure(error.code, json_output=json_output)
     except SharingError as error:
         return _write_sharing_failure(error.code, json_output=json_output)
     except PrivacyRepairError as error:
@@ -941,6 +971,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_space_inbox_parsers(subparsers)
     _add_review_parsers(subparsers)
     _add_followup_parsers(subparsers)
+    _add_brief_parsers(subparsers)
     add_retraction_parsers(subparsers, _add_local_options)
     add_embedding_parsers(subparsers, _add_local_options)
     add_consumer_parsers(subparsers, _add_local_options)
@@ -2176,6 +2207,229 @@ def _write_followup_failure(code: str, detail: object, *, json_output: bool) -> 
     return 1
 
 
+def _add_brief_parsers(
+    subparsers: argparse._SubParsersAction[_RedactedArgumentParser],
+) -> None:
+    parent = subparsers.add_parser(
+        "brief",
+        help="Show up to five follow-ups and capture families that need attention today.",
+        description=(
+            "The brief is composed from engine facts with no model call: due or new-evidence "
+            "follow-ups, open follow-ups you own, and capture families that are stale or hold "
+            "unavailable captures. Items are pointers (refs, reason codes, evidence IDs); read "
+            "text with followup show. Each brief is saved to a capped, rebuildable per-visibility "
+            "log under .open-brain/state/briefs so the next brief can say what changed. Owner CLI "
+            "commands need no MCP grants; agent clients need the independent brief-read and "
+            "brief-ack grants, both off by default. Collector health and scheduled generation "
+            "are not in version 1."
+        ),
+        epilog=(
+            "Workflow: brief; brief --space NAME --stale-days 14; brief ack family:ID; "
+            "brief last. 'brief' and 'brief generate' are the same command. Put --space either "
+            "before or after the subcommand, not both."
+        ),
+    )
+    _add_local_options(parent)
+    _add_brief_scope_options(parent)
+    children = parent.add_subparsers(dest="brief_action", required=False)
+    # After add_subparsers: set_defaults also rewrites the subparsers action's own default, which
+    # would otherwise leave brief_action None for a bare 'brief'.
+    parent.set_defaults(brief_action="generate")
+
+    generate = children.add_parser("generate", help="Compose and save today's brief (default).")
+    _add_local_options(generate)
+    # SUPPRESS defaults on the child keep values parsed on the parent (argparse copies the
+    # child namespace over the parent's); options given after the subcommand win.
+    _add_brief_scope_options(generate)
+
+    ack = children.add_parser("ack", help="Acknowledge one capture family until it changes.")
+    _add_local_options(ack)
+    ack.add_argument("family_ref", help="family:<family_id> as shown in a brief item.")
+
+    last = children.add_parser("last", help="Show the most recent saved brief for this scope.")
+    _add_local_options(last)
+    _add_brief_scope_options(last, stale_days=False)
+
+
+def _add_brief_scope_options(parser: argparse.ArgumentParser, *, stale_days: bool = True) -> None:
+    parser.add_argument(
+        "--space",
+        action="append",
+        dest="spaces",
+        default=argparse.SUPPRESS,
+        metavar="NAME",
+        help="Limit the brief to this space (name, slug or ID); repeat per space.",
+    )
+    if stale_days:
+        parser.add_argument(
+            "--stale-days",
+            type=int,
+            dest="stale_days",
+            default=argparse.SUPPRESS,
+            metavar="N",
+            help="A family is stale after N days without a capture (1 to 365; default 7).",
+        )
+
+
+def _brief_arguments(parsed: argparse.Namespace) -> dict[str, object]:
+    action = cast(str, parsed.brief_action)
+    arguments: dict[str, object] = {"action": action}
+    spaces = getattr(parsed, "spaces", None)
+    if spaces is not None:
+        if (
+            not isinstance(spaces, list)
+            or not 1 <= len(spaces) <= BRIEF_MAX_SPACE_SELECTION
+            or any(
+                not isinstance(name, str) or not 1 <= len(name) <= 128 or not name.strip()
+                for name in spaces
+            )
+        ):
+            raise BriefServiceError("invalid_arguments")
+        arguments["spaces"] = spaces
+    days = getattr(parsed, "stale_days", None)
+    if action == "generate":
+        if days is None:
+            days = BRIEF_STALE_DAYS_DEFAULT
+        if type(days) is not int or not BRIEF_STALE_DAYS_MIN <= days <= BRIEF_STALE_DAYS_MAX:
+            raise BriefServiceError("invalid_arguments")
+        arguments["stale_days"] = days
+    elif days is not None:
+        raise BriefServiceError("invalid_arguments")
+    if action == "ack":
+        validate_brief_arguments("ack", {"family_ref": parsed.family_ref})
+        arguments["family_ref"] = parsed.family_ref
+    return arguments
+
+
+def _run_brief(parsed: argparse.Namespace, tasks: Any, *, json_output: bool) -> int:
+    arguments = cast(dict[str, object], parsed.brief_arguments)
+    action = cast(str, arguments["action"])
+    session = brief_session_authority(
+        owner_authority(tasks, session_id="cli-brief-" + str(uuid.uuid4())),
+        grants=BRIEF_GRANTS | FOLLOWUP_GRANTS,
+        launcher_policy=True,
+        owner_cli=True,
+    )
+    log = BriefLogStore(brief_state_dir(tasks.profile), clock=default_brief_clock)
+    try:
+        space_ids = _resolve_brief_spaces(tasks, cast(list[str] | None, arguments.get("spaces")))
+        data: object
+        if action == "ack":
+            data = brief_ack(tasks, session, log=log, family_ref=cast(str, arguments["family_ref"]))
+        elif action == "last":
+            data = brief_last(tasks, session, log=log, space_ids=space_ids)
+        else:
+            data = brief_generate(
+                tasks,
+                session,
+                log=log,
+                clock=default_brief_clock,
+                space_ids=space_ids,
+                stale_days=cast(int, arguments["stale_days"]),
+            ).to_wire()
+    except BriefError as error:
+        return _write_brief_failure(error.code, json_output=json_output)
+    if json_output:
+        _write_json({"outcome": "ok", "data": data, "code": None})
+        return 0
+    if action == "ack":
+        acked = cast(dict[str, object], data)
+        print(
+            _terminal_text(
+                f"Acknowledged {acked['family_ref']}; it returns when its state changes."
+            )
+        )
+    elif action == "last":
+        if data is None:
+            print("No saved brief for this scope yet. Run open-brain brief.")
+        else:
+            last = data
+            print(_terminal_text(f"Last brief {last['generated_at']}"))
+            for item in cast(list[dict[str, object]], last["items"]):
+                reasons = ", ".join(cast(list[str], item["reasons"]))
+                evidence = len(cast(list[str], item["evidence"]))
+                print(
+                    _terminal_text(
+                        f"{item['rank']}. [{item['changed']}] [{item['status']}] {item['kind']}  "
+                        f"{item['ref']}  {reasons}  evidence: {evidence}"
+                    )
+                )
+            log_view = cast(dict[str, object], last["log"])
+            print(f"Log: {log_view['entries']} entries, {log_view['bytes']} bytes.")
+    else:
+        for line in _brief_lines(cast(dict[str, object], data)):
+            print(_terminal_text(line))
+    return 0
+
+
+def _resolve_brief_spaces(tasks: Any, names: list[str] | None) -> tuple[str, ...] | None:
+    if not names:
+        return None
+    spaces = tasks.spaces.spaces()
+    resolved: list[str] = []
+    for name in names:
+        match = next(
+            (space for space in spaces if name in {space.name, space.slug, space.space_id}), None
+        )
+        if match is None:
+            raise BriefError("invalid_request")
+        if match.space_id not in resolved:
+            resolved.append(match.space_id)
+    return tuple(resolved)
+
+
+def _brief_lines(brief: Mapping[str, object]) -> list[str]:
+    since = brief.get("since")
+    header = f"Brief {brief['generated_at']}"
+    header += f" (since {since})" if since else " (first brief for this scope)"
+    lines = [header]
+    items = cast(list[dict[str, object]], brief["items"])
+    if not items:
+        lines.append("Nothing needs attention.")
+    for item in items:
+        reasons = ", ".join(cast(list[str], item["reasons"]))
+        lines.append(
+            f"{item['rank']}. [{item['changed']}] {item['kind']}  {item['ref']}  {reasons}  "
+            f"{item['reason_text']}  evidence: {len(cast(list[str], item['evidence']))}"
+        )
+    coverage = cast(dict[str, object], brief["coverage"])
+    log_view = cast(dict[str, object], coverage["log"])
+    lines.append(
+        f"Coverage: {coverage['families_checked']} families checked, "
+        f"{coverage['families_stale']} stale, {coverage['captures_unavailable']} captures "
+        f"unavailable; {coverage['followups_scanned']} follow-ups scanned "
+        f"({coverage['followups']}{', truncated' if coverage['followups_truncated'] else ''}); "
+        f"freshness {coverage['freshness']}; collector {coverage['collector']}; "
+        f"{coverage['hidden_dropped']} hidden; log {log_view['entries']} entries, "
+        f"{log_view['bytes']} bytes{', unavailable' if log_view['unavailable'] else ''}."
+    )
+    if not brief.get("saved", False):
+        lines.append(
+            "Not saved: the brief log could not be written; the next brief cannot say what changed."
+        )
+    return lines
+
+
+def _write_brief_failure(code: str, *, json_output: bool) -> int:
+    messages = {
+        "invalid_request": "Unknown space or invalid request. Run open-brain space list.",
+        "not_found": "Capture family not found in this brief's scope.",
+        "version_conflict": "The brief log changed under this acknowledgement; run it again.",
+        "unsupported_capability": "This authority cannot read the brief.",
+        "operation_pending": "The Brain could not be read; retry shortly.",
+    }
+    message = messages.get(code, "Open Brain could not complete the brief command.")
+    if json_output:
+        _write_json({"status": "failed", "error": {"code": code, "message": message}})
+    else:
+        print(message, file=sys.stderr)
+    if code == "invalid_request":
+        return 2
+    if code == "operation_pending":
+        return 75
+    return 1
+
+
 def _run_agent_setup(
     parsed: argparse.Namespace,
     *,
@@ -2685,6 +2939,8 @@ def _run_local_command(
         return _run_review(parsed, ReviewPublicationService(tasks.review), json_output=json_output)
     if parsed.command == "followup":
         return _run_followup(parsed, tasks, json_output=json_output)
+    if parsed.command == "brief":
+        return _run_brief(parsed, tasks, json_output=json_output)
     if parsed.command == "obsidian-plugin":
         return _run_obsidian_plugin(parsed, session, json_output=json_output)
     if parsed.command == "capture":
