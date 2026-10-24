@@ -4,6 +4,40 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-016: Same-process readers fail fast while another thread holds the writer
+
+Category: Testing / Concurrency.
+
+Symptom: `test_concurrent_exact_commit_reconciles_inside_writer_fence` failed in
+full-suite runs with `LockBusyError("lease already held by this process")`, about
+6 times in 150 runs under CPU load on both main and PR #119, and never when run
+alone. `commit_consumer_import` left its writer fence and then opened a reader in
+`recover_consumer_import`. The other thread polls the writer every 10 ms; when its
+poll landed in that sub-millisecond gap it took the writer, and
+`acquire_shared_reader` raised at once. Writers wait on a bounded poll; readers
+never wait for a same-process writer. Main's CI had not hit it because the
+branch moved the test into a heavier shard.
+
+Action: a read that follows a write in the same operation belongs inside the
+writer fence (`_transaction`), not in `read_snapshot`. When a test fails only in
+the full suite, compare failure rates on main and the branch under the same
+artificial load before treating it as a branch regression. `_accepted` still
+reads outside the fence and is the next candidate if this error returns.
+
+### BUILD-020: A Portable bump must also update the native smoke pins
+
+Category: Build / Release.
+
+Symptom: after Portable moved from 17 to 18, `make native-audit` and
+`make homebrew-smoke` failed with `native verified export failed`. The smoke
+journey in `tools/open_brain_dev/base_native.py` still required
+`schema_version == 17` and the Portable 17 sidecar list. `make verify` does not
+run that journey, so the gap appeared only at the frozen-tree gate.
+
+Action: every Portable version change updates `_PORTABLE_Vn_SIDECARS` and both
+`schema_version` checks in `base_native.py` in the same commit as the engine
+pin. Put `base_native.py` on the pin inventory of every coordinate plan.
+
 ### CONTROL-004: macOS refuses a socket receive timeout after the peer closes
 
 Category: Control / Platform.
