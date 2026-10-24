@@ -1180,6 +1180,9 @@ def _parser() -> argparse.ArgumentParser:
     agent_setup_parser.add_argument("--allow-review-read", action="store_true")
     agent_setup_parser.add_argument("--allow-review-propose", action="store_true")
     agent_setup_parser.add_argument("--allow-review-decide", action="store_true")
+    agent_setup_parser.add_argument("--allow-followup-read", action="store_true")
+    agent_setup_parser.add_argument("--allow-followup-propose", action="store_true")
+    agent_setup_parser.add_argument("--allow-followup-decide", action="store_true")
     agent_setup_parser.add_argument(
         "--action", choices=("configure", "remove"), default="configure"
     )
@@ -2213,6 +2216,9 @@ def _run_agent_setup(
         "allow_review_read": parsed.allow_review_read,
         "allow_review_propose": parsed.allow_review_propose,
         "allow_review_decide": parsed.allow_review_decide,
+        "allow_followup_read": parsed.allow_followup_read,
+        "allow_followup_propose": parsed.allow_followup_propose,
+        "allow_followup_decide": parsed.allow_followup_decide,
         "client": parsed.client,
         "environment": environment,
         "project_dir": parsed.project_dir,
