@@ -316,6 +316,7 @@ def validate_reference_docs(root: Path, examples: tuple[Example, ...]) -> None:
         "`space create/list/rename`",
         "`inbox list/route`",
         "`review propose/list/show/approve/reject/edit-and-approve`",
+        "`followup list/show/propose/add-evidence/decide`",
         "`agent setup`",
         "`workspace`",
         "`obsidian-plugin install/status/remove`",
@@ -323,9 +324,25 @@ def validate_reference_docs(root: Path, examples: tuple[Example, ...]) -> None:
         "`mcp`",
     )
     grant_tokens = tuple(
-        f"{name}-read" if name in {"content", "history", "inbox", "review"} else name
-        for name in ("capture", "search", "content", "history", "inbox", "organize", "review")
-    ) + ("review-propose", "review-decide", "workspace-read", "graph-refresh")
+        f"{name}-read" if name in {"content", "history", "inbox", "review", "followup"} else name
+        for name in (
+            "capture",
+            "search",
+            "content",
+            "history",
+            "inbox",
+            "organize",
+            "review",
+            "followup",
+        )
+    ) + (
+        "review-propose",
+        "review-decide",
+        "followup-propose",
+        "followup-decide",
+        "workspace-read",
+        "graph-refresh",
+    )
     if any(token not in cli for token in command_tokens + grant_tokens):
         raise DocumentationExampleError("CLI command or grant documentation drift")
     doctor_checks = (

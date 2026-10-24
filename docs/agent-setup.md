@@ -48,6 +48,15 @@ source IDs, and deciding permits approve/reject/edit-and-approve. None follows f
 or organize. Use [review and publication](review-publication.md) for the complete CLI/MCP workflow,
 including stable page updates. Direct owner CLI review commands need no MCP grants.
 
+For commitments and open questions, add `--allow-followup-read`, `--allow-followup-propose`
+and `--allow-followup-decide` (the `followup-read`, `followup-propose` and `followup-decide`
+grants) as separate choices. Reading exposes list/show, proposing creates an item or adds
+exact-quote evidence, and deciding records confirm, dismiss, snooze, correct, link, resolve,
+reopen or supersede. A client that should only suggest gets read and propose. None follows from
+capture, search, organize or the review grants. Follow-up MCP sessions are Work-only unless a
+launcher policy allows another tier, and scoped Work evidence setup refuses these flags. See
+[follow-ups](followups.md). Owner CLI `followup` commands need no grants.
+
 Other owner-local commands are not agent grants and have no MCP tool: `retract`, `embedding`,
 `facet` and `consumer-import` (an agent with shell access can run the last, see
 [intake from coding agents](consumer-intake-agents.md)). Automatic harness memory uses the separate

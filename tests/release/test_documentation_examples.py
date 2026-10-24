@@ -18,6 +18,7 @@ from tools.open_brain_dev.documentation_examples import (
     require_examples,
     validate_compatibility_matrix,
     validate_example_contract,
+    validate_reference_docs,
 )
 
 
@@ -220,3 +221,33 @@ def test_readme_mcp_examples_reject_missing_widened_and_reordered_cases() -> Non
     for mutant in (widened, missing, reordered):
         with pytest.raises(DocumentationExampleError, match="README MCP configuration drift"):
             read_readme_mcp_configs(mutant)
+
+
+def test_reference_docs_bind_followup_commands_and_grants() -> None:
+    root = Path(__file__).resolve().parents[2]
+    examples = extract_examples(root / "docs/first-use.md") + extract_examples(
+        root / "docs/doctor.md"
+    )
+    validate_reference_docs(root, examples)
+
+    cli = (root / "docs/cli.md").read_text(encoding="utf-8")
+    for token in (
+        "`followup list/show/propose/add-evidence/decide`",
+        "followup-read",
+        "followup-propose",
+        "followup-decide",
+    ):
+        assert token in cli, token
+    assert "21/16/16" not in cli
+    for path in ("CLAUDE.md", "packages/app/CLAUDE.md", "README.md", "docs/agent-setup.md"):
+        text = (root / path).read_text(encoding="utf-8")
+        assert all(
+            grant in text for grant in ("followup-read", "followup-propose", "followup-decide")
+        ), path
+    matrix = (root / "docs/core-v01-features.md").read_text(encoding="utf-8")
+    assert "| Follow-ups |" in matrix
+    assert "Twelve independent grants" in matrix
+    assert "Nine independent grants" not in matrix
+    index = (root / "docs/README.md").read_text(encoding="utf-8")
+    assert "[follow-ups](followups.md)" in index
+    assert "Portable 18 is current (local schema 23, runtime session 16)" in index
