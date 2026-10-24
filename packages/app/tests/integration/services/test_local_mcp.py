@@ -28,10 +28,13 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
 from open_brain_engine.storage.operational import FileLease
 
+import open_brain.services.local_mcp as local_mcp_module
 from open_brain.profile import compile_single_user_local
 from open_brain.services.launcher_policy import LauncherPolicyError
 from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.local_mcp import (
+    MAX_BRIEF_ACK_CALLS,
+    MAX_BRIEF_READ_CALLS,
     MAX_FOLLOWUP_READ_CALLS,
     MAX_FOLLOWUP_RESPONSE_BYTES,
     MAX_FOLLOWUP_WRITE_CALLS,
@@ -2915,3 +2918,121 @@ def test_scoped_followup_tools_require_the_session_grant() -> None:
     }
     with pytest.raises(McpCallError, match="^unknown tool$"):
         adapter.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)
+
+
+def _brief_ok(_arguments: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "outcome": "ok",
+        "data": {"items": [], "nothing_needs_attention": True, "model": "none", "saved": True},
+        "code": None,
+    }
+
+
+BRIEF_ACK = {"family_ref": "family:consumer:synthetic:space_3e6e8e2c-e638-47c6-8195-4bd6f3000001"}
+
+
+def test_brief_capabilities_are_independently_listed_and_enforced() -> None:
+    reader = LocalMcpAdapter(brief=_brief_ok)
+    acker = LocalMcpAdapter(brief_ack=_brief_ok)
+    both = LocalMcpAdapter(brief=_brief_ok, brief_ack=_brief_ok)
+    assert {tool["name"] for tool in reader.list_tools()} == {"brain_catalog", "brain_brief"}
+    assert {tool["name"] for tool in acker.list_tools()} == {"brain_catalog", "brain_brief_ack"}
+    tools = {tool["name"]: tool for tool in both.list_tools()}
+    assert set(tools) == {"brain_catalog", "brain_brief", "brain_brief_ack"}
+    assert "brain_brief_last" not in tools
+    for name, tool in tools.items():
+        if name == "brain_catalog":
+            continue
+        assert tool["inputSchema"]["additionalProperties"] is False
+        assert "untrusted" in tool["description"]
+        assert "no model" in tool["description"] or "state changes" in tool["description"]
+    brief_schema: Any = tools["brain_brief"]["inputSchema"]
+    assert set(brief_schema["properties"]) == {"space_ids", "stale_days"}
+    assert brief_schema["required"] == []
+    assert brief_schema["properties"]["stale_days"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 365,
+    }
+    assert brief_schema["properties"]["space_ids"]["maxItems"] == 32
+    assert brief_schema["properties"]["space_ids"]["items"]["pattern"].startswith("^space_")
+    ack_schema: Any = tools["brain_brief_ack"]["inputSchema"]
+    assert ack_schema["required"] == ["family_ref"]
+    assert ack_schema["properties"]["family_ref"]["pattern"].startswith("^family:")
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        reader.call_tool("brain_brief_ack", BRIEF_ACK)
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        acker.call_tool("brain_brief", {})
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        both.call_tool("brain_brief_last", {})
+    assert reader.call_tool("brain_brief", {})["outcome"] == "ok"
+    assert acker.call_tool("brain_brief_ack", BRIEF_ACK)["outcome"] == "ok"
+
+
+def test_brief_tools_validate_shapes_pass_refusals_and_enforce_quotas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refused(_arguments: Mapping[str, object]) -> dict[str, object]:
+        return {"outcome": "refused", "data": None, "code": "version_conflict"}
+
+    adapter = LocalMcpAdapter(brief=_brief_ok, brief_ack=refused)
+    arguments: Mapping[str, object]
+    for arguments in (
+        {"stale_days": 0},
+        {"stale_days": 366},
+        {"stale_days": "7"},
+        {"space_ids": []},
+        {"space_ids": ["not-a-space"]},
+        {"unexpected": True},
+    ):
+        with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+            adapter.call_tool("brain_brief", arguments)
+    for arguments in (
+        {},
+        {"family_ref": "followup:x"},
+        {"family_ref": "family:"},
+        {**BRIEF_ACK, "x": 1},
+    ):
+        with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+            adapter.call_tool("brain_brief_ack", arguments)
+    assert (adapter._brief_read_calls, adapter._brief_ack_calls) == (0, 0)
+    assert adapter.call_tool("brain_brief_ack", BRIEF_ACK) == {
+        "outcome": "refused",
+        "data": None,
+        "code": "version_conflict",
+    }
+    assert adapter._brief_ack_calls == 1
+    adapter._brief_read_calls = MAX_BRIEF_READ_CALLS - 1
+    adapter.call_tool(
+        "brain_brief", {"space_ids": [BRIEF_ACK["family_ref"].rsplit(":", 1)[1]], "stale_days": 30}
+    )
+    with pytest.raises(McpCallError, match="^session_brief_read_limit$"):
+        adapter.call_tool("brain_brief", {})
+    adapter._brief_ack_calls = MAX_BRIEF_ACK_CALLS
+    with pytest.raises(McpCallError, match="^session_brief_ack_limit$"):
+        adapter.call_tool("brain_brief_ack", BRIEF_ACK)
+    # One encoded brief response is about 330 bytes, so 512 admits one call and refuses the next.
+    monkeypatch.setattr(local_mcp_module, "MAX_BRIEF_RESPONSE_BYTES", 512)
+    adapter._brief_read_calls = 0
+    adapter._brief_response_bytes = 0
+    adapter.call_tool("brain_brief", {})
+    with pytest.raises(McpCallError, match="^session_brief_response_limit$"):
+        adapter.call_tool("brain_brief", {})
+
+
+def test_brief_tools_are_registered_with_their_grants() -> None:
+    registered = {cast(str, tool["name"]): tool for tool in MCP_REGISTERED_TOOLS}
+    assert registered["brain_brief"]["required_grants"] == ["brief-read"]
+    assert registered["brain_brief_ack"]["required_grants"] == ["brief-ack"]
+    assert "brain_brief_last" not in registered
+
+
+def test_scoped_brief_tools_require_the_session_grant() -> None:
+    scoped = EffectiveAuthority(
+        "mcp-test-agent", "mcp-test-session", frozenset({"brief-read"}), None
+    )
+    adapter = LocalMcpAdapter(authority=scoped, brief=_brief_ok, brief_ack=_brief_ok)
+    assert {tool["name"] for tool in adapter.list_tools()} == {"brain_catalog", "brain_brief"}
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        adapter.call_tool("brain_brief_ack", BRIEF_ACK)
+    assert adapter.call_tool("brain_brief", {})["outcome"] == "ok"
