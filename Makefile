@@ -1,4 +1,4 @@
-.PHONY: dev build test test-fast test-integration test-tiers-audit test-profile lint typecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit embedding-native smoke homebrew-smoke native-integration-smoke verify contributor-check
+.PHONY: dev build test test-shard test-fast test-integration test-tiers-audit test-profile lint typecheck plugin-build plugin-test desktop-install desktop-test desktop-runtime desktop-native desktop-native-proof audit audit-history native native-audit embedding-native smoke homebrew-smoke native-integration-smoke verify verify-without-tests contributor-check contributor-check-without-tests
 
 NATIVE_OUTPUT ?= build/native
 NATIVE_ARTIFACT = $(NATIVE_OUTPUT)/dist/open-brain/open-brain
@@ -34,6 +34,11 @@ build: plugin-build
 
 test:
 	uv run --frozen pytest -q -n auto
+
+# One of COUNT parallel CI jobs; shards 1 through COUNT together run the complete suite.
+test-shard:
+	@test -n "$(SHARD)" || (echo "SHARD must be INDEX/COUNT, for example SHARD=1/4" >&2; exit 2)
+	uv run --frozen pytest -q -n auto -p tools.open_brain_dev.pytest_shard --shard "$(SHARD)"
 
 # Development tiers only; `make test` and `make verify` always run the complete suite.
 test-fast:
@@ -126,4 +131,12 @@ contributor-check:
 	$(MAKE) native-integration-smoke
 	$(MAKE) desktop-native
 
-verify: lint typecheck test build plugin-test desktop-test
+# CI runs these beside parallel `test-shard` jobs instead of `contributor-check`.
+contributor-check-without-tests:
+	$(MAKE) verify-without-tests
+	$(MAKE) native-integration-smoke
+	$(MAKE) desktop-native
+
+verify: lint typecheck test verify-without-tests
+
+verify-without-tests: lint typecheck build plugin-test desktop-test

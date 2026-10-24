@@ -349,8 +349,11 @@ def test_ci_has_only_two_native_product_runners() -> None:
     runs_on = re.findall(r"^\s+runs-on: (\S+)$", workflow, flags=re.MULTILINE)
 
     assert {path.name for path in workflows.iterdir() if path.is_file()} == {"ci.yml"}
-    assert runs_on == ["ubuntu-latest", "macos-latest"]
+    assert set(runs_on) == {"ubuntu-latest", "macos-latest"}
+    # One product build per platform; the Python suite runs beside it in test shards.
     assert workflow.count("make contributor-check") == 2
+    assert workflow.count("make contributor-check-without-tests") == 2
+    assert workflow.count("make test-shard") == 2
     assert "make verify" not in workflow
     assert "make homebrew-smoke" not in workflow
     assert "goal/open-brain-five-minute-install" in workflow
@@ -386,9 +389,17 @@ def test_local_homebrew_smoke_uses_a_temporary_tap() -> None:
     ]
     native_smoke = makefile.split("native-integration-smoke:", 1)[1].split("\n\n", 1)[0]
     assert native_smoke == " homebrew-smoke"
-    verify = makefile.split("verify:", 1)[1].split("\n\n", 1)[0]
-    assert "plugin-test" in verify
-    assert "desktop-test" in verify
+    without_tests = makefile.split("contributor-check-without-tests:\n", 1)[1].split("\n\n", 1)[0]
+    assert without_tests.splitlines() == [
+        "\t$(MAKE) verify-without-tests",
+        "\t$(MAKE) native-integration-smoke",
+        "\t$(MAKE) desktop-native",
+    ]
+    verify = makefile.split("\nverify:", 1)[1].split("\n\n", 1)[0]
+    assert verify == " lint typecheck test verify-without-tests"
+    verify_without_tests = makefile.split("\nverify-without-tests:", 1)[1].split("\n\n", 1)[0]
+    assert "plugin-test" in verify_without_tests
+    assert "desktop-test" in verify_without_tests
     assert "contributor-check" in makefile.splitlines()[0]
 
 
