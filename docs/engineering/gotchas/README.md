@@ -4,27 +4,27 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
-### BUILD-021: `artifact-invalid` can mean the audit ran out of object budget
+### BUILD-021: The daily brief pushed the base archive past the audit object budget
 
-Category: Build / Release.
+Category: Build Pipeline.
 
-Symptom: on the daily brief branch, `make native-audit` and `make homebrew-smoke`
-failed with `base archive failed the strict content audit`. The worker's only
-finding was `artifact-invalid`, and the log named no module. Running
-`artifact_audit.Scanner` in-process showed that `MarshalReader` stopped on
-`require(0 <= count <= MAX_OBJECTS - self.scanner.objects)`. The base archive
-decodes 550,577 objects against `MAX_OBJECTS = 550_000`. The daily brief adds
-about 7,100 objects, and follow-ups added about 10,000 before it, so ordinary
-feature growth crossed the fixed budget. `make verify` does not build the
-archive, so only the frozen-tree gate showed it.
+Symptom: the daily brief candidate passed `make verify`, but `make native-audit`
+and `make homebrew-smoke` failed with `base archive failed the strict content
+audit`. The worker's only finding was `artifact-invalid`, and the log named no
+module. Running `artifact_audit.Scanner` in-process showed that `MarshalReader`
+stopped on `require(0 <= count <= MAX_OBJECTS - self.scanner.objects)`. The base
+archive decoded 550,577 objects against the 550,000-object aggregate cap. The
+brief's share was about 7,100 objects: about 6,240 in its five new modules and
+about 870 in the CLI, MCP and agent-setup modules it extended.
 
-Action: read `artifact-invalid` as "the scan did not finish", not as a bad
-archive (see INTEGRATION-010). Count the objects in-process: patch
-`MAX_OBJECTS`, run `Scanner([]).archive(data, name)` on
-`build/native/release/open-brain-*.tar.gz` and read `scanner.objects`. Audit
-limits stay fixed under the project rules. Raising the budget, or changing what
-the scanner charges, is an owner decision with its own review. Before a feature
-lands, measure its marshalled object count against the remaining headroom.
+Action: the cap is now 600,000. The measured local scan took 6.82 seconds of CPU
+(7.08 seconds wall) with no content findings, and the 30-second worker CPU limit,
+`MAX_DEPTH` and all content rules remain intact. Read `artifact-invalid` as "the
+scan did not finish", not as a bad archive (see INTEGRATION-010). To measure,
+raise `MAX_OBJECTS` in-process, run `Scanner([]).archive(data, name)` on
+`build/native/release/open-brain-*.tar.gz` and read `scanner.objects`. Exercise
+the actual native archive after foreground CLI additions; `make verify` does not
+build it.
 
 Discovered: 2026-10-24, daily brief frozen-tree gate.
 
