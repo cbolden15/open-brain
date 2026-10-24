@@ -249,13 +249,13 @@ class SourceFreshnessTasks:
                 family = families.get(key)
                 if family is None:
                     family = families[key] = _Family(
-                        kind, label, space_id, recorded, row["recorded_at"]
+                        kind, label, space_id, recorded, _timestamp(recorded)
                     )
                 family.capture_count += 1
                 if row["availability"] in UNAVAILABLE:
                     family.unavailable_count += 1
                 if recorded > family.newest:
-                    family.newest, family.newest_text = recorded, row["recorded_at"]
+                    family.newest, family.newest_text = recorded, _timestamp(recorded)
         report = tuple(
             sorted(
                 (

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import replace
 from datetime import timedelta
@@ -26,6 +27,7 @@ from open_brain_engine.engine.source_freshness import (
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 
 from open_brain.profile import compile_single_user_local
+from open_brain.services.brief_log import _require_fingerprint
 from open_brain.services.t03_adapters import agent_authority, owner_authority
 from packages.app.tests.unit.engine.test_followups import (
     FROZEN,
@@ -212,6 +214,22 @@ def test_newest_recorded_at_is_the_latest_head_and_moves_with_revisions(tmp_path
     family = _by_id(_freshness(engine, _owner(engine)))["consumer:synthetic/alpha:unassigned"]
     assert family.newest_recorded_at == _timestamp(FROZEN + timedelta(days=5))
     assert family.capture_count == 2
+
+
+@pytest.mark.parametrize("stored", ["2026-10-23T09:00:00+00:00", "2026-10-23T09:00:00"])
+def test_newest_recorded_at_is_canonical_for_a_non_canonical_stored_value(
+    tmp_path: Path, stored: str
+) -> None:
+    clock = Clock(FROZEN)
+    engine = _engine(tmp_path, clock)
+    source = _namespace_source(engine, "alpha", "Synthetic alpha first")
+    _sql(
+        engine, "UPDATE source_revisions SET recorded_at=? WHERE capture_id=?", stored, source.head
+    )
+    family = _by_id(_freshness(engine, _owner(engine)))["consumer:synthetic/alpha:unassigned"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", family.newest_recorded_at)
+    assert family.newest_recorded_at == _timestamp(FROZEN)
+    _require_fingerprint({"newest_recorded_at": family.newest_recorded_at, "unavailable_count": 0})
 
 
 def test_stale_cutoff_under_a_frozen_clock(tmp_path: Path) -> None:

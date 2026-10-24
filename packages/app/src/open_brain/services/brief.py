@@ -75,8 +75,8 @@ _DECIDED_STATES = frozenset({FollowupState.DISMISSED, FollowupState.RESOLVED})
 _DECIDING_ACTIONS = frozenset({"dismiss", "resolve"})
 _UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _SPACE_ID = re.compile(r"^space_" + _UUID4 + "$")
-# The contract's family-ID bound (brief_contracts._FAMILY_ID): 1..2200 non-control characters,
-# here also refusing a leading space. Connector names and connection IDs may be non-ASCII.
+# The contract's family-ID bound (brief_contracts._FAMILY_ID): 1..2200 non-control characters.
+# Connector names and connection IDs may be non-ASCII.
 _FAMILY_REF = re.compile(r"^family:(consumer|markdown):[^\x00-\x1f\x7f]{1,2200}$")
 
 
