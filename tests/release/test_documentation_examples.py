@@ -177,24 +177,11 @@ def test_compatibility_values_are_bound_to_named_rows() -> None:
         validate_compatibility_matrix(catalog_mutant)
 
 
-def test_documentation_and_desktop_bind_the_current_runtime_compatibility() -> None:
-    root = Path(__file__).resolve().parents[2]
+def test_documentation_binds_the_current_runtime_compatibility() -> None:
     assert COMPATIBILITY_COORDINATES["Local state schema"] == str(
         PHASE1_STATE_SCHEMA_VERSION
     )
     assert COMPATIBILITY_COORDINATES["Runtime session"] == str(RUNTIME_SESSION_VERSION)
-
-    desktop_runtime = (root / "packages/desktop/src-tauri/src/runtime.rs").read_text(
-        encoding="utf-8"
-    )
-    assert (
-        f"const SUPPORTED_STATE_SCHEMA: u64 = {PHASE1_STATE_SCHEMA_VERSION};"
-        in desktop_runtime
-    )
-    assert (
-        f"const SUPPORTED_RUNTIME_SESSION: u64 = {RUNTIME_SESSION_VERSION};"
-        in desktop_runtime
-    )
 
 
 def test_readme_mcp_examples_reject_missing_widened_and_reordered_cases() -> None:
