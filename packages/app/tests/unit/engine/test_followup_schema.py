@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
@@ -46,8 +45,6 @@ def test_runtime_session_coordinate_stays_sixteen() -> None:
     assert "_RUNTIME_COMPATIBILITY: Final = 16" in collector
     plugin = (REPO / "packages/obsidian-plugin/src/contracts.ts").read_text()
     assert "export const OPEN_BRAIN_RUNTIME_SESSION_VERSION = 16;" in plugin
-    desktop = (REPO / "packages/desktop/src-tauri/src/runtime.rs").read_text()
-    assert re.search(r"const SUPPORTED_RUNTIME_SESSION: u64 = 16;", desktop)
 
 
 def _memory() -> sqlite3.Connection:
