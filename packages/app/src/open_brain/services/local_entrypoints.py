@@ -1189,7 +1189,7 @@ def _parser() -> argparse.ArgumentParser:
         "--allow-brief-ack",
         action="store_true",
         help="Allow acknowledging a capture family so it leaves this session's briefs until it "
-        "changes.",
+        "changes; acknowledging also needs --allow-brief-read.",
     )
     add_facet_grant_flags(mcp_parser)
 

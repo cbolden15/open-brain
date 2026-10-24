@@ -39,11 +39,12 @@ LOG_ITEM_KEYS = frozenset({"changed", "evidence", "kind", "rank", "ref", "reason
 _KEY = re.compile(r"^[0-9a-f]{64}$")
 _UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _EVIDENCE_ID = re.compile(r"^evidence_" + _UUID4 + "$")
-# Family IDs are "consumer:<connector_name>/<connection_id>:<space_id>" or "markdown:<space_id>"
-# (Package 1). Connector names may hold spaces and non-ASCII text, so the bound is the contract's
-# (brief_contracts._FAMILY_ID): 1..2200 non-control characters, here without a leading space.
-_FAMILY_REF = re.compile(r"^family:[^\x00-\x20\x7f][^\x00-\x1f\x7f]{0,2199}$")
-_REF = re.compile(r"^(followup|family):[^\x00-\x20\x7f][^\x00-\x1f\x7f]{0,2199}$")
+# Refs follow the contract exactly (brief_contracts._FAMILY_ID and _FOLLOWUP_ID): a family ID is
+# "consumer:<connector_name>/<connection_id>:<space_id>" or "markdown:<space_id>", the part after
+# the prefix 1..2200 non-control characters (connector names may hold spaces and non-ASCII text).
+_FAMILY_BODY = r"family:(consumer|markdown):[^\x00-\x1f\x7f]{1,2200}"
+_FAMILY_REF = re.compile("^" + _FAMILY_BODY + "$")
+_REF = re.compile("^(followup:followup_" + _UUID4 + "|" + _FAMILY_BODY + ")$")
 _TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$")
 _KINDS = frozenset(kind.value for kind in BriefItemKind)
 _CHANGES = frozenset(change.value for change in BriefChange)

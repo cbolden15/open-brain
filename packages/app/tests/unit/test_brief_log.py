@@ -198,7 +198,7 @@ def test_ack_records_fingerprints_under_compare_and_swap(tmp_path: Path) -> None
         "family:consumer:synthetic:space_1": fingerprint
     }
     assert read.file.briefs == () and store.last(KEY) is None
-    assert store.ack(KEY, "family:x", fingerprint, expected_sha256=None) is False
+    assert store.ack(KEY, "family:markdown:x", fingerprint, expected_sha256=None) is False
     newer = FamilyFingerprint("2026-10-21T08:00:00Z", 0)
     assert store.ack(
         KEY, "family:consumer:synthetic:space_1", newer, expected_sha256=read.file.sha256
@@ -231,3 +231,13 @@ def test_entries_never_carry_text_fields(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         store.append(KEY, text_coverage, expected_sha256=None)
     assert store.read(KEY).file is None
+
+
+def test_refs_follow_the_contract_bound_exactly(tmp_path: Path) -> None:
+    store, _state = _store(tmp_path)
+    fingerprint = FamilyFingerprint("2026-10-20T08:00:00Z", 0)
+    longest = "family:consumer:" + "x" * 2200
+    assert store.ack(KEY, longest, fingerprint, expected_sha256=None)
+    for ref in ("family:x", "family:consumer:", "family:consumer:" + "x" * 2201, "family:f-a"):
+        with pytest.raises(ValueError):
+            store.ack(KEY, ref, fingerprint, expected_sha256=None)

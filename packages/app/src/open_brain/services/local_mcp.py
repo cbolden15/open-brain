@@ -906,7 +906,7 @@ class LocalMcpAdapter:
                     {
                         "family_ref": {
                             "type": "string",
-                            "pattern": "^family:[^\\x00-\\x20\\x7f][^\\x00-\\x1f\\x7f]{0,2199}$",
+                            "pattern": "^family:(consumer|markdown):[^\\x00-\\x1f\\x7f]{1,2200}$",
                         }
                     },
                     required=["family_ref"],

@@ -12,7 +12,7 @@ import re
 import sqlite3
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -30,8 +30,6 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 from open_brain.services.brief_authority import BriefSessionAuthority, visibility_key
 from open_brain.services.brief_contracts import (
     BRIEF_FOLLOWUP_SCAN_LIMIT,
-    BRIEF_GRANT_ACK,
-    BRIEF_GRANT_READ,
     BRIEF_GRANTS,
     BRIEF_MAX_FAMILY_ITEMS,
     BRIEF_MAX_ITEMS,
@@ -79,7 +77,7 @@ _UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _SPACE_ID = re.compile(r"^space_" + _UUID4 + "$")
 # The contract's family-ID bound (brief_contracts._FAMILY_ID): 1..2200 non-control characters,
 # here also refusing a leading space. Connector names and connection IDs may be non-ASCII.
-_FAMILY_REF = re.compile(r"^family:[^\x00-\x20\x7f][^\x00-\x1f\x7f]{0,2199}$")
+_FAMILY_REF = re.compile(r"^family:(consumer|markdown):[^\x00-\x1f\x7f]{1,2200}$")
 
 
 def default_brief_clock() -> datetime:
@@ -154,16 +152,35 @@ def followup_candidates(
 ) -> FollowupProviderResult:
     """Scan open items and decided items with new evidence under ``authority``.
 
-    Two bounded scans (open: suggested or confirmed; decided: dismissed or resolved with
-    ``include_closed``), each stopping at ``BRIEF_FOLLOWUP_SCAN_LIMIT`` rows. ``capture_filter``
-    is the owner's ``--space`` selection as a set of capture IDs; an item stays when any of its
-    evidence rows cites one of them. Clients never pass it: their authority's ``space_ids``
-    already governs every read.
+    The open budget is ``BRIEF_FOLLOWUP_SCAN_LIMIT`` rows. The engine lists in creation order, so
+    items due today or earlier are scanned first (``due_before`` is exclusive, hence tomorrow)
+    and the rest of the budget is filled from the general open scan, deduplicated by item ID; a
+    newly created due item is never pushed out by older open items. The decided scan (dismissed
+    or resolved, ``include_closed``) is a separate ``BRIEF_FOLLOWUP_SCAN_LIMIT`` rows in creation
+    order: ``ListFilter`` cannot select ``new_evidence_since_decision``, so past that bound newer
+    decided items are not examined and ``truncated`` reports it. ``capture_filter`` is the
+    owner's ``--space`` selection as a set of capture IDs; an item stays when any of its evidence
+    rows cites one of them. Clients never pass it: their authority's ``space_ids`` already
+    governs every read.
     """
     try:
-        open_items, open_more = _scan(
-            followups, authority, states=_OPEN_STATES, include_closed=False
+        due, due_more = _scan(
+            followups,
+            authority,
+            states=_OPEN_STATES,
+            include_closed=False,
+            due_before=today + timedelta(days=1),
         )
+        rest, rest_more = _scan(
+            followups,
+            authority,
+            states=_OPEN_STATES,
+            include_closed=False,
+            limit=BRIEF_FOLLOWUP_SCAN_LIMIT - len(due),
+        )
+        seen = {item.item_id for item in due}
+        open_items = [*due, *(item for item in rest if item.item_id not in seen)]
+        open_more = due_more or rest_more
         decided, decided_more = _scan(
             followups, authority, states=_DECIDED_STATES, include_closed=True
         )
@@ -186,15 +203,19 @@ def _scan(
     *,
     states: frozenset[FollowupState],
     include_closed: bool,
+    limit: int = BRIEF_FOLLOWUP_SCAN_LIMIT,
+    due_before: date | None = None,
 ) -> tuple[list[FollowupItem], bool]:
+    """At most ``limit`` rows; the flag is true when rows may remain (always for a zero budget)."""
     items: list[FollowupItem] = []
     cursor: str | None = None
-    while len(items) < BRIEF_FOLLOWUP_SCAN_LIMIT:
+    while len(items) < limit:
         page, cursor = followups.list(
             ListFilter(
                 states=states,
                 include_closed=include_closed,
-                limit=min(BRIEF_SCAN_PAGE, BRIEF_FOLLOWUP_SCAN_LIMIT - len(items)),
+                due_before=due_before,
+                limit=min(BRIEF_SCAN_PAGE, limit - len(items)),
                 cursor=cursor,
             ),
             authority=authority,
@@ -542,6 +563,7 @@ def brief_generate(
         or not BRIEF_STALE_DAYS_MIN <= stale_days <= BRIEF_STALE_DAYS_MAX
     ):
         raise BriefError("invalid_request")
+    _require_known_spaces(tasks, session.authority, selected)
     authority = _scoped_authority(session.authority, selected)
     now = clock()
     generated_at = _timestamp(now)
@@ -615,14 +637,13 @@ def brief_ack(
     tasks: Any, session: BriefSessionAuthority, *, log: BriefLogStore, family_ref: str
 ) -> dict[str, object]:
     """Record the family's current fingerprint for this visibility; CAS conflict is
-    ``version_conflict`` and the caller retries."""
+    ``version_conflict`` and the caller retries. Needs both ``brief-read`` and ``brief-ack``."""
+    if not session.brief_grants >= BRIEF_GRANTS:
+        # The grant flags are independent, but an ack takes effect only under the visibility key
+        # of a session that reads briefs, and its fingerprint is brief-read data: ack needs both.
+        raise BriefError("unsupported_capability")
     family_id = parse_family_ref(family_ref)
     authority = session.authority
-    if BRIEF_GRANT_ACK in session.brief_grants:
-        # brief-read and brief-ack are independent grants. The freshness task gates on
-        # brief-read, so an ack-only session resolves the family under its own tiers, spaces
-        # and egress; only the capability gate is satisfied, never the scope widened.
-        authority = replace(authority, capabilities=authority.capabilities | {BRIEF_GRANT_READ})
     try:
         report = tasks.source_freshness.freshness(
             authority, space_ids=None, stale_days=BRIEF_STALE_DAYS_DEFAULT
@@ -667,6 +688,7 @@ def brief_last(
     if not session.authority.owner:
         raise BriefError("unsupported_capability")
     selected = _validated_selection(space_ids)
+    _require_known_spaces(tasks, session.authority, selected)
     current = log.read(visibility_key(session, selected_space_ids=selected))
     if current.file is None or not current.file.briefs:
         return None
@@ -753,6 +775,26 @@ def _validated_selection(space_ids: Sequence[str] | None) -> tuple[str, ...] | N
     ):
         raise BriefError("invalid_request")
     return values
+
+
+def _require_known_spaces(
+    tasks: Any, authority: EffectiveAuthority, selected: tuple[str, ...] | None
+) -> None:
+    """Refuse a selection naming a space that does not exist or that the session cannot see.
+
+    Runs before any visibility key is derived, so unknown IDs can never mint key files (and
+    evict other sessions' logs, the owner's included)."""
+    if selected is None:
+        return
+    if authority.space_ids is not None and not frozenset(selected) <= authority.space_ids:
+        raise BriefError("invalid_request")
+    try:
+        known = {space.space_id for space in tasks.spaces.spaces()}
+    except Exception as error:  # noqa: BLE001 - classified by _raise_if_unreadable
+        _raise_if_unreadable(error)
+        raise BriefError("operation_pending") from None
+    if not set(selected) <= known:
+        raise BriefError("invalid_request")
 
 
 def _scoped_authority(

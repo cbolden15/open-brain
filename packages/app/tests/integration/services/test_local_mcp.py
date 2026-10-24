@@ -3081,10 +3081,12 @@ def test_live_brief_stdio_lists_only_granted_tools(
             acked = _exchange(
                 process, _call("brain_brief_ack", {"family_ref": "family:consumer:none:x"}, 6)
             )
+            # The flags are independent, but an ack needs brief-read too: ack-only is refused
+            # before any read, and read+ack reaches the family lookup.
             assert acked["result"]["structuredContent"] == {
                 "outcome": "refused",
                 "data": None,
-                "code": "not_found",
+                "code": "not_found" if "brain_brief" in tools else "unsupported_capability",
             }
         assert process.stdin is not None
         process.stdin.close()

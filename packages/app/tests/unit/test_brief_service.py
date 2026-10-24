@@ -41,6 +41,7 @@ from open_brain.services.brief import (
 from open_brain.services.brief_authority import BriefSessionAuthority, visibility_key
 from open_brain.services.brief_contracts import (
     BRIEF_FOLLOWUP_SCAN_LIMIT,
+    BRIEF_LOG_MAX_KEYS,
     BRIEF_MAX_FAMILY_ITEMS,
     BRIEF_MAX_ITEMS,
     BRIEF_RESPONSE_MAX_BYTES,
@@ -129,7 +130,15 @@ class _FakeFollowups:
         if self.list_error is not None:
             raise self.list_error
         rows = sorted(
-            (item for item in self.items if item.state in filter_.states),
+            (
+                item
+                for item in self.items
+                if item.state in filter_.states
+                and (
+                    filter_.due_before is None
+                    or (item.due is not None and item.due < filter_.due_before)
+                )
+            ),
             key=lambda item: (item.created_at, item.item_id),
         )
         if filter_.cursor is not None:
@@ -212,6 +221,7 @@ def test_followup_scan_pages_and_stops_at_the_cap_with_truncation() -> None:
         call
         for call in list_calls
         if call[1].states == frozenset({FollowupState.SUGGESTED, FollowupState.CONFIRMED})
+        and call[1].due_before is None
     ]
     assert len(open_pages) == BRIEF_FOLLOWUP_SCAN_LIMIT // BRIEF_SCAN_PAGE
     assert all(
@@ -582,6 +592,11 @@ WORK_SESSION = BriefSessionAuthority(
     brief_grants=frozenset({"brief-read"}),
     followup_grants=frozenset({"followup-read"}),
 )
+READ_ACK_SESSION = BriefSessionAuthority(
+    authority=replace(WORK, capabilities=WORK.capabilities | {"brief-ack"}),
+    brief_grants=frozenset({"brief-read", "brief-ack"}),
+    followup_grants=frozenset({"followup-read"}),
+)
 FAMILY_ONLY_SESSION = BriefSessionAuthority(
     authority=replace(WORK, capabilities=frozenset({"brief-read"})),
     brief_grants=frozenset({"brief-read"}),
@@ -606,6 +621,13 @@ class _Clock:
 class _FakeSpaces:
     captures: dict[str, tuple[str, ...]] = field(default_factory=dict)
     truncated: bool = False
+
+    def spaces(self, *, limit: int | None = None, offset: int = 0) -> tuple[Any, ...]:
+        assert limit is None and offset == 0
+        return tuple(
+            SimpleNamespace(space_id=space_id, name=space_id, slug=space_id)
+            for space_id in self.captures
+        )
 
     def space_capture_ids(self, space_id: str, *, limit: int) -> tuple[tuple[str, ...], bool]:
         assert 1 <= limit <= 10_000
@@ -973,7 +995,8 @@ def test_client_space_selection_must_stay_within_the_session_authority(tmp_path:
     )
     followups = _FakeFollowups(items=(DUE_ITEM,))
     freshness = _FakeFreshness((STALE_FAMILY,))
-    tasks = _tasks(tmp_path, followups=followups, freshness=freshness)
+    spaces = _FakeSpaces({SPACE_1: (), SPACE_2: ()})
+    tasks = _tasks(tmp_path, followups=followups, freshness=freshness, spaces=spaces)
     with pytest.raises(BriefError) as outside:
         brief_generate(tasks, session, log=_log(tasks), clock=_Clock(), space_ids=(SPACE_2,))
     assert outside.value.code == "invalid_request"
@@ -997,7 +1020,12 @@ def test_client_space_selection_must_stay_within_the_session_authority(tmp_path:
 
 def test_brief_last_is_owner_only_and_marks_unreadable_followups_withheld(tmp_path: Path) -> None:
     followups = _FakeFollowups(items=(DUE_ITEM,))
-    tasks = _tasks(tmp_path, followups=followups, freshness=_FakeFreshness((STALE_FAMILY,)))
+    tasks = _tasks(
+        tmp_path,
+        followups=followups,
+        freshness=_FakeFreshness((STALE_FAMILY,)),
+        spaces=_FakeSpaces({SPACE_1: ()}),
+    )
     log = _log(tasks)
     with pytest.raises(BriefError) as refused:
         brief_last(tasks, WORK_SESSION, log=log)
@@ -1087,8 +1115,10 @@ def test_evidence_is_capped_per_item_and_the_wire_fits_the_response_cap(tmp_path
 
 
 def test_bound_operations_validate_shapes_and_map_refusals(tmp_path: Path) -> None:
-    tasks = _tasks(tmp_path, freshness=_FakeFreshness((STALE_FAMILY,)))
-    bound = bind_brief_operations(tasks, WORK_SESSION, log=_log(tasks), clock=_Clock())
+    tasks = _tasks(
+        tmp_path, freshness=_FakeFreshness((STALE_FAMILY,)), spaces=_FakeSpaces({SPACE_2: ()})
+    )
+    bound = bind_brief_operations(tasks, READ_ACK_SESSION, log=_log(tasks), clock=_Clock())
     assert set(bound) == {"brief", "ack"}
     result = bound["brief"]({})
     assert result["outcome"] == "ok" and result["code"] is None
@@ -1153,24 +1183,101 @@ def test_family_ids_up_to_the_contract_bound_are_logged_and_acked(tmp_path: Path
     assert brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock()).items == ()
 
 
-def test_ack_needs_only_the_ack_grant_and_reads_families_under_the_session_scope(
-    tmp_path: Path,
-) -> None:
-    # brief-read and brief-ack are independent: an ack-only session still resolves the family
-    # under its own tiers and spaces (the MCP adapter gates the ack tool on brief-ack itself).
-    ack_only = BriefSessionAuthority(
-        authority=replace(WORK, capabilities=frozenset({"brief-ack"})),
-        brief_grants=frozenset({"brief-ack"}),
-        followup_grants=frozenset(),
-    )
+def test_ack_requires_both_brief_grants(tmp_path: Path) -> None:
+    # The grant flags are independent, but an ack only takes effect for a session that can read
+    # briefs (acks live under the visibility key of read sessions), so ack needs both grants.
     freshness = _FakeFreshness((STALE_FAMILY,))
     tasks = _tasks(tmp_path, freshness=freshness)
     log = _log(tasks)
-    acked = brief_ack(tasks, ack_only, log=log, family_ref="family:" + STALE_FAMILY.family_id)
-    assert acked["family_ref"] == "family:" + STALE_FAMILY.family_id
+    ref = "family:" + STALE_FAMILY.family_id
+    for grants in (frozenset({"brief-ack"}), frozenset({"brief-read"})):
+        session = BriefSessionAuthority(
+            authority=replace(WORK, capabilities=grants | {"followup-read"}),
+            brief_grants=grants,
+            followup_grants=frozenset({"followup-read"}),
+        )
+        with pytest.raises(BriefError) as refused:
+            brief_ack(tasks, session, log=log, family_ref=ref)
+        assert refused.value.code == "unsupported_capability", grants
+    assert freshness.calls == [], "a refused ack reads nothing"
+    assert not (brief_state_dir(tasks.profile) / "briefs").exists(), "and writes nothing"
+    acked = brief_ack(tasks, READ_ACK_SESSION, log=log, family_ref=ref)
+    assert acked["family_ref"] == ref
     authority, space_ids, _days = freshness.calls[-1]
-    assert "brief-read" in authority.capabilities and authority.owner is False
-    assert authority.allowed_read_tiers == WORK.allowed_read_tiers and space_ids is None
+    assert authority is READ_ACK_SESSION.authority and space_ids is None
     with pytest.raises(BriefError) as unknown:
-        brief_ack(tasks, ack_only, log=log, family_ref="family:consumer:synthetic/none:x")
+        brief_ack(tasks, READ_ACK_SESSION, log=log, family_ref="family:consumer:synthetic/none:x")
     assert unknown.value.code == "not_found"
+    assert brief_generate(tasks, READ_ACK_SESSION, log=log, clock=_Clock()).items == ()
+
+
+def test_newest_open_item_that_is_due_survives_the_scan_cap(tmp_path: Path) -> None:
+    start = datetime(2026, 9, 1, tzinfo=UTC)
+    older = tuple(
+        _Item(
+            _item_id(index),
+            FollowupState.CONFIRMED,
+            created_at=(start + timedelta(minutes=index)).isoformat().replace("+00:00", "Z"),
+        )
+        for index in range(BRIEF_FOLLOWUP_SCAN_LIMIT + 100)
+    )
+    newest_due = _Item(
+        _item_id(999_999),
+        FollowupState.SUGGESTED,
+        due=TODAY,
+        created_at="2026-10-23T09:00:00Z",
+    )
+    followups = _FakeFollowups(items=(*older, newest_due))
+    result = followup_candidates(followups, WORK, today=TODAY)
+    by_id = {candidate.item_id: candidate for candidate in result.candidates}
+    assert by_id[newest_due.item_id].kind is BriefItemKind.FOLLOWUP_DUE
+    assert result.scanned == BRIEF_FOLLOWUP_SCAN_LIMIT and result.truncated is True
+    due_pages = [call for call in followups.calls if call[0] == "list" and call[1].due_before]
+    assert due_pages and all(
+        call[1].due_before == TODAY + timedelta(days=1) for call in due_pages
+    ), "due_before is exclusive, so tomorrow admits items due today"
+    tasks = _tasks(tmp_path, followups=followups)
+    brief = brief_generate(tasks, OWNER_SESSION, log=_log(tasks), clock=_Clock())
+    assert brief.items[0].ref == "followup:" + newest_due.item_id
+    assert brief.items[0].kind is BriefItemKind.FOLLOWUP_DUE
+    assert brief.coverage.followups_truncated is True
+
+
+def test_client_space_ids_that_do_not_exist_never_create_key_files(tmp_path: Path) -> None:
+    tasks = _tasks(
+        tmp_path, freshness=_FakeFreshness((STALE_FAMILY,)), spaces=_FakeSpaces({SPACE_1: ()})
+    )
+    log = _log(tasks)
+    brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock())
+    owner_path = _log_path(tasks, OWNER_SESSION)
+    owner_bytes = owner_path.read_bytes()
+    bound = bind_brief_operations(tasks, READ_ACK_SESSION, log=log, clock=_Clock())
+    for index in range(BRIEF_LOG_MAX_KEYS):
+        unknown = f"space_3e6e8e2c-e638-47c6-8195-4bd6f3{index + 100:06d}"
+        assert bound["brief"]({"space_ids": [unknown]}) == {
+            "outcome": "refused",
+            "data": None,
+            "code": "invalid_request",
+        }
+        with pytest.raises(BriefError) as refused:
+            brief_generate(tasks, OWNER_SESSION, log=log, clock=_Clock(), space_ids=(unknown,))
+        assert refused.value.code == "invalid_request"
+    assert owner_path.read_bytes() == owner_bytes
+    assert [path.name for path in (owner_path.parent).glob("*.json")] == [owner_path.name]
+    # A space that exists but lies outside the session's own spaces is refused the same way.
+    narrowed = BriefSessionAuthority(
+        authority=replace(WORK, space_ids=frozenset({SPACE_2})),
+        brief_grants=frozenset({"brief-read"}),
+        followup_grants=frozenset({"followup-read"}),
+    )
+    with pytest.raises(BriefError) as outside:
+        brief_generate(tasks, narrowed, log=log, clock=_Clock(), space_ids=(SPACE_1,))
+    assert outside.value.code == "invalid_request"
+    # The ack path takes no selection at all.
+    with pytest.raises(BriefServiceError):
+        validate_brief_arguments(
+            "ack", {"family_ref": "family:" + STALE_FAMILY.family_id, "space_ids": [SPACE_1]}
+        )
+    with pytest.raises(BriefError) as last:
+        brief_last(tasks, OWNER_SESSION, log=log, space_ids=(SPACE_2,))
+    assert last.value.code == "invalid_request"
