@@ -408,6 +408,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         from .followups import FollowupTasks
 
         self.followups = FollowupTasks(self)
+        from .source_freshness import SourceFreshnessTasks
+
+        self.source_freshness = SourceFreshnessTasks(self)
         self.capture = CaptureTasks(self)
         self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
@@ -460,6 +463,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             embedding_policy=self.embedding_policy,
             owner_egress_policy=self.owner_egress_policy,
             followups=self.followups,
+            source_freshness=self.source_freshness,
         )
 
     @classmethod
