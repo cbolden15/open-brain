@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
@@ -290,9 +291,9 @@ fn receive(stream: &mut UnixStream, timeout: Duration) -> Result<Vec<u8>, String
         if remaining.is_zero() {
             return Err("collector_lost_response".into());
         }
-        stream
-            .set_read_timeout(Some(remaining))
-            .map_err(|_| "collector_lost_response")?;
+        if !readable(stream, remaining)? {
+            continue;
+        }
         let count = stream
             .read(&mut buffer)
             .map_err(|_| "collector_lost_response")?;
@@ -311,6 +312,26 @@ fn receive(stream: &mut UnixStream, timeout: Duration) -> Result<Vec<u8>, String
         return Err("collector_invalid_response".into());
     }
     Ok(bytes)
+}
+
+/// Waits with poll(2) instead of a receive timeout: macOS refuses SO_RCVTIMEO with EINVAL once
+/// the peer has closed, even while its complete response is still buffered.
+fn readable(stream: &UnixStream, timeout: Duration) -> Result<bool, String> {
+    let mut descriptor = libc::pollfd {
+        fd: stream.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let milliseconds =
+        libc::c_int::try_from(timeout.as_millis().max(1)).unwrap_or(libc::c_int::MAX);
+    match unsafe { libc::poll(&mut descriptor, 1, milliseconds) } {
+        0 => Ok(false),
+        -1 if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted => {
+            Ok(false)
+        }
+        -1 => Err("collector_lost_response".into()),
+        _ => Ok(true),
+    }
 }
 
 impl Drop for CollectorConnection {
@@ -364,6 +385,17 @@ mod tests {
         assert_eq!(
             send(client, "sources.status", json!({})).unwrap_err(),
             "account_not_connected"
+        );
+    }
+
+    #[test]
+    fn receives_a_complete_response_after_the_peer_closed() {
+        let (mut client, mut server) = UnixStream::pair().unwrap();
+        server.write_all(b"{}\n").unwrap();
+        drop(server);
+        assert_eq!(
+            receive(&mut client, Duration::from_secs(1)).unwrap(),
+            b"{}\n"
         );
     }
 

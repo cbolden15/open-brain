@@ -116,13 +116,14 @@ describe("actual T07 modals", () => {
     } as never, {} as never);
     plugin.settings = { executablePath: executable, inferencePaused: true };
     const running = plugin.refreshPresentation("manual");
-    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+    // The read follows a real child round trip, which takes over a second under suite load.
+    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce(), { timeout: 10_000 });
     plugin.onunload();
     finishRead(JSON.stringify({ nodes: [{ text: "# Open Brain graph" }] }));
     await running;
     expect(processFile).not.toHaveBeenCalled();
     expect(openFile).not.toHaveBeenCalled();
-  });
+  }, 20_000);
   it("offers classification for engine records without a managed file", async () => {
     const item = summary(0);
     const classify = vi.fn(async (_item: unknown, _cancelled: () => boolean) => {});

@@ -4,6 +4,43 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### CONTROL-004: macOS refuses a socket receive timeout after the peer closes
+
+Category: Control / Platform.
+
+Symptom: the desktop test `control_roundtrip_binds_response_to_request` failed
+on macOS CI about once in a few hundred runs with `collector_lost_response`,
+although the responder thread had sent a complete reply. The responder writes its
+reply and closes at once. When that happened before `receive()` called
+`set_read_timeout`, macOS failed the `setsockopt(SO_RCVTIMEO)` call with
+`EINVAL`, and `receive()` reported the buffered reply as lost. Linux accepts the
+call, so the race never showed there. A real collector that answers and hangs up
+quickly hits the same race in the desktop app.
+
+Action: bound socket reads with `poll(2)` and the remaining deadline, as
+`collector.rs` `readable()` does, instead of setting `SO_RCVTIMEO` per read. To
+reproduce, write a complete frame, close the peer, then receive; the test
+`receives_a_complete_response_after_the_peer_closed` does this.
+
+Discovered: 2026-10-23, CI flake triage after PR #103.
+
+### CI-003: Hosted-runner cold-start samples need the fastest sample, not the median
+
+Category: CI / Measurement.
+
+Symptom: the macOS `nw0_graphify_probe.startup` check failed twice, on
+2026-10-20 and on PR #107. Baseline and candidate are the same executable, yet
+the candidate's median cold start came out 0.68 s slower against a 0.5 s budget.
+Single cold samples after `purge` ranged from 1.1 s to 3.3 s on hosted macOS
+runners. Linux samples stayed within 0.05 s.
+
+Action: the check compares each layout's fastest sample. Interference on a shared
+host only adds time, and a real cost raises every sample. Across 20 retained macOS
+runs the fastest-sample delta never exceeded 0.30 s, while the median delta
+reached 0.68 s. A paired median reached 0.51 s, so pairing alone does not fix it.
+
+Discovered: 2026-10-23, CI flake triage.
+
 ### TESTING-015: Ancestor trust checks pass on macOS and fail under Linux `/tmp`
 
 Category: Testing / Platform.
@@ -31,10 +68,18 @@ its default 1000 ms timeout at 1008 ms. Python tests were running concurrently
 on the same machine. Three isolated reruns passed 702/702. W5 does not touch the
 plugin.
 
-Action: when this is the only failure, rerun the plugin suite alone with
-`make plugin-test` before treating it as a regression, and record both results.
-Do not raise the timeout or change the test to hide it; a repeat in an isolated
-run is a real failure.
+Update, 2026-10-23: it also repeats in isolated plugin runs. The full plugin
+suite alone, with nothing else running, failed 4 of 6 runs on `main` and 5 of 5
+in a fresh worktree. The waited-for `read` follows a real child-process round trip
+(spawn, handshake, status, reconcile). That round trip took 357–409 ms when the
+test ran by itself and 816–1,733 ms beside the other plugin test files, so the
+1,000 ms default sat inside its normal range. The test checks unload-during-read
+behavior, not latency. It now waits up to 10 s, with the 20 s test timeout used
+for other child-spawning plugin tests, and passed 8 of 8 full-suite runs.
+
+Action: a `vi.waitFor` that waits on a real child process needs an explicit
+timeout above that process's loaded latency. Measure the latency before choosing
+one. A failure that persists with a 10 s wait is a real failure.
 
 Discovered: 2026-10-22, W5 guided Slack final verify.
 
