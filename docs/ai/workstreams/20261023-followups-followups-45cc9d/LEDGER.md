@@ -18,3 +18,5 @@ Planned: one task-tdd-implementer and one task-spec-compliance-reviewer per pack
 | 8 | task-spec-compliance-reviewer | P4 | opus | APPROVED_WITH_FIXES; findings 1–3 sent to child 7 (resumed), fixed in 95abd72; 4–5 carried into BRIEF-P5 |
 | 9 | task-tdd-implementer | P5 (Tasks 19–21) | opus | done with concerns: 3 commits b5ac63e..1e1cce2; verify fails only on pre-existing consumer-intake lock race (unchanged files; 60/60 isolated) |
 | 10 | task-spec-compliance-reviewer | P5 | opus | APPROVED_WITH_FIXES; 4 minor doc fixes applied by coordinator in Task 22 |
+
+Task 22 (coordinator): gate 1 at d8adf89 found native smoke Portable-17 pin and archived-desktop test pin; fixed in 5b48a8d. Gate 2 at 648bd42: native-audit, homebrew-smoke, umask 022/077 basetemp, diff-check, actionlint pass; make verify 9418 passed / 1 known calendar flake (passes alone), verify-without-tests pass (plugin 702/702). Status: PR-ready, not pushed. Children used: 10 of 12.
