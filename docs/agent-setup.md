@@ -71,7 +71,7 @@ The W2 candidate requires an explicit session policy before any MCP session can 
 Slack-derived Work records, approved copies or publications containing that evidence.
 This includes sessions with owner grants. Direct owner CLI access remains available;
 ordinary non-Slack MCP reads retain their existing behavior. The gate arrived with
-schema/runtime/Portable `17/12/12` and remains in the current `21/16/16` runtime. Older binaries do not gain it.
+schema/runtime/Portable `17/12/12` and remains in the current `23/16/18` runtime. Older binaries do not gain it.
 Policy-omitted graph projection withholds the whole-workspace structural cache before
 reading it: its global extraction and freshness cannot be safely scoped. Authorized
 inferred suggestions remain available. Direct owner and explicit-policy behavior

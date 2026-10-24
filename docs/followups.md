@@ -86,11 +86,14 @@ Repeat the same options with `--apply --preview-id ID` to apply the previewed fr
 with `--session-policy`) refuses the follow-up flags. The owner CLI needs no grants and has full
 authority over every item.
 
+A session is not offered the tools for grants it lacks. Calling one anyway fails with "unknown
+tool".
+
 ## Which sessions see which items
 
 Every MCP session is Work-only for follow-ups by default. This includes an unscoped
-`open-brain mcp --allow-followup-read` session, which may run search and review with owner
-authority but reads and writes only Work follow-ups.
+`open-brain mcp --allow-followup-read` session, which with other grants may run search and review
+with owner authority but reads and writes only Work follow-ups.
 
 A session started with a launcher policy (`--session-policy`) reads the tiers that policy lists in
 `allowed_read_tiers`, so Personal or Public items are visible only when the policy allows that
@@ -277,7 +280,7 @@ input gives a Brain with no follow-ups.
 | `duplicate_item` | The origin quote already belongs to an item; that item's ID is returned |
 | `invalid_request` | Snooze date not after today, due date with no stating quote, or an action not allowed in the item's state |
 | `capacity_reached` | The Brain already holds 10,000 items, or the item has 50 evidence rows |
-| `unsupported_capability` | The session lacks the grant the operation needs |
+| `unsupported_capability` | The session's launcher policy or capability set does not allow the operation (a tool for a missing grant is not offered at all) |
 | `operation_pending` | An unfinished Brain maintenance operation, such as a privacy migration, blocks the request; finish it and retry |
 
 No other refusal code is returned.
@@ -297,7 +300,7 @@ No other refusal code is returned.
 ## What is not in version 1
 
 - Detection inside Open Brain, by a managed model or by local rules. Your client detects.
-- Feeding the existing Slack regex developments in as automatic candidates.
+- Using the existing Slack pattern matches as automatic candidates.
 - Any write to a ticket system or any outgoing message. Draft ticket updates and follow-up
   messages stay in your client conversation until you act on them yourself.
 - Follow-up tools for external-provider MCP sessions.
