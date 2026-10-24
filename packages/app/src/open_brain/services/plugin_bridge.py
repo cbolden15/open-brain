@@ -1288,6 +1288,8 @@ def _agent_setup(
         "allow_followup_read",
         "allow_followup_propose",
         "allow_followup_decide",
+        "allow_brief_read",
+        "allow_brief_ack",
     }
     if operation == "agent.setup.apply":
         required.add("preview_id")
@@ -1315,6 +1317,8 @@ def _agent_setup(
             allow_followup_read=arguments.get("allow_followup_read", False),
             allow_followup_propose=arguments.get("allow_followup_propose", False),
             allow_followup_decide=arguments.get("allow_followup_decide", False),
+            allow_brief_read=arguments.get("allow_brief_read", False),
+            allow_brief_ack=arguments.get("allow_brief_ack", False),
             client=arguments["client"],
             environment=environment,
             project_dir=arguments.get("project_dir"),
@@ -1341,6 +1345,8 @@ def _agent_setup(
         allow_followup_read=arguments.get("allow_followup_read", False),
         allow_followup_propose=arguments.get("allow_followup_propose", False),
         allow_followup_decide=arguments.get("allow_followup_decide", False),
+        allow_brief_read=arguments.get("allow_brief_read", False),
+        allow_brief_ack=arguments.get("allow_brief_ack", False),
         client=arguments["client"],
         environment=environment,
         preview_id=arguments["preview_id"],

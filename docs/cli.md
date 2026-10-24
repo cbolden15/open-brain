@@ -31,6 +31,7 @@ opening a Brain. See the [feature/version matrix](core-v01-features.md).
 | `sharing preview/inspect/approve/reject/revoke` | Owner-approved exact saved-Markdown copy; [saved Markdown lifecycle](integrations/saved-markdown-lifecycle.md) |
 | `review propose/list/show/approve/reject/edit-and-approve` | Source-bound drafts and inspected decisions; [review](review-publication.md) |
 | `followup list/show/propose/add-evidence/decide` | Commitments and open questions with exact-quote evidence and kept history; [follow-ups](followups.md) |
+| `brief` | Daily work brief on request: `brief [--space NAME ...] [--stale-days N]` (also `brief generate`); `brief ack` acknowledges a capture family by `FAMILY_REF`; `brief last` shows the last saved brief; rule-based, no model; [daily brief](daily-brief.md) |
 | `agent setup` | Preview/apply/remove client fragments with explicit grants; [agent setup](agent-setup.md) |
 | `workspace` | Setup/status/refresh, note lifecycle/conflicts and recovery; [workspace recovery](managed-workspace-recovery.md) |
 | `historical recover` | Owner-only forward completion of a retained historical-authority transition before ordinary startup |
@@ -183,8 +184,8 @@ a link, resolve a conflict, or mutate a note. Until a provider adapter is config
 `provider_not_configured` without an inference attempt. The process owns no listener and ends at EOF.
 
 Capture, search, content-read, history-read, inbox-read, organize, review-read, review-propose,
-review-decide, followup-read, followup-propose and followup-decide are independent `--allow-...`
-flags; workspace-read and graph-refresh are additional
+review-decide, followup-read, followup-propose, followup-decide, brief-read and brief-ack are
+independent `--allow-...` flags; workspace-read and graph-refresh are additional
 manual MCP grants. A scoped deployment passes `--session-policy` with one absolute trusted
 `launcher-policy.v1` path. The session receives only the intersection of policy capabilities,
 selected `--allow-...` flags, injected implementations, and the scoped-safe operation matrix.

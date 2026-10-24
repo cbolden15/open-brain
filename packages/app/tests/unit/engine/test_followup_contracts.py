@@ -252,3 +252,12 @@ def test_text_limits_match_the_schema23_columns() -> None:
     ListFilter(project="p" * 128)
     with pytest.raises(FollowupError, match="invalid_request"):
         ListFilter(project="p" * 129)
+
+
+def test_list_filter_new_evidence_is_an_optional_boolean() -> None:
+    assert ListFilter().new_evidence is None
+    assert ListFilter(new_evidence=True).new_evidence is True
+    assert ListFilter(new_evidence=False).new_evidence is False
+    for value in (1, "yes", 0):
+        with pytest.raises(FollowupError, match="invalid_request"):
+            ListFilter(new_evidence=value)  # type: ignore[arg-type]

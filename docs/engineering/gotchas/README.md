@@ -4,6 +4,47 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-021: The daily brief pushed the base archive past the audit object budget
+
+Category: Build Pipeline.
+
+Symptom: the daily brief candidate passed `make verify`, but `make native-audit`
+and `make homebrew-smoke` failed with `base archive failed the strict content
+audit`. The worker's only finding was `artifact-invalid`, and the log named no
+module. Running `artifact_audit.Scanner` in-process showed that `MarshalReader`
+stopped on `require(0 <= count <= MAX_OBJECTS - self.scanner.objects)`. The base
+archive decoded 550,577 objects against the 550,000-object aggregate cap. The
+brief's share was about 7,100 objects: about 6,240 in its five new modules and
+about 870 in the CLI, MCP and agent-setup modules it extended.
+
+Action: the cap is now 600,000. The measured local scan took 6.82 seconds of CPU
+(7.08 seconds wall) with no content findings, and the 30-second worker CPU limit,
+`MAX_DEPTH` and all content rules remain intact. Read `artifact-invalid` as "the
+scan did not finish", not as a bad archive (see INTEGRATION-010). To measure,
+raise `MAX_OBJECTS` in-process, run `Scanner([]).archive(data, name)` on
+`build/native/release/open-brain-*.tar.gz` and read `scanner.objects`. Exercise
+the actual native archive after foreground CLI additions; `make verify` does not
+build it.
+
+Discovered: 2026-10-24, daily brief frozen-tree gate.
+
+### TESTING-017: The plugin process-group test times out under full `make verify` load
+
+Category: Testing / Obsidian plugin.
+
+Symptom: in `make verify`, `tests/bridge.test.ts > OpenBrainBridge > terminates a
+descendant in the owned process group on unload` failed with `Timed out waiting
+for .../open-brain-plugin-child-test-*/ready` after about one second. The branch
+had not changed the plugin. `make plugin-test` alone passed 702 of 702 straight
+after.
+
+Action: if this is the only failure, rerun `make plugin-test` alone and record
+both results, as for TESTING-014. A failure that also happens alone is a real
+regression. The test's `waitForFile` deadline is the next thing to look at if
+the timeout keeps recurring.
+
+Discovered: 2026-10-24, daily brief frozen-tree gate.
+
 ### TESTING-016: Same-process readers fail fast while another thread holds the writer
 
 Category: Testing / Concurrency.
@@ -477,7 +518,7 @@ file alongside focused adapter tests. The equality assertion remains mandatory.
 The same candidate passed all source checks but failed the macOS native harness
 archive audit: its shared module closure decoded 500,261 objects against a
 500,000-object aggregate cap. The measured local scan took 6.67 seconds without
-content findings. The cap is now 550,000; the 30-second worker CPU limit and all
+content findings. The cap was raised to 550,000; the 30-second worker CPU limit and all
 content rules remain intact. Exercise the actual native archive after foreground
 CLI additions, and test that the object budget remains aggregate across payloads.
 Category: Build Pipeline.

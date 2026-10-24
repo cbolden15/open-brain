@@ -317,6 +317,7 @@ def validate_reference_docs(root: Path, examples: tuple[Example, ...]) -> None:
         "`inbox list/route`",
         "`review propose/list/show/approve/reject/edit-and-approve`",
         "`followup list/show/propose/add-evidence/decide`",
+        "`brief`",
         "`agent setup`",
         "`workspace`",
         "`obsidian-plugin install/status/remove`",
@@ -324,7 +325,9 @@ def validate_reference_docs(root: Path, examples: tuple[Example, ...]) -> None:
         "`mcp`",
     )
     grant_tokens = tuple(
-        f"{name}-read" if name in {"content", "history", "inbox", "review", "followup"} else name
+        f"{name}-read"
+        if name in {"content", "history", "inbox", "review", "followup", "brief"}
+        else name
         for name in (
             "capture",
             "search",
@@ -334,12 +337,14 @@ def validate_reference_docs(root: Path, examples: tuple[Example, ...]) -> None:
             "organize",
             "review",
             "followup",
+            "brief",
         )
     ) + (
         "review-propose",
         "review-decide",
         "followup-propose",
         "followup-decide",
+        "brief-ack",
         "workspace-read",
         "graph-refresh",
     )

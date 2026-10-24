@@ -28,10 +28,13 @@ from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 from open_brain_engine.portable.v5 import V5_SIDECAR_PATHS
 from open_brain_engine.storage.operational import FileLease
 
+import open_brain.services.local_mcp as local_mcp_module
 from open_brain.profile import compile_single_user_local
 from open_brain.services.launcher_policy import LauncherPolicyError
 from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.local_mcp import (
+    MAX_BRIEF_ACK_CALLS,
+    MAX_BRIEF_READ_CALLS,
     MAX_FOLLOWUP_READ_CALLS,
     MAX_FOLLOWUP_RESPONSE_BYTES,
     MAX_FOLLOWUP_WRITE_CALLS,
@@ -2158,6 +2161,8 @@ def test_entrypoint_external_composition_omits_unsafe_local_callbacks(
                 "--allow-review-decide",
                 "--allow-workspace-read",
                 "--allow-graph-refresh",
+                "--allow-brief-read",
+                "--allow-brief-ack",
             )
         )
         == 0
@@ -2181,6 +2186,8 @@ def test_entrypoint_external_composition_omits_unsafe_local_callbacks(
         "graph_suggestions",
         "graph_projection",
         "graph_refresh",
+        "brief",
+        "brief_ack",
     ):
         assert (getattr(observed[0], name) is None) is external, name
 
@@ -2915,3 +2922,237 @@ def test_scoped_followup_tools_require_the_session_grant() -> None:
     }
     with pytest.raises(McpCallError, match="^unknown tool$"):
         adapter.call_tool("brain_followup_decide", FOLLOWUP_DECIDE)
+
+
+def _brief_ok(_arguments: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "outcome": "ok",
+        "data": {"items": [], "nothing_needs_attention": True, "model": "none", "saved": True},
+        "code": None,
+    }
+
+
+BRIEF_ACK = {"family_ref": "family:consumer:synthetic:space_3e6e8e2c-e638-47c6-8195-4bd6f3000001"}
+
+
+def test_brief_capabilities_are_independently_listed_and_enforced() -> None:
+    reader = LocalMcpAdapter(brief=_brief_ok)
+    acker = LocalMcpAdapter(brief_ack=_brief_ok)
+    both = LocalMcpAdapter(brief=_brief_ok, brief_ack=_brief_ok)
+    assert {tool["name"] for tool in reader.list_tools()} == {"brain_catalog", "brain_brief"}
+    assert {tool["name"] for tool in acker.list_tools()} == {"brain_catalog", "brain_brief_ack"}
+    tools = {tool["name"]: tool for tool in both.list_tools()}
+    assert set(tools) == {"brain_catalog", "brain_brief", "brain_brief_ack"}
+    assert "brain_brief_last" not in tools
+    for name, tool in tools.items():
+        if name == "brain_catalog":
+            continue
+        assert tool["inputSchema"]["additionalProperties"] is False
+        assert "untrusted" in tool["description"]
+        assert "no model" in tool["description"] or "state changes" in tool["description"]
+    brief_schema: Any = tools["brain_brief"]["inputSchema"]
+    assert set(brief_schema["properties"]) == {"space_ids", "stale_days"}
+    assert brief_schema["required"] == []
+    assert brief_schema["properties"]["stale_days"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 365,
+    }
+    assert brief_schema["properties"]["space_ids"]["maxItems"] == 32
+    assert brief_schema["properties"]["space_ids"]["items"]["pattern"].startswith("^space_")
+    ack_schema: Any = tools["brain_brief_ack"]["inputSchema"]
+    assert ack_schema["required"] == ["family_ref"]
+    assert ack_schema["properties"]["family_ref"]["pattern"].startswith("^family:")
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        reader.call_tool("brain_brief_ack", BRIEF_ACK)
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        acker.call_tool("brain_brief", {})
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        both.call_tool("brain_brief_last", {})
+    assert reader.call_tool("brain_brief", {})["outcome"] == "ok"
+    assert acker.call_tool("brain_brief_ack", BRIEF_ACK)["outcome"] == "ok"
+
+
+def test_brief_tools_validate_shapes_pass_refusals_and_enforce_quotas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refused(_arguments: Mapping[str, object]) -> dict[str, object]:
+        return {"outcome": "refused", "data": None, "code": "version_conflict"}
+
+    adapter = LocalMcpAdapter(brief=_brief_ok, brief_ack=refused)
+    arguments: Mapping[str, object]
+    for arguments in (
+        {"stale_days": 0},
+        {"stale_days": 366},
+        {"stale_days": "7"},
+        {"space_ids": []},
+        {"space_ids": ["not-a-space"]},
+        {"unexpected": True},
+    ):
+        with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+            adapter.call_tool("brain_brief", arguments)
+    for arguments in (
+        {},
+        {"family_ref": "followup:x"},
+        {"family_ref": "family:"},
+        {**BRIEF_ACK, "x": 1},
+    ):
+        with pytest.raises(McpCallError, match="^invalid tool arguments$"):
+            adapter.call_tool("brain_brief_ack", arguments)
+    assert (adapter._brief_read_calls, adapter._brief_ack_calls) == (0, 0)
+    assert adapter.call_tool("brain_brief_ack", BRIEF_ACK) == {
+        "outcome": "refused",
+        "data": None,
+        "code": "version_conflict",
+    }
+    assert adapter._brief_ack_calls == 1
+    adapter._brief_read_calls = MAX_BRIEF_READ_CALLS - 1
+    adapter.call_tool(
+        "brain_brief", {"space_ids": [BRIEF_ACK["family_ref"].rsplit(":", 1)[1]], "stale_days": 30}
+    )
+    with pytest.raises(McpCallError, match="^session_brief_read_limit$"):
+        adapter.call_tool("brain_brief", {})
+    adapter._brief_ack_calls = MAX_BRIEF_ACK_CALLS
+    with pytest.raises(McpCallError, match="^session_brief_ack_limit$"):
+        adapter.call_tool("brain_brief_ack", BRIEF_ACK)
+    # One encoded brief response is about 330 bytes, so 512 admits one call and refuses the next.
+    monkeypatch.setattr(local_mcp_module, "MAX_BRIEF_RESPONSE_BYTES", 512)
+    adapter._brief_read_calls = 0
+    adapter._brief_response_bytes = 0
+    adapter.call_tool("brain_brief", {})
+    with pytest.raises(McpCallError, match="^session_brief_response_limit$"):
+        adapter.call_tool("brain_brief", {})
+
+
+def test_brief_tools_are_registered_with_their_grants() -> None:
+    registered = {cast(str, tool["name"]): tool for tool in MCP_REGISTERED_TOOLS}
+    assert registered["brain_brief"]["required_grants"] == ["brief-read"]
+    assert registered["brain_brief_ack"]["required_grants"] == ["brief-ack"]
+    assert "brain_brief_last" not in registered
+
+
+def test_scoped_brief_tools_require_the_session_grant() -> None:
+    scoped = EffectiveAuthority(
+        "mcp-test-agent", "mcp-test-session", frozenset({"brief-read"}), None
+    )
+    adapter = LocalMcpAdapter(authority=scoped, brief=_brief_ok, brief_ack=_brief_ok)
+    assert {tool["name"] for tool in adapter.list_tools()} == {"brain_catalog", "brain_brief"}
+    with pytest.raises(McpCallError, match="^unknown tool$"):
+        adapter.call_tool("brain_brief_ack", BRIEF_ACK)
+    assert adapter.call_tool("brain_brief", {})["outcome"] == "ok"
+
+
+@pytest.mark.parametrize(
+    ("flags", "tools"),
+    (
+        (("--allow-brief-read",), {"brain_brief"}),
+        (("--allow-brief-ack",), {"brain_brief_ack"}),
+        (("--allow-brief-read", "--allow-brief-ack"), {"brain_brief", "brain_brief_ack"}),
+    ),
+)
+def test_live_brief_stdio_lists_only_granted_tools(
+    tasks: Any, flags: tuple[str, ...], tools: set[str]
+) -> None:
+    process = _start(tasks.profile.root, *flags)
+    try:
+        assert "result" in _exchange(process, INITIALIZE)
+        listed = _exchange(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert {tool["name"] for tool in listed["result"]["tools"]} == {"brain_catalog", *tools}
+        denied_name = next(
+            name
+            for name in ("brain_brief_ack", "brain_brief", "brain_brief_last")
+            if name not in tools
+        )
+        denied = _exchange(process, _call(denied_name, {}, 3))
+        assert denied["result"]["content"] == [{"type": "text", "text": "unknown tool"}]
+        if "brain_brief" in tools:
+            reply = _exchange(process, _call("brain_brief", {}, 4))
+            payload = reply["result"]["structuredContent"]
+            assert payload["outcome"] == "ok" and payload["code"] is None
+            data = payload["data"]
+            assert data["items"] == [] and data["nothing_needs_attention"] is True
+            assert data["model"] == "none" and data["saved"] is True and data["since"] is None
+            assert data["coverage"]["followups"] == "not_granted"
+            assert data["coverage"]["freshness"] == "read"
+            assert data["scope"]["tiers"] == ["work"]
+            again = _exchange(process, _call("brain_brief", {"stale_days": 30}, 5))
+            assert again["result"]["structuredContent"]["data"]["since"] == data["generated_at"]
+        if "brain_brief_ack" in tools:
+            acked = _exchange(
+                process, _call("brain_brief_ack", {"family_ref": "family:consumer:none:x"}, 6)
+            )
+            # The flags are independent, but an ack needs brief-read too: ack-only is refused
+            # before any read, and read+ack reaches the family lookup.
+            assert acked["result"]["structuredContent"] == {
+                "outcome": "refused",
+                "data": None,
+                "code": "not_found" if "brain_brief" in tools else "unsupported_capability",
+            }
+        assert process.stdin is not None
+        process.stdin.close()
+        assert process.wait(timeout=10) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def test_brief_flags_count_as_grants_and_are_documented_in_help(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "brain"
+    assert run_cli(("mcp", "--data-dir", str(root))) == 2
+    capsys.readouterr()
+    assert run_cli(("mcp", "--help", "--allow-brief-read"), environment={}) == 0
+    output = " ".join(capsys.readouterr().out.split())  # argparse wraps the description
+    for phrase in (
+        "--allow-brief-read",
+        "--allow-brief-ack",
+        "200 brief reads",
+        "brief grants are independent",
+    ):
+        assert phrase in output, phrase
+
+
+def test_brief_followup_items_are_work_only_and_owner_grants_stay_clamped(tasks: Any) -> None:
+    work_item, personal_item = _followup_fixture_items(tasks)
+    # The second session clamps to the same Work-only scope and grants as the first, so it
+    # shares the first session's visibility key and sees the item as still open.
+    for flags, expect_followups, expect_changed in (
+        (("--allow-brief-read", "--allow-followup-read"), "read", "new"),
+        (
+            ("--allow-brief-read", "--allow-followup-read", "--allow-review-read"),
+            "read",
+            "still_open",
+        ),
+        (("--allow-brief-read", "--allow-review-read"), "not_granted", None),
+    ):
+        process = _start(tasks.profile.root, *flags)
+        try:
+            assert "result" in _exchange(process, INITIALIZE)
+            reply = _exchange(process, _call("brain_brief", {}, 2))
+            payload = reply["result"]["structuredContent"]
+            assert payload["outcome"] == "ok", (flags, payload)
+            data = payload["data"]
+            assert data["coverage"]["followups"] == expect_followups, flags
+            assert data["coverage"]["freshness"] == "read", flags
+            refs = [item["ref"] for item in data["items"]]
+            if expect_followups == "read":
+                assert refs == ["followup:" + work_item], flags
+                assert data["items"][0]["kind"] == "followup_open"
+                assert data["items"][0]["evidence"]
+                assert data["items"][0]["changed"] == expect_changed, flags
+            else:
+                assert refs == []
+            encoded = json.dumps(payload)
+            assert personal_item not in encoded and "withheld" not in encoded
+            assert "Synthetic" not in encoded, "a brief never carries summaries or quotes"
+            assert str(tasks.profile.owner_actor_id) not in encoded
+            assert data["scope"]["tiers"] == ["work"]
+            assert process.stdin is not None
+            process.stdin.close()
+            assert process.wait(timeout=10) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
