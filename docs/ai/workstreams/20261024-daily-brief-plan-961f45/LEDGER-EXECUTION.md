@@ -15,3 +15,23 @@ Planned: one task-tdd-implementer and one task-spec-compliance-reviewer per pack
 Coordinator decisions on P2 findings that touched the plan (recorded here and in the spec, owner may override): I2 → `brain_brief_ack` requires both `brief-read` and `brief-ack`; ack without read is `unsupported_capability`; the grant flags stay independent. I3 → a selected space ID the session cannot see or that does not exist is `invalid_request` on every surface, before the visibility key is computed.
 
 Minor findings carried to the final review (from `.superpowers/sdd/P1-review.md`): visibility-key tests do not cover every key dimension one at a time; `source_freshness` scan cost is unbounded by capture count; P1 commits carry the Opus trailer (six commits); `source_freshness` imports the private `_managed_copy_identity` from `sharing.py` (a public alias could follow); no external-provider test over an unavailable copy. From `.superpowers/sdd/P2-review.md`: `brief last` on a corrupt log prints "No saved brief" and hides that the log was unavailable; family-ref regex 9 characters narrower than the contract (being fixed with I1–I3); stale acks are never pruned; key-file eviction runs before the CAS create. Unverifiable from P2's diff, for P3's acceptance: owner `--space` filters follow-ups by evidence head capture spaces.
+
+## Task 18 frozen-tree gate
+
+Frozen HEAD `6693b5a`, merge-base with `main` `fc5ef95`. Logs are under `$GATE` =
+`/private/tmp/claude-501/-Users-calebbolden-Projects-oss-open-brain-public/13f12ea3-573b-4447-85c4-49e62d133082/scratchpad/brief-gate`.
+
+| Date | Step | Command | Result | Log |
+|---|---|---|---|---|
+| 2026-10-24 | gate | `make verify` | exit=2 (pytest 9529 passed, 9 skipped; plugin 701 passed, 1 failed: `bridge.test.ts` process-group ready timeout) | $GATE/verify.log |
+| 2026-10-24 | gate | `make plugin-test` alone (retry) | exit=0 (702 passed) | $GATE/plugin-test-rerun.log |
+| 2026-10-24 | gate | `make native-audit` | exit=2 (`base archive failed the strict content audit`: 550,577 objects against `MAX_OBJECTS` 550,000; BUILD-021) | $GATE/native-audit.log |
+| 2026-10-24 | gate | `make homebrew-smoke` | exit=2 (same audit failure in its native build) | $GATE/homebrew-smoke.log |
+| 2026-10-24 | gate | `git diff --check fc5ef95..HEAD` | ok | $GATE/diff-check.log |
+| 2026-10-24 | gate | `actionlint .github/workflows/ci.yml` | ok | $GATE/actionlint.log |
+| 2026-10-24 | gate | brief test set (19 files), umask 022, /private/tmp basetemp | exit=0 (429 passed) | $GATE/basetemp-umask022.log |
+| 2026-10-24 | gate | acceptance + docs tests, umask 077, /private/tmp basetemp | exit=0 (21 passed) | $GATE/basetemp-umask077.log |
+| 2026-10-24 | gate | frozen HEAD | 6693b5a | $GATE/HEAD |
+
+New gotchas: BUILD-021 (audit object budget), TESTING-017 (plugin process-group test under load).
+The native audit is blocked on an owner decision; audit limits stay fixed under the project rules.

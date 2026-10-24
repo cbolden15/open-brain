@@ -4,6 +4,47 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### BUILD-021: `artifact-invalid` can mean the audit ran out of object budget
+
+Category: Build / Release.
+
+Symptom: on the daily brief branch, `make native-audit` and `make homebrew-smoke`
+failed with `base archive failed the strict content audit`. The worker's only
+finding was `artifact-invalid`, and the log named no module. Running
+`artifact_audit.Scanner` in-process showed that `MarshalReader` stopped on
+`require(0 <= count <= MAX_OBJECTS - self.scanner.objects)`. The base archive
+decodes 550,577 objects against `MAX_OBJECTS = 550_000`. The daily brief adds
+about 7,100 objects, and follow-ups added about 10,000 before it, so ordinary
+feature growth crossed the fixed budget. `make verify` does not build the
+archive, so only the frozen-tree gate showed it.
+
+Action: read `artifact-invalid` as "the scan did not finish", not as a bad
+archive (see INTEGRATION-010). Count the objects in-process: patch
+`MAX_OBJECTS`, run `Scanner([]).archive(data, name)` on
+`build/native/release/open-brain-*.tar.gz` and read `scanner.objects`. Audit
+limits stay fixed under the project rules. Raising the budget, or changing what
+the scanner charges, is an owner decision with its own review. Before a feature
+lands, measure its marshalled object count against the remaining headroom.
+
+Discovered: 2026-10-24, daily brief frozen-tree gate.
+
+### TESTING-017: The plugin process-group test times out under full `make verify` load
+
+Category: Testing / Obsidian plugin.
+
+Symptom: in `make verify`, `tests/bridge.test.ts > OpenBrainBridge > terminates a
+descendant in the owned process group on unload` failed with `Timed out waiting
+for .../open-brain-plugin-child-test-*/ready` after about one second. The branch
+had not changed the plugin. `make plugin-test` alone passed 702 of 702 straight
+after.
+
+Action: if this is the only failure, rerun `make plugin-test` alone and record
+both results, as for TESTING-014. A failure that also happens alone is a real
+regression. The test's `waitForFile` deadline is the next thing to look at if
+the timeout keeps recurring.
+
+Discovered: 2026-10-24, daily brief frozen-tree gate.
+
 ### TESTING-016: Same-process readers fail fast while another thread holds the writer
 
 Category: Testing / Concurrency.
