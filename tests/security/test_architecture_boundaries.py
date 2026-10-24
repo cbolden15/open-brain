@@ -141,7 +141,9 @@ def test_desktop_companion_is_quarantined_outside_packages() -> None:
     desktop_archive = REPOSITORY_ROOT / "archive/open-brain-desktop"
 
     assert (desktop_archive / "README.md").is_file()
-    assert (desktop_archive / "src-tauri/Cargo.toml").is_file()
+    assert (desktop_archive / "src-tauri/src/collector.rs").is_file()
+    assert not (desktop_archive / "package.json").exists()
+    assert not (desktop_archive / "src-tauri/Cargo.toml").exists()
     assert not (REPOSITORY_ROOT / "packages/desktop").exists()
     for path in ("Makefile", ".github/workflows/ci.yml", "pyproject.toml"):
         text = (REPOSITORY_ROOT / path).read_text(encoding="utf-8")
