@@ -8,7 +8,9 @@ When nothing needs attention, the brief says so instead of filling the list.
 
 The brief is composed by rules, with no model call, no network path and no subprocess. A client
 may reword it for you. Open Brain never writes a note, sends a message or changes a follow-up
-when you read a brief. The only file a brief writes is its own log, described below.
+when you read a brief. The only files a brief writes are its own log, described below, and the
+empty `.open-brain/state/.write.lock` the log writer creates beside `briefs/`. Both are
+rebuildable views, not Portable content.
 
 Follow-up items come from the store described in [commitments and open questions](followups.md).
 
@@ -123,11 +125,15 @@ With `--space`, the owner brief keeps a follow-up when any of its evidence captu
 selected space, and keeps the families of the selected spaces. An `unassigned` family never
 matches a selection.
 
-Two sessions share log history and acknowledgements only when they would see the same things:
-same owner flag, same readable tiers, same spaces, same egress mode and provider, same brief and
-follow-up grants, same `--space` selection. Those values are hashed into a visibility key, and
-each key has its own log file under `.open-brain/state/briefs/`. An owner brief is never read back
-by a client, and a session with `followup-read` never shares history with one without it.
+Two sessions share log history only when they would see the same things: same owner flag, same
+readable tiers, same spaces, same egress mode and provider, same brief and follow-up grants, same
+`--space` selection. Those values are hashed into a visibility key, and each key has its own log
+file under `.open-brain/state/briefs/`. Acknowledgements leave the `--space` selection out: they
+are stored and read under the session's unselected key, so one acknowledgement applies to every
+`--space` selection that session makes. A `--space` brief therefore touches two key files, its
+own for history and the unselected one for acknowledgements. An owner brief is never read back by
+a client, and a session with `followup-read` never shares history or acknowledgements with one
+without it.
 
 A selected space must exist and be visible to the session. Any other selection is
 `invalid_request`, refused before the visibility key is computed, so a client cannot create log
@@ -265,7 +271,7 @@ The wording is the client's. Open Brain supplied the pointers, the reasons and t
 | Code | When |
 |---|---|
 | `invalid_request` | A space selection that does not exist or that the session cannot see, or an owner CLI ref that is not a well-formed `family:` ref |
-| `unsupported_capability` | The session lacks `brief-read`, or acknowledges without holding both `brief-read` and `brief-ack` |
+| `unsupported_capability` | `brain_brief_ack` in a session that holds `brief-ack` but not `brief-read`. A session without `brief-read` has no `brain_brief` tool, so calling it fails as an unknown tool instead |
 | `operation_pending` | The engine could not be read (for example an unfinished maintenance operation); nothing is served from the log on the `brief` or `brain_brief` path |
 | `version_conflict` | An acknowledgement raced another write to the same log file; retry |
 | `not_found` | Acknowledging a family the session cannot read or that does not exist |
