@@ -52,6 +52,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/__init__.py",
         "services/agent_setup.py",
         "services/agent_settings_observation.py",
+        "services/brief.py",
         "services/brief_authority.py",
         "services/brief_contracts.py",
         "services/brief_log.py",
