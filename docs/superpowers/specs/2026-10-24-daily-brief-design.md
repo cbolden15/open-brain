@@ -3,6 +3,8 @@
 Item 5 of `docs/audits/2026-10-14-work-laptop-product-evaluation.md`. Builds on follow-ups
 (`docs/superpowers/specs/2026-10-23-commitments-open-questions-design.md`, PR #119).
 
+Revision 2.1 (execution amendments): `markdown_import_revisions` read, `unassigned` space, ack
+requires `brief-read`, selected space IDs validated before the key.
 Revision 2, after an adversarial review: visibility key, no `withheld` items for clients,
 freshness per capture family, collector receipts deferred, per-key log files, package order.
 
@@ -54,7 +56,11 @@ open-brain brief last [--space NAME ...] [--json]
 ### MCP
 
 - `brain_brief` (optional `space_ids`, optional `stale_days`) and `brain_brief_ack` (`family_ref`).
-- Two new grants, off by default and independent: `brief-read` and `brief-ack`. They are wired
+  A selected space ID the session cannot see, or that does not exist, is `invalid_request` on every
+  surface, before the visibility key is computed, so a client cannot create log keys at will.
+- Two new grants, off by default and independently switchable: `brief-read` and `brief-ack`.
+  Acknowledging needs both: `brain_brief_ack` in a session without `brief-read` is
+  `unsupported_capability`, because an ack is stored under, and reads, brief data. They are wired
   through `open-brain mcp --allow-brief-read/--allow-brief-ack` and `agent setup` with the same
   flags, and forwarded by the plugin bridge like the follow-up grants. Scoped Work evidence setup
   refuses them, as it refuses the follow-up grants.
