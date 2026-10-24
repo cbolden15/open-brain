@@ -285,6 +285,11 @@ def test_registered_mcp_catalog_matches_all_injected_tools() -> None:
         review_approve=operations,
         review_reject=operations,
         review_edit_and_approve=operations,
+        followup_list=operations,
+        followup_show=operations,
+        followup_propose=operations,
+        followup_add_evidence=operations,
+        followup_decide=operations,
     )
     # Capture and negotiated tools need concrete engine adapters; account for their names here.
     actual = (
