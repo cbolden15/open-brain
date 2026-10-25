@@ -19,13 +19,14 @@ from open_brain_engine.engine.developments import DevelopmentTasks
 
 from open_brain.profile import compile_single_user_local
 from open_brain_collector.capture_contracts import SourceObservation, development_identity, digest
-from open_brain_collector.capture_policy import observe_slack
+from open_brain_collector.capture_policy import observe_revision
 from open_brain_collector.capture_processing import local_extract
 from open_brain_collector.capture_workflow import owner_authority
 from open_brain_collector.lifecycle import EngineCaptureSink, EngineRevisionSink
 from open_brain_collector.live_manager import LiveSourceManager
 from open_brain_collector.runner import collector_capture_sink, collector_revision_sink
-from open_brain_connectors.runtime.live_common import LiveBatch
+from open_brain_connectors.runtime.connectors import ConnectorContractError
+from open_brain_connectors.runtime.live_common import LiveBatch, local_source_privacy
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from packages.collector.tests.integration.test_capture_workflow import (
     ACCOUNT,
@@ -209,9 +210,9 @@ def test_development_revision_sink_replays_history_without_promoting_it(tmp_path
     profile = compile_single_user_local(tmp_path / "brain")
     tasks = open_local_engine(profile)
     sink = collector_revision_sink(profile.root, tmp_path / "revisions")
-    first = observe_slack(intake("Originaldevelopment", "evidence-1"))
+    first = observe_revision(intake("Originaldevelopment", "evidence-1"))
     first = replace(first, key=replace(first.key, connector_name="slack_development"))
-    second = observe_slack(intake("Currentdevelopment", "evidence-2"))
+    second = observe_revision(intake("Currentdevelopment", "evidence-2"))
     second = replace(second, key=replace(second.key, connector_name="slack_development"))
     old = sink.submit(first)
     current = sink.submit(second)
@@ -317,3 +318,27 @@ def test_changed_support_after_uncertain_acceptance_retains_recovery_disposition
     assert result["failure_codes"] == ["processing_evidence_changed_pending_recovery"]
     assert result["superseded"] == 0
     assert manager.workflow.status()["pending_count"] == 1
+
+
+def test_revision_sink_admits_attested_drive_set_intake_and_refuses_gmail(tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    sink = collector_revision_sink(profile.root, tmp_path / "drive-revisions")
+    drive = SourceRecordIntake(
+        SourceRecordKey(
+            "google_drive",
+            "account:synthetic",
+            "drive_folder:folder-1",
+            "file:doc-1",
+            "revision:" + "a" * 64,
+        ),
+        "https://docs.google.com/document/d/doc-1/edit",
+        "Drivesinkneedle",
+        local_source_privacy(),
+        title="Weekly sync - Notes by Gemini",
+    )
+    result = sink.submit(observe_revision(drive))
+    assert result.outcome == "captured" and result.source_receipt is not None
+    assert len(open_local_engine(profile).retrieval.search("Drivesinkneedle")) == 1
+    gmail = replace(drive, key=replace(drive.key, connector_name="gmail"))
+    with pytest.raises(ConnectorContractError, match="invalid collector capture"):
+        sink.submit(gmail)

@@ -507,7 +507,7 @@ class LiveCaptureService:
                 selected = _selection(entry["selection"])
                 from open_brain_collector.capture_policy import (
                     admitted_intake,
-                    observe_slack,
+                    observe_revision,
                     provider_options,
                 )
 
@@ -526,7 +526,7 @@ class LiveCaptureService:
                 ):
                     raise LiveSourceError("source_selection_mismatch")
                 admitted = tuple(
-                    observe_slack(admitted_intake(item, options)) for item in batch.intakes
+                    observe_revision(admitted_intake(item, options)) for item in batch.intakes
                 )
                 pending = {
                     "schema_version": 1,
