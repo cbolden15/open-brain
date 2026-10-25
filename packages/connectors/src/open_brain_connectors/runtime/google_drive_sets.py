@@ -26,6 +26,8 @@ __all__ = [
     "DriveSetCheckpoint",
     "DriveSetSelection",
     "advance_watermark",
+    "build_list_query",
+    "escape_query_value",
     "evict_known",
     "format_timestamp",
     "parse_drive_set",
@@ -230,6 +232,28 @@ def advance_watermark(watermark: str, known: Mapping[str, DriveKnownEntry]) -> s
     current = parse_timestamp(watermark)
     newest = max((parse_timestamp(entry.modified) for entry in known.values()), default=current)
     return watermark if newest <= current else format_timestamp(newest)
+
+
+def escape_query_value(value: str) -> str:
+    """Escape one literal for the Drive v3 query grammar."""
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def build_list_query(selection: DriveSetSelection, bound: str) -> str:
+    """One files.list `q` for a Docs set; the suffix check on names stays client-side."""
+    clauses = [
+        f"mimeType = '{DOCUMENT_MIME_TYPE}'",
+        "trashed = false",
+        f"modifiedTime > '{bound}'",
+    ]
+    if selection.folder_id is not None:
+        clauses.append(f"'{escape_query_value(selection.folder_id)}' in parents")
+    if selection.title_suffixes:
+        names = " or ".join(
+            f"name contains '{escape_query_value(suffix)}'" for suffix in selection.title_suffixes
+        )
+        clauses.append(f"({names})")
+    return " and ".join(clauses)
 
 
 def _checkpoint_text(value: object, *, maximum: int) -> str:

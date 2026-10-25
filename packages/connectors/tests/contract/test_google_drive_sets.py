@@ -7,6 +7,8 @@ from open_brain_connectors.runtime.google_drive_sets import (
     DriveSetCheckpoint,
     DriveSetSelection,
     advance_watermark,
+    build_list_query,
+    escape_query_value,
     evict_known,
     parse_drive_set,
     query_bound,
@@ -158,3 +160,37 @@ def test_drive_set_checkpoint_rejects_bad_shapes_and_evicts_oldest() -> None:
     assert evict_known({"only": DriveKnownEntry("r", "2026-01-01T00:00:00Z")}) == {
         "only": DriveKnownEntry("r", "2026-01-01T00:00:00Z")
     }
+
+
+_DOC_CLAUSE = (
+    "mimeType = 'application/vnd.google-apps.document' and trashed = false "
+    "and modifiedTime > '2026-10-01T00:00:00Z'"
+)
+
+
+def test_build_list_query_for_each_shape_with_escaping() -> None:
+    folder_plain = parse_drive_set(_folder_selection(), {"date_floor": "2026-10-01"})
+    assert build_list_query(folder_plain, "2026-10-01T00:00:00Z") == (
+        f"{_DOC_CLAUSE} and 'folder-1' in parents"
+    )
+
+    folder_meet = parse_drive_set(_folder_selection(), _meet_options())
+    assert build_list_query(folder_meet, "2026-10-01T00:00:00Z") == (
+        f"{_DOC_CLAUSE} and 'folder-1' in parents "
+        "and (name contains 'Notes by Gemini' or name contains 'Transcript')"
+    )
+
+    account = parse_drive_set(_account_selection(), _meet_options())
+    assert build_list_query(account, "2026-10-01T00:00:00Z") == (
+        f"{_DOC_CLAUSE} and (name contains 'Notes by Gemini' or name contains 'Transcript')"
+    )
+
+    quoted = parse_drive_set(
+        _account_selection(),
+        {"date_floor": "2026-10-01", "title_suffixes": ["O'Brien \\ notes"]},
+    )
+    assert build_list_query(quoted, "2026-10-01T00:00:00Z") == (
+        f"{_DOC_CLAUSE} and (name contains 'O\\'Brien \\\\ notes')"
+    )
+    assert escape_query_value("a'b\\c") == "a\\'b\\\\c"
+    assert escape_query_value("plain") == "plain"
