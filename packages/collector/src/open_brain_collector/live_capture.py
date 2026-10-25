@@ -641,9 +641,9 @@ class LiveCaptureService:
         if revisions is not None and intake.observation is not None:
             from open_brain_collector.runner import collector_revision_sink
 
-            result = collector_revision_sink(
-                self._brain_root, self._store.root / revisions
-            ).submit(intake)
+            result = collector_revision_sink(self._brain_root, self._store.root / revisions).submit(
+                intake
+            )
             if result.source_receipt is None or result.outcome not in {"captured", "duplicate"}:
                 raise LiveSourceError("source_revision_pending")
             return result.outcome, result.source_receipt.capture_id

@@ -7,6 +7,7 @@ from typing import cast
 
 import pytest
 from open_brain_engine.engine import open_local_engine
+from open_brain_engine.engine.local_schema import open_local_database_read_only
 
 from open_brain.profile import compile_single_user_local
 from open_brain_collector.live_capture import _PROVIDERS, LiveCaptureService
@@ -165,14 +166,14 @@ def test_preview_then_unordered_revision_refusal_preserves_source_and_checkpoint
 def test_selection_admits_every_drive_shape_and_rejects_foreign_resource_types(
     tmp_path: Path,
 ) -> None:
-    assert _PROVIDERS == {
+    assert {
         "gmail": frozenset({"mail_label"}),
         "google_drive": frozenset({"drive_file", "drive_folder", "drive_account"}),
         "slack": frozenset({"channel"}),
         "agent_session": frozenset({"local_project"}),
-    }
+    } == _PROVIDERS
     service = _service(tmp_path, Runtime())
-    shapes = (
+    shapes: tuple[tuple[str, str, dict[str, object]], ...] = (
         ("drive_file", "drive_file:doc-1", {}),
         ("drive_folder", "drive_folder:folder-1", {"date_floor": "2026-10-01"}),
         (
@@ -473,3 +474,93 @@ def test_revision_envelopes_live_in_the_connector_directory(tmp_path: Path) -> N
     profile = compile_single_user_local(tmp_path / "brain")
     for needle in ("Singlefiletext", "Setdrivetext", "Slackneedle"):
         assert len(open_local_engine(profile).retrieval.search(needle)) == 1
+
+
+def test_edited_drive_set_doc_becomes_new_revision_with_first_text_in_history(
+    tmp_path: Path,
+) -> None:
+    runtime = Routed()
+    runtime.batches = {
+        DRIVE_SET.resource_id: LiveBatch((_drive_intake("Firstdrivetext"),), {"mode": "backfill"})
+    }
+    service = _service(tmp_path, runtime)
+    service.configure(
+        "meet",
+        DRIVE_SET,
+        {"date_floor": "2026-10-01", "title_suffixes": ["Notes by Gemini", "Transcript"]},
+    )
+    first = service.preview("meet")
+    assert first["count"] == 1
+    assert "Firstdrivetext" not in json.dumps(first)
+    assert cast(list[dict[str, str]], first["records"])[0]["title"] == (
+        "Weekly sync - Notes by Gemini"
+    )
+    assert service.apply("meet", cast(str, first["preview_id"]))["captured_count"] == 1
+    profile = compile_single_user_local(tmp_path / "brain")
+    hits = open_local_engine(profile).retrieval.search("Firstdrivetext")
+    assert len(hits) == 1 and hits[0].trust == "third_party"
+    runtime.batches[DRIVE_SET.resource_id] = LiveBatch(
+        (_drive_intake("Seconddrivetext", revision="b"),), {"mode": "incremental"}
+    )
+    second = service.preview("meet")
+    assert second["preview_id"] != first["preview_id"]
+    result = service.apply("meet", cast(str, second["preview_id"]))
+    assert result["captured_count"] == 1
+    assert result["quarantined_count"] == 0
+    assert runtime.checkpoints == [None, {"mode": "backfill"}]
+    tasks = open_local_engine(profile)
+    assert len(tasks.retrieval.search("Seconddrivetext")) == 1
+    assert not tasks.retrieval.search("Firstdrivetext")
+    with open_local_database_read_only(profile) as connection:
+        rows = connection.execute(
+            "SELECT capture_id, source_id, sequence, predecessor_capture_id, source_bytes "
+            "FROM source_revisions ORDER BY sequence"
+        ).fetchall()
+    assert [row["sequence"] for row in rows] == [1, 2]
+    assert rows[0]["source_id"] == rows[1]["source_id"]
+    assert rows[0]["predecessor_capture_id"] is None
+    assert rows[1]["predecessor_capture_id"] == rows[0]["capture_id"]
+    assert rows[0]["capture_id"] == hits[0].capture_id
+    assert b"Firstdrivetext" in bytes(rows[0]["source_bytes"])
+    assert b"Seconddrivetext" in bytes(rows[1]["source_bytes"])
+    assert b"Firstdrivetext" not in bytes(rows[1]["source_bytes"])
+    # One head envelope for the logical source plus its archived predecessor.
+    envelopes = [path.name for path in _envelopes(tmp_path / "state", "drive-revisions")]
+    assert len(envelopes) == 2
+    assert len([name for name in envelopes if name.startswith("saved-revision-archive-")]) == 1
+    custody = service.custody_status("meet")
+    assert cast(dict[str, int], custody["counts"]).get("quarantined", 0) == 0
+    restarted = LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
+    assert restarted.apply("meet", cast(str, second["preview_id"])) == result
+
+
+def test_edited_drive_file_is_still_quarantined_with_source_revision_conflict(
+    tmp_path: Path,
+) -> None:
+    runtime = Routed()
+    runtime.batches = {
+        DRIVE_FILE.resource_id: LiveBatch(
+            (_drive_intake("Firstfiletext", selection=DRIVE_FILE),), {"cursor": "1"}
+        )
+    }
+    service = _service(tmp_path, runtime)
+    service.configure("file", DRIVE_FILE, {})
+    first = service.preview("file")
+    assert service.apply("file", cast(str, first["preview_id"]))["captured_count"] == 1
+    profile = compile_single_user_local(tmp_path / "brain")
+    assert len(open_local_engine(profile).retrieval.search("Firstfiletext")) == 1
+    runtime.batches[DRIVE_FILE.resource_id] = LiveBatch(
+        (_drive_intake("Secondfiletext", selection=DRIVE_FILE, revision="b"),), {"cursor": "2"}
+    )
+    second = service.preview("file")
+    result = service.apply("file", cast(str, second["preview_id"]))
+    assert result["quarantined_count"] == 1
+    assert result["captured_count"] == 0
+    assert runtime.checkpoints == [None, {"cursor": "1"}]
+    assert len(open_local_engine(profile).retrieval.search("Firstfiletext")) == 1
+    assert not open_local_engine(profile).retrieval.search("Secondfiletext")
+    custody = service.custody_status("file")
+    assert cast(dict[str, int], custody["counts"])["quarantined"] == 1
+    receipt_id = cast(list[str], custody["receipt_ids"])[0]
+    assert service.custody_inspect(receipt_id)["reason_code"] == "source_revision_conflict"
+    assert not (tmp_path / "state" / "drive-revisions").exists()
