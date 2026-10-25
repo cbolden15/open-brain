@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import inspect
 from pathlib import Path
 from typing import cast
 from urllib.parse import parse_qs, urlsplit
@@ -21,7 +23,12 @@ from open_brain_connectors.runtime.google_drive_sets import (
     split_document,
 )
 from open_brain_connectors.runtime.google_sources import DriveSourceClient
-from open_brain_connectors.runtime.live_common import LiveBatch, LiveResource, LiveSourceError
+from open_brain_connectors.runtime.live_common import (
+    LiveBatch,
+    LiveResource,
+    LiveSourceError,
+    bounded_json,
+)
 from open_brain_connectors.runtime.live_http import LiveHttpResponse
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
@@ -154,23 +161,46 @@ def test_drive_set_checkpoint_rejects_bad_shapes_and_evicts_oldest() -> None:
         {**good, "known": {"f1": {"revision": "r1"}}},
         {**good, "known": {"f1": {"modified": "yesterday", "revision": "r1"}}},
         {**good, "known": {"f.1": entry}},
-        {**good, "known": {f"f{index}": entry for index in range(2_001)}},
+        {**good, "known": {f"f{index}": entry for index in range(501)}},
     )
     for value in bad_values:
         with pytest.raises(LiveSourceError, match="drive_invalid_checkpoint"):
             DriveSetCheckpoint.from_value(value)
-    DriveSetCheckpoint.from_value({**good, "known": {f"f{index}": entry for index in range(2_000)}})
+    DriveSetCheckpoint.from_value({**good, "known": {f"f{index}": entry for index in range(500)}})
 
     known = {
         f"k{index}": DriveKnownEntry("r", f"2026-01-01T00:{index // 60:02d}:{index % 60:02d}Z")
-        for index in range(2_001)
+        for index in range(501)
     }
     evicted = evict_known(known)
-    assert len(evicted) == 2_000
-    assert "k0" not in evicted and "k1" in evicted and "k2000" in evicted
+    assert len(evicted) == 500
+    assert "k0" not in evicted and "k1" in evicted and "k500" in evicted
     assert evict_known({"only": DriveKnownEntry("r", "2026-01-01T00:00:00Z")}) == {
         "only": DriveKnownEntry("r", "2026-01-01T00:00:00Z")
     }
+
+
+# LiveBatch admits a checkpoint through bounded_json with its default `maximum`; there is no
+# named module constant, so the limit is read from the helper's signature.
+_CHECKPOINT_LIMIT = inspect.signature(bounded_json).parameters["maximum"].default
+
+
+def test_full_known_checkpoint_with_realistic_sizes_fits_the_live_batch_limit() -> None:
+    assert _CHECKPOINT_LIMIT == 131_072
+    known = {
+        f"{index:04d}{'aZ9_-' * 8}": DriveKnownEntry(
+            hashlib.sha256(str(index).encode()).hexdigest(),
+            f"2026-10-05T10:{index // 60 % 60:02d}:{index % 60:02d}.{index % 1000:03d}Z",
+        )
+        for index in range(500)
+    }
+    assert all(len(file_id) == 44 and require_file_id(file_id, "x") for file_id in known)
+    checkpoint = DriveSetCheckpoint("incremental", "p" * 200, "2026-10-05T10:00:00.000Z", known)
+    value = checkpoint.to_dict()
+    assert DriveSetCheckpoint.from_value(value) == checkpoint
+
+    assert len(bounded_json(value)) < _CHECKPOINT_LIMIT
+    assert LiveBatch((), value).checkpoint == value
 
 
 _DOC_CLAUSE = (
@@ -666,13 +696,13 @@ def test_folder_missing_and_account_errors_leave_the_checkpoint_unchanged(
     assert bad_checkpoint.urls == []
 
 
-def test_known_entries_evict_the_oldest_at_two_thousand(tmp_path: Path) -> None:
+def test_known_entries_evict_the_oldest_at_five_hundred(tmp_path: Path) -> None:
     known: dict[str, object] = {
         f"k{index}": {
             "modified": f"2026-01-01T00:{index // 60:02d}:{index % 60:02d}Z",
             "revision": "r",
         }
-        for index in range(2_000)
+        for index in range(500)
     }
     checkpoint: dict[str, object] = {
         "known": known,
@@ -688,6 +718,6 @@ def test_known_entries_evict_the_oldest_at_two_thousand(tmp_path: Path) -> None:
     assert "modifiedTime > '2026-09-29T00:00:00Z'" in _query(http.urls[0])["q"][0]
     assert [item.key.external_id for item in batch.intakes] == ["file:fresh"]
     result = _known(batch.checkpoint)
-    assert len(result) == 2_000 and "k0" not in result and "k1" in result and "fresh" in result
+    assert len(result) == 500 and "k0" not in result and "k1" in result and "fresh" in result
     assert batch.checkpoint["watermark"] == "2026-10-01T00:00:00Z"
     assert isinstance(batch.intakes[0], SourceRecordIntake)
