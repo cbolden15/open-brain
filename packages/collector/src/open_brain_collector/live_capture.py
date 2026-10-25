@@ -30,11 +30,11 @@ from open_brain_connectors.runtime.source_host import existing_source_profile
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
-_PROVIDERS = {
-    "gmail": "mail_label",
-    "google_drive": "drive_file",
-    "slack": "channel",
-    "agent_session": "local_project",
+_PROVIDERS: dict[str, frozenset[str]] = {
+    "gmail": frozenset({"mail_label"}),
+    "google_drive": frozenset({"drive_file", "drive_folder", "drive_account"}),
+    "slack": frozenset({"channel"}),
+    "agent_session": frozenset({"local_project"}),
 }
 _MAX_COMMITTED = 2048
 
@@ -85,7 +85,7 @@ def _selection(value: object) -> SourceResourceSelection:
         raise LiveSourceError("source_invalid_selection")
     try:
         result = SourceResourceSelection(**value)
-        if _PROVIDERS.get(result.connector_name) != result.resource_type:
+        if result.resource_type not in _PROVIDERS.get(result.connector_name, frozenset()):
             raise ValueError
         return result
     except TypeError, ValueError:

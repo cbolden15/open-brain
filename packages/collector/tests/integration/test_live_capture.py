@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
@@ -8,7 +9,7 @@ import pytest
 from open_brain_engine.engine import open_local_engine
 
 from open_brain.profile import compile_single_user_local
-from open_brain_collector.live_capture import LiveCaptureService
+from open_brain_collector.live_capture import _PROVIDERS, LiveCaptureService
 from open_brain_connectors.runtime.live_common import (
     LiveBatch,
     LiveSourceError,
@@ -89,6 +90,48 @@ def test_preview_then_unordered_revision_refusal_preserves_source_and_checkpoint
     assert service.custody_inspect(receipt_id)["reason_code"] == "source_revision_conflict"
     restarted = LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
     assert restarted.custody_inspect(receipt_id)["outcome"] == "quarantined"
+
+
+def test_selection_admits_every_drive_shape_and_rejects_foreign_resource_types(
+    tmp_path: Path,
+) -> None:
+    assert _PROVIDERS == {
+        "gmail": frozenset({"mail_label"}),
+        "google_drive": frozenset({"drive_file", "drive_folder", "drive_account"}),
+        "slack": frozenset({"channel"}),
+        "agent_session": frozenset({"local_project"}),
+    }
+    service = _service(tmp_path, Runtime())
+    shapes = (
+        ("drive_file", "drive_file:doc-1", {}),
+        ("drive_folder", "drive_folder:folder-1", {"date_floor": "2026-10-01"}),
+        (
+            "drive_account",
+            "drive_account:all",
+            {"date_floor": "2026-10-01", "title_suffixes": ["Notes by Gemini", "Transcript"]},
+        ),
+    )
+    for resource_type, resource_id, options in shapes:
+        selection = SourceResourceSelection(
+            "google_drive", "account:synthetic", resource_id, resource_type
+        )
+        summary = service.configure("drive-" + resource_type, selection, options)
+        assert summary["selection"] == asdict(selection)
+        assert summary["status"] == "disabled"
+    assert len(cast(list[object], service.status()["sources"])) == 3
+    for connector, resource_type in (
+        ("google_drive", "mail_label"),
+        ("google_drive", "channel"),
+        ("gmail", "drive_folder"),
+        ("slack", "drive_account"),
+        ("agent_session", "drive_file"),
+    ):
+        selection = SourceResourceSelection(
+            connector, "account:synthetic", resource_type + ":x", resource_type
+        )
+        with pytest.raises(LiveSourceError, match="source_invalid_selection"):
+            service.configure("rejected", selection, {})
+    assert len(cast(list[object], service.status()["sources"])) == 3
 
 
 def test_crash_reuses_staged_batch_without_provider_refetch_and_commits_after_ack(
