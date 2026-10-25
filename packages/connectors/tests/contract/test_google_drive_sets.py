@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 from pathlib import Path
 from typing import cast
 from urllib.parse import parse_qs, urlsplit
@@ -9,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from open_brain_connectors.runtime.google_drive_sets import (
+    MAX_PART_JSON_BYTES,
     DriveKnownEntry,
     DriveSetCheckpoint,
     DriveSetSelection,
@@ -274,6 +276,23 @@ def test_split_document_caps_parts_and_part_titles_keep_the_suffix() -> None:
     assert len(long_title) == 200
     assert long_title.endswith(" (part 12 of 18)")
     assert long_title.startswith("n" * 184)
+
+
+def test_split_document_bounds_each_part_by_its_ascii_json_size() -> None:
+    # Each escaped BMP character costs six bytes, so 19,999 fit beside the two quote bytes.
+    for text, sizes in (
+        ("é" * 60_000, [19_999, 19_999, 19_999, 3]),
+        ("日" * 22_000, [19_999, 2_001]),
+    ):
+        parts = split_document(text)
+        assert [len(part) for part in parts] == sizes
+        assert all(
+            len(json.dumps(part, ensure_ascii=True)) <= MAX_PART_JSON_BYTES for part in parts
+        )
+        assert "".join(parts) == text
+
+    paragraphs = "\n\n".join(["日" * 15_000] * 3)
+    assert split_document(paragraphs) == ["日" * 15_000] * 3
 
 
 def _client(tmp_path: Path, http: _Http) -> DriveSourceClient:
@@ -558,6 +577,33 @@ def test_account_set_splits_transcript_and_repeats_page_at_the_intake_bound(
     assert second.checkpoint["mode"] == "incremental"
     assert second.checkpoint["watermark"] == "2026-10-02T00:00:22Z"
     assert len(_known(second.checkpoint)) == 24
+
+
+def test_non_ascii_parts_fit_the_collector_intake_attestation_bound(tmp_path: Path) -> None:
+    accented = _doc("e", "Accented - Transcript", "2026-10-02T00:00:00Z")
+    wide = _doc("w", "Wide - Transcript", "2026-10-03T00:00:00Z")
+    http = _Http(
+        [
+            _json(200, {"files": [accented, wide]}),
+            _json(200, accented),
+            _body("é" * 60_000),
+            _json(200, wide),
+            _body("日" * 22_000),
+        ]
+    )
+
+    batch = _client(tmp_path, http).fetch(_folder_selection(), _meet_options(), None)
+
+    assert [item.key.external_id for item in batch.intakes] == [
+        *(f"file:e#part:{index}" for index in range(1, 5)),
+        "file:w#part:1",
+        "file:w#part:2",
+    ]
+    assert "".join(item.text for item in batch.intakes[:4]) == "é" * 60_000
+    assert "".join(item.text for item in batch.intakes[4:]) == "日" * 22_000
+    # The collector attests each set intake with bounded_json at the same default maximum.
+    for item in batch.intakes:
+        assert len(bounded_json(item.payload().to_dict())) <= _CHECKPOINT_LIMIT
 
 
 def test_per_file_failures_become_notices_and_the_set_continues(tmp_path: Path) -> None:

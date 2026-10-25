@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ __all__ = [
     "MAX_KNOWN",
     "MAX_PARTS",
     "MAX_PART_CHARS",
+    "MAX_PART_JSON_BYTES",
     "MAX_SUFFIXES",
     "MAX_SUFFIX_CHARS",
     "MAX_TITLE_CHARS",
@@ -39,6 +41,8 @@ __all__ = [
 ]
 
 MAX_PART_CHARS = 60_000
+# The collector attests each intake within a 131,072-byte JSON bound; leave room for the rest.
+MAX_PART_JSON_BYTES = 120_000
 MAX_PARTS = 18
 MAX_KNOWN = 500
 MAX_SUFFIXES = 8
@@ -259,22 +263,42 @@ def build_list_query(selection: DriveSetSelection, bound: str) -> str:
     return " and ".join(clauses)
 
 
+def _json_size(text: str) -> int:
+    # The collector's bounded_json encodes with ASCII escapes; a string's size ignores separators.
+    return len(json.dumps(text, ensure_ascii=True))
+
+
+def _window_length(text: str) -> int:
+    """Longest prefix within MAX_PART_CHARS whose JSON encoding fits MAX_PART_JSON_BYTES."""
+    low, high = 1, min(len(text), MAX_PART_CHARS)
+    if _json_size(text[:high]) <= MAX_PART_JSON_BYTES:
+        return high
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _json_size(text[:middle]) <= MAX_PART_JSON_BYTES:
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
 def split_document(text: str) -> list[str]:
-    """Split one exported Doc into at most MAX_PARTS parts of at most MAX_PART_CHARS."""
+    """Split one exported Doc into at most MAX_PARTS parts within both part bounds."""
     parts: list[str] = []
     remaining = text.replace("\r\n", "\n").replace("\r", "\n")
     while remaining:
         if len(parts) == MAX_PARTS:
             raise LiveSourceError("drive_content_too_large")
-        if len(remaining) <= MAX_PART_CHARS:
+        limit = _window_length(remaining)
+        if limit == len(remaining):
             part, remaining = remaining, ""
         else:
-            window = remaining[:MAX_PART_CHARS]
+            window = remaining[:limit]
             cut = window.rfind("\n\n")
             if cut <= 0:
                 cut = window.rfind("\n")
             if cut <= 0:
-                cut = MAX_PART_CHARS
+                cut = limit
             part, remaining = window[:cut].rstrip("\n"), remaining[cut:].lstrip("\n")
         if part.strip():
             parts.append(part)

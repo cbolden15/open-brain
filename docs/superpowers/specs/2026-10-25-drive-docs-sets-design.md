@@ -4,6 +4,9 @@ Item I1 of `docs/audits/2026-10-25-integrations-assessment.md`. Extends the Goog
 `packages/connectors/src/open_brain_connectors/runtime/google_sources.py` and the collector's live
 capture path. The audit's inventory of the current Drive path is summarized under "What exists".
 
+Revision 1.3 (final-review amendment): a part is bounded by 60,000 characters and by 120,000 bytes
+of its JSON encoding (ensure_ascii), because the collector attests each intake with a 131,072-byte
+JSON bound; a mostly non-ASCII part at the character limit would otherwise stall the set.
 Revision 1.2 (execution amendment): `known` holds at most 500 entries, because the collector bounds
 a serialized checkpoint at 131,072 bytes and realistic Drive ids and revisions reach that near 800
 entries; 500 entries serialize to about 85 KB.
@@ -177,9 +180,11 @@ When the folder itself returns 404 or lost access, the fetch returns no intakes 
 
 When the exported text is over 60,000 characters:
 
-- Parts are at most 60,000 characters. The cut is the last blank line (`\n\n`) within the limit,
-  else the last newline, else a hard cut. Leading newlines of the next part are stripped.
-- At most 18 parts, which the 1 MiB export cap already guarantees; a 19th is `too_large`.
+- Parts are at most 60,000 characters and at most 120,000 bytes when JSON-encoded with ASCII
+  escapes. The cut is the last blank line (`\n\n`) within the limit, else the last newline, else a
+  hard cut. Leading newlines of the next part are stripped.
+- At most 18 parts, which the 1 MiB export cap guarantees for ASCII text; a mostly non-ASCII Doc
+  can need more, and a 19th is `too_large`.
 - Each part is one intake: `external_id` is `file:<fileId>#part:<n>` (1-based), title is
   `<name> (part <n> of <N>)` cut to 200 characters with the suffix preserved, `url` is the Doc link,
   `revision_id` is `revision:<drive revision>` for every part.
@@ -253,8 +258,8 @@ and `slack_development`; it gains `google_drive` with a test, or no Drive intake
 
 ## Bounds
 
-- 100 files listed per page; 25 intakes and 25 notices per batch; 60,000 characters per part;
-  18 parts per Doc; 1 MiB per export body; 8 suffixes of 64 characters; 500 `known` entries.
+- 100 files listed per page; 25 intakes and 25 notices per batch; 60,000 characters and
+  120,000 JSON-encoded bytes per part; 18 parts per Doc; 1 MiB per export body; 8 suffixes of 64 characters; 500 `known` entries.
 - No new network destination: the Drive v3 `files` endpoints already used.
 - No background work in the core. Scheduling stays in the optional collector.
 
