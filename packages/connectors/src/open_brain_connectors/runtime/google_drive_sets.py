@@ -32,8 +32,10 @@ __all__ = [
     "format_timestamp",
     "parse_drive_set",
     "parse_timestamp",
+    "part_title",
     "query_bound",
     "require_file_id",
+    "split_document",
 ]
 
 MAX_PART_CHARS = 60_000
@@ -254,6 +256,34 @@ def build_list_query(selection: DriveSetSelection, bound: str) -> str:
         )
         clauses.append(f"({names})")
     return " and ".join(clauses)
+
+
+def split_document(text: str) -> list[str]:
+    """Split one exported Doc into at most MAX_PARTS parts of at most MAX_PART_CHARS."""
+    parts: list[str] = []
+    remaining = text.replace("\r\n", "\n").replace("\r", "\n")
+    while remaining:
+        if len(parts) == MAX_PARTS:
+            raise LiveSourceError("drive_content_too_large")
+        if len(remaining) <= MAX_PART_CHARS:
+            part, remaining = remaining, ""
+        else:
+            window = remaining[:MAX_PART_CHARS]
+            cut = window.rfind("\n\n")
+            if cut <= 0:
+                cut = window.rfind("\n")
+            if cut <= 0:
+                cut = MAX_PART_CHARS
+            part, remaining = window[:cut].rstrip("\n"), remaining[cut:].lstrip("\n")
+        if part.strip():
+            parts.append(part)
+    return parts
+
+
+def part_title(name: str, index: int, total: int) -> str:
+    """`<name> (part <index> of <total>)` within MAX_TITLE_CHARS, suffix preserved."""
+    suffix = f" (part {index} of {total})"
+    return f"{name[: MAX_TITLE_CHARS - len(suffix)].rstrip()}{suffix}"
 
 
 def _checkpoint_text(value: object, *, maximum: int) -> str:

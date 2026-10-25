@@ -11,8 +11,10 @@ from open_brain_connectors.runtime.google_drive_sets import (
     escape_query_value,
     evict_known,
     parse_drive_set,
+    part_title,
     query_bound,
     require_file_id,
+    split_document,
 )
 from open_brain_connectors.runtime.live_common import LiveSourceError
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
@@ -194,3 +196,38 @@ def test_build_list_query_for_each_shape_with_escaping() -> None:
     )
     assert escape_query_value("a'b\\c") == "a\\'b\\\\c"
     assert escape_query_value("plain") == "plain"
+
+
+def test_split_document_cuts_at_blank_line_newline_then_hard_cut() -> None:
+    short = "Summary\n\nOne paragraph.\n"
+    assert split_document(short) == [short]
+    assert split_document("a" * 60_000) == ["a" * 60_000]
+
+    blank = "a" * 59_990 + "\n\n" + "b" * 100
+    assert split_document(blank) == ["a" * 59_990, "b" * 100]
+
+    runs = "a" * 59_990 + "\n\n\n\n" + "b" * 100
+    assert split_document(runs) == ["a" * 59_990, "b" * 100]
+
+    newline = "a" * 59_990 + "\n" + "b" * 100
+    assert split_document(newline) == ["a" * 59_990, "b" * 100]
+
+    assert split_document("a" * 60_010) == ["a" * 60_000, "a" * 10]
+
+    crlf = "a" * 59_990 + "\r\n\r\n" + "b" * 100
+    assert split_document(crlf) == ["a" * 59_990, "b" * 100]
+
+    three = "\n\n".join(["x" * 40_000] * 3)
+    assert split_document(three) == ["x" * 40_000] * 3
+
+
+def test_split_document_caps_parts_and_part_titles_keep_the_suffix() -> None:
+    assert len(split_document("\n\n".join(["x" * 40_000] * 18))) == 18
+    with pytest.raises(LiveSourceError, match="drive_content_too_large"):
+        split_document("\n\n".join(["x" * 40_000] * 19))
+
+    assert part_title("Standup - Transcript", 2, 3) == "Standup - Transcript (part 2 of 3)"
+    long_title = part_title("n" * 200, 12, 18)
+    assert len(long_title) == 200
+    assert long_title.endswith(" (part 12 of 18)")
+    assert long_title.startswith("n" * 184)
