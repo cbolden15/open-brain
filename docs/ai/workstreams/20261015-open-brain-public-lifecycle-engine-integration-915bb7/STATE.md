@@ -1,7 +1,7 @@
 # Workstream state
 
 - ID: `20261015-open-brain-public-lifecycle-engine-integration-915bb7`
-- Repo root/worktree: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Repo root/worktree: $REPO/.worktrees/competitive-gap-reconciliation
 - Remote identity SHA-256: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
 - Branch: `feat/competitive-gap-reconciliation`
 - Baseline: `7bae56004ed8939ada7b1f1b012533300a2d1530`

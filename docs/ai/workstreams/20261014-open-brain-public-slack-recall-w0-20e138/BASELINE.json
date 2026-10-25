@@ -1,7 +1,7 @@
 {
   "receipt_version": 1,
   "milestone": "W0",
-  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67",
+  "worktree": "$WORKTREES/slack-cited-recall-w0-20261014-006b67",
   "branch": "feat/slack-cited-recall-w0-20261014-006b67",
   "baseline_head": "01a904e2c310e9820ec083b480185cda846e6ebb",
   "application_baseline": "d5cf64e652366dc14a8cf18732f7cb1e82ae4187",

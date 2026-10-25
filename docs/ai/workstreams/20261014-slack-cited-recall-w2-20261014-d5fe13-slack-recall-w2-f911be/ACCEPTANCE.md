@@ -14,7 +14,7 @@ The five skips reflect filesystem rejection of non-UTF-8 names and inability to 
 
 Continuity was copied byte-for-byte and committed at 8bff336 before implementation. Before cleanup, all nine old dirty/untracked files matched both the new checkout and committed bytes by SHA-256; old tip 7e2b8657ab7350e89983f4774ff053f5c14964ca was an ancestor; ignored inventory contained 11522 rebuildable files, with no unknown/non-rebuildable material; lsof found zero process users. Git worktree removal used force only for that already-preserved dirty continuity. Branch deletion used ordinary git branch -d.
 
-Removed worktree: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67
+Removed worktree: $WORKTREES/slack-cited-recall-w0-20261014-006b67
 
 Deleted local branch: feat/slack-cited-recall-w0-20261014-006b67
 

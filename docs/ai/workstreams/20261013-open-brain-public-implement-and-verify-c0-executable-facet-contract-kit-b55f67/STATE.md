@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261013-open-brain-public-implement-and-verify-c0-executable-facet-contract-kit-b55f67`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public
+- Worktree: $REPO
 - Branch: feat/facets-c0
 - Objective: Implement and verify C0 executable facet contract kit
 - Created date: 2026-10-13

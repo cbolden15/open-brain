@@ -77,7 +77,7 @@ PASS: **103 passed**, final run 18.79 seconds, exit 0. Intermediate focused runs
 | `npm --prefix packages/obsidian-plugin run build` | PASS, exit 0; package-local ignored output |
 | `actionlint .github/workflows/ci.yml` | PASS, exit 0 |
 | `git diff --check` | PASS, exit 0; repeated for final reports |
-| `node /Users/calebbolden/.codex/skills/workflow-governance/scripts/validate-handoff.mjs /Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search/docs/ai/workstreams/20260917-open-brain-public-vault-refresh-repair-f71da8-reports/m1-refresh/20260917-open-brain-public-vault-refresh-dcd7f6/HANDOFF.json` | PASS, valid true, exit 0; final packet pins the implementation SHA |
+| `node $HOME/.codex/skills/workflow-governance/scripts/validate-handoff.mjs $WORKTREES/m1-search/docs/ai/workstreams/20260917-open-brain-public-vault-refresh-repair-f71da8-reports/m1-refresh/20260917-open-brain-public-vault-refresh-dcd7f6/HANDOFF.json` | PASS, valid true, exit 0; final packet pins the implementation SHA |
 
 The installed `create-workstream.mjs` generated this workstream ID. `render-prompt.mjs handoff` rendered HANDOFF.md from matching JSON values, and `validate-handoff.mjs` checks the packet before committing. Reports contain result summaries, not raw runtime logs or private content.
 

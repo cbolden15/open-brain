@@ -5,7 +5,7 @@ Date: 2026-10-15. Status: design for implementation review. Baseline: `8ef1d0692
 Implementation update, 2026-10-16: the lifecycle journal landed at18/13/13.
 Owner preview/commit/status adds19/14/14 with supplemental approval evidence in
 the same database transaction. The executable contract is
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/OWNER-RETRACTION.md`.
+`$REPO/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/OWNER-RETRACTION.md`.
 Its actual tables and Portable layout supersede the draft storage proposals
 below. The public closed error set additionally includes `operation_pending`
 for preview capacity or affected unfinished copies, and `invalid_evidence` for
@@ -15,7 +15,7 @@ damaged retained evidence. Both are nonretryable refusals with no raw diagnostic
 
 Use one engine-owned lifecycle for grouped consumer intake, trusted capture-session membership, retraction and eligibility. The app parses untrusted archives and translates owner commands. It cannot write SQLite, manufacture authority or publish an individual segment independently.
 
-All source paths in this document are relative to `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/`.
+All source paths in this document are relative to `$REPO/.worktrees/competitive-gap-reconciliation/`.
 
 | Inspected source | Existing behavior and required extension |
 |---|---|

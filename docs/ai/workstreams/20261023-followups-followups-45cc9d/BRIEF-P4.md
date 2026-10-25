@@ -1,6 +1,6 @@
 # Follow-ups P4 brief: app service, CLI, MCP, grants (plan Tasks 14–18)
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/followups`
+Repo root (worktree): `$REPO/.worktrees/followups`
 Branch: `feat/followups`. P1–P3 (Tasks 1–13) and their review fixes are committed; coordinates are 23/16/18. Never push, never switch branches, never touch another worktree.
 
 ## Sources of truth (in order)

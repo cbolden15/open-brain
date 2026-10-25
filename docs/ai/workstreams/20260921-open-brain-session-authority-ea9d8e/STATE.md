@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20260921-open-brain-session-authority-ea9d8e`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public
+- Worktree: $REPO
 - Branch: goal/open-brain-session-authority
 - Objective: Complete Open Brain session-authority enforcement from goal issue 81
 - Created date: 2026-09-21

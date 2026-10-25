@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261015-open-brain-public-slack-recall-w4-execution-4f6ce3`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b
+- Repo root: $WORKTREES/slack-cited-recall-w4-20261015-6d407b
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b
+- Worktree: $WORKTREES/slack-cited-recall-w4-20261015-6d407b
 - Branch: feat/slack-cited-recall-w4-20261015-6d407b
 - Objective: Implement and verify W4 synthetic regression and native proof; stop before actual-client and private pilot
 - Created date: 2026-10-15

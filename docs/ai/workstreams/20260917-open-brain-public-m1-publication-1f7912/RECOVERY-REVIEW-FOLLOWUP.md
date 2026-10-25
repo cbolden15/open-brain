@@ -29,7 +29,7 @@ The original independent post-prepare permissions repro and real CLI repro now p
 Independent reproductions are retained in `test_followup.py` beside this report. Final run: **18 passed in 1.91s**.
 
 ```sh
-RUN=/Users/calebbolden/.codex/workflow-runs/open-brain-wave1-20260917T055433Z-05fb82/checkpoint-c-review-followup-4fa219
+RUN=$HOME/.codex/workflow-runs/open-brain-wave1-20260917T055433Z-05fb82/checkpoint-c-review-followup-4fa219
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -p no:cacheprovider -q --tb=short \
   --basetemp="$RUN/recheck-tmp" "$RUN/test_followup.py"
 ```

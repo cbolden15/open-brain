@@ -94,10 +94,10 @@ Re-estimate if client settings or derived-content lineage cannot be bounded, any
 
 Source anchors were checked against `c1d2c52`:
 
-- [Setup inputs, preview commitments and client roots](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/agent_setup.py:119).
-- [Closed setup DTO forwarding](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/plugin_bridge.py:1265).
-- [Legacy MCP search and implicit authority construction](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/local_entrypoints.py:2232).
-- [Trusted policy loading and revalidation](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/session_authority.py:57).
-- [Record/canonical eligibility](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine/engine/records.py:115) and [paging authority commitments](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine/engine/paging.py:48).
+- [Setup inputs, preview commitments and client roots]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/agent_setup.py:119).
+- [Closed setup DTO forwarding]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/plugin_bridge.py:1265).
+- [Legacy MCP search and implicit authority construction]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/local_entrypoints.py:2232).
+- [Trusted policy loading and revalidation]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/session_authority.py:57).
+- [Record/canonical eligibility]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine/engine/records.py:115) and [paging authority commitments]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine/engine/paging.py:48).
 
 No production source, client settings or model/provider selection was changed during this planning pass. Client precedence and live routing remain implementation/pilot verification work, with the bounded observation claim above.

@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261015-open-brain-public-slack-recall-w3-97e888`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d
+- Repo root: $WORKTREES/slack-cited-recall-w3-20261015-86014d
 - Remote identity SHA-256 fingerprint: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d
+- Worktree: $WORKTREES/slack-cited-recall-w3-20261015-86014d
 - Branch: feat/slack-cited-recall-w3-20261015-86014d
 - Objective: Implement W3 synthetic cited recall journey and operator guide, preserve W2 continuity and remove only its superseded worktree; no W4 or real client pilot
 - Created date: 2026-10-15

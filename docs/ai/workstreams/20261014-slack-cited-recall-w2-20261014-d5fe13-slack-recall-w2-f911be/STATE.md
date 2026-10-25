@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261014-slack-cited-recall-w2-20261014-d5fe13-slack-recall-w2-f911be`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13
+- Repo root: $WORKTREES/slack-cited-recall-w2-20261014-d5fe13
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13
+- Worktree: $WORKTREES/slack-cited-recall-w2-20261014-d5fe13
 - Branch: feat/slack-cited-recall-w2-20261014-d5fe13
 - Objective: Implement revised W2 scoped setup and trusted Slack Work MCP policy boundary
 - Created date: 2026-10-14

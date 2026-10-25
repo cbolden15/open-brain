@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20260917-m1-search-m1-source-resolver-e377fb`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search
+- Repo root: $WORKTREES/m1-search
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search
+- Worktree: $WORKTREES/m1-search
 - Branch: ob-new-user/m1-search
 - Objective: M1 T01-T02 source resolver and composed public search tests
 - Created date: 2026-09-17

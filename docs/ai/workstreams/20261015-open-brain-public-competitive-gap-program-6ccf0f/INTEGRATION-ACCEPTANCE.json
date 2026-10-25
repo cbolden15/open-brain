@@ -3,7 +3,7 @@
   "head": "7b511c292a83b9f6d5aab7efbda3c28435fee996",
   "tree": "e1f9383fd543b53fec10bf320ce5467286c57bcb",
   "branch": "feat/competitive-gap-reconciliation",
-  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation",
+  "worktree": "$REPO/.worktrees/competitive-gap-reconciliation",
   "merge_parents": [
     "fd2147a96afe7a62e6f180552d73ed5e07c0dff8",
     "19f2f160e67a91623b5ec252d4002b8826b03830"
@@ -93,7 +93,7 @@
   "suite_summaries": [
     "All checks passed!",
     "Success: no issues found in 673 source files",
-    "  /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/packages/engine/tests/unit/storage/test_writer_transaction.py:112: DeprecationWarning: This process (pid=13060) is multi-threaded, use of fork() may lead to deadlocks in the child.",
+    "  $REPO/.worktrees/competitive-gap-reconciliation/packages/engine/tests/unit/storage/test_writer_transaction.py:112: DeprecationWarning: This process (pid=13060) is multi-threaded, use of fork() may lead to deadlocks in the child.",
     "SKIPPED [1] packages/app/tests/integration/engine/test_markdown_import_fs.py:171: filesystem rejects non-UTF-8 filenames",
     "SKIPPED [1] packages/app/tests/integration/engine/test_markdown_import_fs.py:204: filesystem does not preserve distinct NFC and NFD names",
     "SKIPPED [2] packages/app/tests/integration/engine/test_markdown_import_fs.py:239: filesystem does not preserve distinct NFC and NFD names",

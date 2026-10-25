@@ -57,7 +57,7 @@ UV_NO_SYNC=1 UV_OFFLINE=1 .venv/bin/python -m pytest -q packages/app/tests/unit/
 UV_NO_SYNC=1 UV_OFFLINE=1 .venv/bin/mypy
 actionlint .github/workflows/ci.yml
 git diff --check
-node /Users/calebbolden/.codex/skills/workflow-governance/scripts/validate-handoff.mjs /Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search/docs/ai/workstreams/20260917-open-brain-public-privacy-recovery-correction-93ba1c-reports/correction/20260917-open-brain-public-privacy-recovery-047eba/HANDOFF.json
+node $HOME/.codex/skills/workflow-governance/scripts/validate-handoff.mjs $WORKTREES/m1-search/docs/ai/workstreams/20260917-open-brain-public-privacy-recovery-correction-93ba1c-reports/correction/20260917-open-brain-public-privacy-recovery-047eba/HANDOFF.json
 ```
 
 Final outcomes and implementation commit identity are recorded below after execution. Final report commit SHA is necessarily external to its own committed content; the terminal response records that exact SHA, and `git log -1 --format=%H -- <this REPORT.md>` resolves it without altering the report. The handoff head pins the tested implementation commit; the final HEAD is its documentation-only child.

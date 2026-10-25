@@ -1,6 +1,6 @@
 # Follow-ups P3 brief: scope, retraction, edited sources, Portable 18 (plan Tasks 10–13)
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/followups`
+Repo root (worktree): `$REPO/.worktrees/followups`
 Branch: `feat/followups`. P1 (Tasks 1–4) and P2 (Tasks 5–9) and their review fixes are committed. Never push, never switch branches, never touch another worktree.
 
 ## Sources of truth (in order)

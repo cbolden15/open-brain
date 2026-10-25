@@ -1,5 +1,5 @@
 {
-  "removed_worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13",
+  "removed_worktree": "$WORKTREES/slack-cited-recall-w2-20261014-d5fe13",
   "preserved_local_branch": "feat/slack-cited-recall-w2-20261014-d5fe13",
   "preserved_tip": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
   "continuity_files": 5,

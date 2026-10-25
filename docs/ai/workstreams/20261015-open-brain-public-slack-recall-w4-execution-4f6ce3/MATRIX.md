@@ -1,6 +1,6 @@
 # W4 synthetic acceptance matrix
 
-Candidate worktree: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b`.
+Candidate worktree: `$WORKTREES/slack-cited-recall-w4-20261015-6d407b`.
 Prepared baseline: `20f6c40`. This ledger maps the implementation plan's entire acceptance matrix to executable synthetic evidence. W3's preserved acceptance receipt records 7,474 Python passes at `b36dfed44f063b5b1d98d4f0130e1a460a945147`; these historical receipts do not substitute for fresh W4 checks.
 
 All fixture data is synthetic. The journey uses real `SlackSourceClient`, `PriorityRuntime`, collector admission, source routing, engine sharing, durable consent and a real scoped MCP stdio subprocess. Only Slack HTTP responses are replaced. Unit driver cases intentionally supply protocol responses to isolate budget and malformed-response behavior. They are identified separately below.
@@ -11,31 +11,31 @@ The short suite IDs below refer to these absolute paths. Each matrix cell names 
 
 | ID | Test file |
 |---|---|
-| J | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/services/test_slack_decision_recall.py` |
-| S | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_slack_sharing.py` |
-| P | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_slack_sharing_proof.py` |
-| R | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_slack_sharing_races.py` |
-| V | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_slack_sharing_surfaces.py` |
-| C | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/tests/integration/test_slack_capture_acceptance.py` |
-| L | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/tests/integration/test_live_capture.py` |
-| H | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/connectors/tests/contract/test_slack_live.py` |
-| E | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_w2_mcp_eligibility.py` |
-| M | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/services/test_w2_mcp_stdio.py` |
-| A | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/test_scoped_agent_setup.py` |
-| T | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/test_session_authority.py` |
-| D | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/test_slack_recall_driver.py` |
-| Q | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/engine/test_slack_sharing_projection.py` |
-| B12 | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability_v12.py` |
-| B10 | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/engine/tests/contract/test_portable_brain_v10.py` |
-| B9 | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/engine/test_portable_v9_historical.py` |
-| B8 | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/engine/test_portable_v8_restore.py` |
-| B7 | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability_v7.py` |
-| B6 | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability_v6.py` |
-| B5 | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability_v5.py` |
-| BM | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_managed_portability.py` |
-| BI | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability.py` |
-| G | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/engine/test_slack_sharing_migration.py` |
-| K | `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/test_catalog.py` |
+| J | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/services/test_slack_decision_recall.py` |
+| S | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_slack_sharing.py` |
+| P | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_slack_sharing_proof.py` |
+| R | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_slack_sharing_races.py` |
+| V | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_slack_sharing_surfaces.py` |
+| C | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/tests/integration/test_slack_capture_acceptance.py` |
+| L | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/tests/integration/test_live_capture.py` |
+| H | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/connectors/tests/contract/test_slack_live.py` |
+| E | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_w2_mcp_eligibility.py` |
+| M | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/services/test_w2_mcp_stdio.py` |
+| A | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/test_scoped_agent_setup.py` |
+| T | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/test_session_authority.py` |
+| D | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/test_slack_recall_driver.py` |
+| Q | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/engine/test_slack_sharing_projection.py` |
+| B12 | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability_v12.py` |
+| B10 | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/engine/tests/contract/test_portable_brain_v10.py` |
+| B9 | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/engine/test_portable_v9_historical.py` |
+| B8 | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/engine/test_portable_v8_restore.py` |
+| B7 | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability_v7.py` |
+| B6 | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability_v6.py` |
+| B5 | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability_v5.py` |
+| BM | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_managed_portability.py` |
+| BI | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/integration/engine/test_portability.py` |
+| G | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/engine/test_slack_sharing_migration.py` |
+| K | `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/tests/unit/test_catalog.py` |
 
 ## Scenario map
 
@@ -117,7 +117,7 @@ All commands use the candidate worktree above as CWD. The common invocation is:
 | Check | Exact selection / evidence | Result and time |
 |---|---|---|
 | First changed run | J `::test_w4_persistent_stdio_observation_refresh_and_separate_correction` plus all R; log `/tmp/obw4-logs/w4-changed-tests.log` | 10 passed, 1 failed in 11.34 s; wall 12.34 s. Fixture supplied positive `reply_count`, which triggered unsupported `/api/conversations.replies` in its history-only HTTP double. Removed reply metadata to test the required reaction-only scenario. No runtime change. |
-| Failed fixture preservation | Original `/private/tmp/obw4/pytest-of-calebbolden/pytest-0/popen-gw0/test_w4_persistent_stdio_obser0`; copy `/tmp/obw4-failed-first`; manifest `/tmp/obw4-failed-first/relocation-manifest.json` | 35 files, 1,225,377 bytes; manifest records original/copy paths, SHA-256 and sizes. Failed log unchanged. |
+| Failed fixture preservation | Original `/private/tmp/obw4/pytest-of-$USER/pytest-0/popen-gw0/test_w4_persistent_stdio_obser0`; copy `/tmp/obw4-failed-first`; manifest `/tmp/obw4-failed-first/relocation-manifest.json` | 35 files, 1,225,377 bytes; manifest records original/copy paths, SHA-256 and sizes. Failed log unchanged. |
 | Changed retry | J new W4 test plus K `::test_slack_recall_capability_separates_synthetic_acceptance_from_model_proof`; log `/tmp/obw4-logs/w4-changed-retry.log` | 2 passed in 5.83 s; wall 6.12 s. Broad run below additionally includes the later collector-route-refusal assertion. |
 | Broad matrix | Exact selection below; log `/tmp/obw4-logs/w4-matrix-focused.log` | Exit 0: 641 passed in 366.43 s; wall 366.82 s. Before the final initial-search assertion in R; affected tests rerun below. |
 | Search/snapshot and historical supplement | R; B8 `::test_actual_clean_restore_reexport_retains_authority_and_history`; B9 `::test_frozen_v8_archive_restores_to_fourteen_without_reinterpreting_old_bytes`, `::test_v9_and_current_hidden_restore_retries_without_promoting_interrupted_authority`; B10 `::test_real_schema15_empty_facet_restore_reopens_and_preserves_inherited_bytes`; log `/tmp/obw4-logs/w4-race-historical-final.log` | Exit 0: 29 passed in 28.00 s; wall 28.43 s. Includes explicit initial search; before final different-space reroute strengthening. |

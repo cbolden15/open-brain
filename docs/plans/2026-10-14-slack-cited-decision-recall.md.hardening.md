@@ -1,6 +1,6 @@
-# Hardening report — /Users/calebbolden/Projects/oss/open-brain-public/docs/plans/2026-10-14-slack-cited-decision-recall.md
+# Hardening report — $REPO/docs/plans/2026-10-14-slack-cited-decision-recall.md
 
-Consolidated report for 2026-10-14. Runner: `/Users/calebbolden/Projects/agent-config/bin/harden`, lenses SECURITY, FEASIBILITY, SCOPE, CORRECTNESS plus the blind independent seat. Two remediation cycles were used, which is the skill maximum. No further cycle or attestation was run.
+Consolidated report for 2026-10-14. Runner: `$HOME/Projects/agent-config/bin/harden`, lenses SECURITY, FEASIBILITY, SCOPE, CORRECTNESS plus the blind independent seat. Two remediation cycles were used, which is the skill maximum. No further cycle or attestation was run.
 
 ## Outcome
 
@@ -93,7 +93,7 @@ Reviewers: lens:SECURITY, lens:FEASIBILITY, lens:SCOPE, lens:CORRECTNESS, indepe
 
 - [ ] The package split can temporarily create an unsupported persisted format — packages/engine/src/open_brain_engine/portable/v7.py:504 — failure: W1a enables Slack v2 copies and advances schema/runtime/Portable coordinates before W1b registers Portable v12. A W1a-created Brain is exported or reopened at that checkpoint. Keeping schema 11 loses or rejects the new evidence; labeling it schema 12 reaches no registered validator. Extending the inherited v7 validator instead would let a rehashed schema-7 archive contain the new marker, changing a frozen old format. — fix: Make persistence activation and Portable v12 support one atomic package. Keep v7 validation strictly v1, add a version-gated v12 validator for both variants, and enable the schema migration only after export/import/reopen tests pass. — reviewers: lens:FEASIBILITY.
 
-- [ ] The mandatory verification chain depends on an undeclared actionlint executable — actionlint /Users/calebbolden/Projects/oss/open-brain-public/.github/workflows/ci.yml — failure: A clean contributor or CI environment installs the repository's declared Python and npm dependencies, then runs the listed completion commands. The final command exits with `actionlint: command not found`, so W4 cannot satisfy its required verification even when the implementation is correct. — fix: Pin and provision actionlint through a repository-managed tool/bootstrap step or container, then invoke that managed executable from Makefile/CI and the plan. — reviewers: lens:FEASIBILITY.
+- [ ] The mandatory verification chain depends on an undeclared actionlint executable — actionlint $REPO/.github/workflows/ci.yml — failure: A clean contributor or CI environment installs the repository's declared Python and npm dependencies, then runs the listed completion commands. The final command exits with `actionlint: command not found`, so W4 cannot satisfy its required verification even when the implementation is correct. — fix: Pin and provision actionlint through a repository-managed tool/bootstrap step or container, then invoke that managed executable from Makefile/CI and the plan. — reviewers: lens:FEASIBILITY.
 
 ## Minor
 

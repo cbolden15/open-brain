@@ -1,6 +1,6 @@
 # Follow-ups P1 brief: schema 23 and coordinates (plan Tasks 1–4)
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/followups`
+Repo root (worktree): `$REPO/.worktrees/followups`
 Branch: `feat/followups` (base: spec + plan commits on top of main `9f50bd0`). Never push, never switch branches, never touch another worktree.
 
 ## Sources of truth (in order)

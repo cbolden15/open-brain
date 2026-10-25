@@ -1,6 +1,6 @@
 # W5 P4 brief: deferred items, docs and regression readiness
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/w5-guided-slack`
+Repo root (worktree): `$REPO/.worktrees/w5-guided-slack`
 Branch: `feat/w5-guided-slack-workflow`. P1–P3 and their review fixes are committed (`git log main..HEAD`). Never push, never switch branches, never touch another worktree.
 
 ## Sources of truth

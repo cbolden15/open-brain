@@ -17,8 +17,8 @@
     "command": "At5afb137: approved doc/source/commit hash binding; clean checkout; git diff --check; actionlint .github/workflows/ci.yml; references/symbols/JSON/continuity; independent Astra review",
     "result": "passed:5 approved artifacts,17 source files,9 named tests,4 links,3 JSON examples; docs-only; all review findings resolved. No W5 runtime/full/native/live acceptance claimed."
   },
-  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b",
-  "artifact_index": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/ACCEPTANCE.md",
+  "worktree": "$WORKTREES/slack-cited-recall-w4-20261015-6d407b",
+  "artifact_index": "$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/ACCEPTANCE.md",
   "runtime_checks": "not_run; specification only",
   "compatibility": {
     "schema": 17,
@@ -26,8 +26,8 @@
     "portable": 12
   },
   "post_commit_uncommitted_files": [
-    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-p0-802d8e/HANDOFF.json",
-    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-p0-802d8e/HANDOFF.md"
+    "$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-p0-802d8e/HANDOFF.json",
+    "$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-p0-802d8e/HANDOFF.md"
   ],
   "final_check_receipt": "/tmp/obw5p0-295dl3cl/final-checks.json"
 }

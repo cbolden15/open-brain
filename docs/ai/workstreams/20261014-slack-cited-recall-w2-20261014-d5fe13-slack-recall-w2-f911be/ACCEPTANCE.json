@@ -1,7 +1,7 @@
 {
   "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
   "branch": "feat/slack-cited-recall-w2-20261014-d5fe13",
-  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13",
+  "worktree": "$WORKTREES/slack-cited-recall-w2-20261014-d5fe13",
   "verification": {
     "make-verify": {
       "command": "make verify",
@@ -49,7 +49,7 @@
     },
     "cleanup-result": {
       "head": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
-      "removed_worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67",
+      "removed_worktree": "$WORKTREES/slack-cited-recall-w0-20261014-006b67",
       "deleted_local_branch": "feat/slack-cited-recall-w0-20261014-006b67",
       "worktree_force_reason": "Nine dirty continuity files preserved byte-for-byte, committed at 8bff336, and SHA-256 reverified immediately before removal",
       "ordinary_branch_deletion": true,

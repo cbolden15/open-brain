@@ -1,6 +1,6 @@
 # W5 P2 brief: foreground capture guide and journal
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/w5-guided-slack`
+Repo root (worktree): `$REPO/.worktrees/w5-guided-slack`
 Branch: `feat/w5-guided-slack-workflow`. P1 is committed on it (see `git log main..HEAD`). Never push, never switch branches, never touch another worktree.
 
 ## Sources of truth

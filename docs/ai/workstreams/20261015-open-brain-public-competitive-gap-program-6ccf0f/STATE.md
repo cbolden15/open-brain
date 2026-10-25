@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261015-open-brain-public-competitive-gap-program-6ccf0f`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Repo root: $REPO/.worktrees/competitive-gap-reconciliation
 - Remote identity SHA-256 fingerprint: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Worktree: $REPO/.worktrees/competitive-gap-reconciliation
 - Branch: feat/competitive-gap-reconciliation
 - Objective: Implement competitive gaps1-9 in ordered phases, rename deferred, bundled local embeddings assessment and both export formats
 - Created date: 2026-10-15

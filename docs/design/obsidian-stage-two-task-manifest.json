@@ -50,7 +50,7 @@
   "workers": [
     {
       "role": "U",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-u",
+      "worktree": "$HOME/Projects/oss/open-brain-stage-two-u",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
         "contract_revision": "facets-c0-v4",
@@ -78,7 +78,7 @@
     },
     {
       "role": "P",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-p",
+      "worktree": "$HOME/Projects/oss/open-brain-stage-two-p",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
         "contract_revision": "facets-c0-v4",
@@ -104,7 +104,7 @@
     },
     {
       "role": "V",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-v",
+      "worktree": "$HOME/Projects/oss/open-brain-stage-two-v",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
         "contract_revision": "facets-c0-v4",
@@ -130,7 +130,7 @@
     },
     {
       "role": "T",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-t",
+      "worktree": "$HOME/Projects/oss/open-brain-stage-two-t",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
         "contract_revision": "facets-c0-v4",
@@ -154,7 +154,7 @@
     },
     {
       "role": "R",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-r",
+      "worktree": "$HOME/Projects/oss/open-brain-stage-two-r",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
         "contract_revision": "facets-c0-v4",
@@ -174,7 +174,7 @@
     },
     {
       "role": "P_recovery",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-p-recovery",
+      "worktree": "$HOME/Projects/oss/open-brain-stage-two-p-recovery",
       "input_commit": "70181a9fdcae09874e839eec13f2b1d9c268151d",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
@@ -198,7 +198,7 @@
     },
     {
       "role": "P_startup",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-stage-two-p-startup",
+      "worktree": "$HOME/Projects/oss/open-brain-stage-two-p-startup",
       "input_commit": "bbacd4246925a5af3ba6336292d255db1dc73b50",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",
@@ -223,7 +223,7 @@
     },
     {
       "role": "R_evidence",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-public",
+      "worktree": "$REPO",
       "input_commit": "55c1ced42ebbeb7dd0ddbd82c70829448306d6f3",
       "input_pins": {
         "verified_main_commit": "23e7a2bb75567b5492c026ea76f16c463739245e",

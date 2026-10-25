@@ -10,4 +10,4 @@ Reserve schema18/runtime13/Portable13 against the current17/12/12 baseline, subj
 
 A source-withdrawal wrapper is smaller but cannot implement arbitrary capture/session undo. Separate importer/retraction ledgers duplicate authority and can disagree after recovery. The shared lifecycle is the selected design, with additional migration, read-path and Portable acceptance work.
 
-Detailed decisions and remaining gates are in [the persistence contract](/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/PERSISTENCE.md). This ADR does not authorize accessing private exports/Brain state, executing models or publishing the candidate.
+Detailed decisions and remaining gates are in [the persistence contract]($REPO/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/PERSISTENCE.md). This ADR does not authorize accessing private exports/Brain state, executing models or publishing the candidate.

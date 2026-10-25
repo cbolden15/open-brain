@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261016-open-brain-consumer-intake-f818e5`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Worktree: $REPO/.worktrees/competitive-gap-reconciliation
 - Branch: feat/competitive-gap-reconciliation
 - Objective: Implement complete engine-side consumer conversation intake with provenance, atomic groups, recovery and Portable evidence under goal110; leave PR86 open
 - Created date: 2026-10-16

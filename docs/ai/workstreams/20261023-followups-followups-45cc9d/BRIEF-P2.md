@@ -1,6 +1,6 @@
 # Follow-ups P2 brief: engine follow-up tasks (plan Tasks 5–9)
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/followups`
+Repo root (worktree): `$REPO/.worktrees/followups`
 Branch: `feat/followups`. P1 (Tasks 1–4) and its review fix are committed. Never push, never switch branches, never touch another worktree.
 
 ## Sources of truth (in order)

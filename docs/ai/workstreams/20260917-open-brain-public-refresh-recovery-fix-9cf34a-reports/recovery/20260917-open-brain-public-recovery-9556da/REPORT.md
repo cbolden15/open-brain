@@ -6,7 +6,7 @@ Task: durably settle superseded refresh authorizations without stale writes, fal
 
 ## Authority, identity and commits
 
-- Worktree: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search`.
+- Worktree: `$WORKTREES/m1-search`.
 - Branch: `ob-new-user/m1-search`.
 - Exact starting HEAD: `2a0a8b70e363311ce56beb743ca627f3ecfdae02`; clean status verified before editing.
 - Assignment: coordinator commit `16547ee5f0cdfc5450e7111aee93fd81f890814b` and its ASSIGNMENT.json / FIX-PROMPT.md.
@@ -73,7 +73,7 @@ Final prescribed sequence, all successful:
 .venv/bin/mypy
 actionlint .github/workflows/ci.yml
 git diff --check
-node /Users/calebbolden/.codex/skills/workflow-governance/scripts/validate-handoff.mjs /Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search/docs/ai/workstreams/20260917-open-brain-public-refresh-recovery-fix-9cf34a-reports/recovery/20260917-open-brain-public-recovery-9556da/HANDOFF.json
+node $HOME/.codex/skills/workflow-governance/scripts/validate-handoff.mjs $WORKTREES/m1-search/docs/ai/workstreams/20260917-open-brain-public-refresh-recovery-fix-9cf34a-reports/recovery/20260917-open-brain-public-recovery-9556da/HANDOFF.json
 ```
 
 - Python: **147 passed in 35.17s**, exit 0.

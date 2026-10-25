@@ -1,6 +1,6 @@
 # W5 P1 brief: read-only foundation
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/w5-guided-slack`
+Repo root (worktree): `$REPO/.worktrees/w5-guided-slack`
 Branch: `feat/w5-guided-slack-workflow` (from `main` at `e865230`). Never push, never switch branches, never touch another worktree.
 
 ## Sources of truth (read in this order)
@@ -9,7 +9,7 @@ Branch: `feat/w5-guided-slack-workflow` (from `main` at `e865230`). Never push, 
 2. `docs/plans/2026-10-15-guided-slack-workflow-w5.md` (sections 6 and 7, P1 row).
 3. P0 packet `docs/plans/2026-10-15-guided-slack-workflow-w5-p0/`: `HEALTH.md`, `INTERFACE.md`, `IDENTITY.md`, `ACCEPTANCE.md`. `RECOVERY.md` is P2/P3 context only.
 
-The P0 packet was written against an older worktree and baseline (`377d238`, schema/runtime/Portable 17/12/12). Its absolute paths point at `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b`; map every one to the same relative path in this worktree. Current `main` is at schema/runtime/Portable 21/16/16 (owner retraction, consumer intake, local embedding landed since).
+The P0 packet was written against an older worktree and baseline (`377d238`, schema/runtime/Portable 17/12/12). Its absolute paths point at `$WORKTREES/slack-cited-recall-w4-20261015-6d407b`; map every one to the same relative path in this worktree. Current `main` is at schema/runtime/Portable 21/16/16 (owner retraction, consumer intake, local embedding landed since).
 
 ## Step 0: re-anchor P0 (do first, before any code)
 

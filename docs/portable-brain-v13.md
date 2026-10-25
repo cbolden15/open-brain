@@ -68,7 +68,7 @@ across restart, whole-group rollback, previous-current preservation, exact custo
 recovery, retained source/canonical owner history, dependency exclusion, terminal
 replay and Portable roundtrips beyond the isolated component's aggregate size.
 Full verification evidence belongs to workstream
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/ai/workstreams/20261015-open-brain-public-lifecycle-engine-integration-915bb7/`.
+`$REPO/.worktrees/competitive-gap-reconciliation/docs/ai/workstreams/20261015-open-brain-public-lifecycle-engine-integration-915bb7/`.
 
 Journal projections still rebuild from immutable evidence; indexed production-size
 performance acceptance remains open. Consumer format parsers, owner preview/commit

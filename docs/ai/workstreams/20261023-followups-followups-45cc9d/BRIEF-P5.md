@@ -1,6 +1,6 @@
 # Follow-ups P5 brief: acceptance, user docs, reference-docs gate (plan Tasks 19–21)
 
-Repo root (worktree): `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/followups`
+Repo root (worktree): `$REPO/.worktrees/followups`
 Branch: `feat/followups`. Tasks 1–18 and their review fixes are committed; coordinates are 23/16/18. Never push, never switch branches, never touch another worktree. Task 22 (frozen-tree gate) is run by the coordinator, not you.
 
 ## Sources of truth (in order)

@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261013-open-brain-public-obsidian-stage-two-e7f2c4`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public
+- Worktree: $REPO
 - Branch: feat/obsidian-facets-stage-two
 - Objective: Implement remaining Obsidian facets Stage2 tasks and verify real-engine and host acceptance
 - Created date: 2026-10-13
@@ -14,7 +14,7 @@
 - Checks: full make verify, native audit/Homebrew smoke, actual Obsidian1.14.4 synthetic vault, independent real-process review, diff/actionlint/gitleaks
 - Worker reservations: released; no active workers
 - Delivery: local commits only; no push, PR, publish or deployment
-- Verification report: /Users/calebbolden/Projects/oss/open-brain-public/docs/audits/2026-10-13-obsidian-facets-stage-two.md
+- Verification report: $REPO/docs/audits/2026-10-13-obsidian-facets-stage-two.md
 - Private retained receipts: /private/tmp/obsidian-stage-two
 - Approved cleanup: two generated Rust targets and pytest-452 scratch removed after byte-verifying retained acceptance copies; approximately8.6 GB reclaimed,11 GB free
 - Next action: review the local verification report

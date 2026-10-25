@@ -27,6 +27,6 @@ survives restore. Earlier supported containers seed empty approvals, and frozen
 Portable13 readers refuse Portable14 before mutation.
 
 The owner workflow is documented in
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/owner-retraction.md`.
+`$REPO/.worktrees/competitive-gap-reconciliation/docs/owner-retraction.md`.
 The predecessor contract is
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/portable-brain-v13.md`.
+`$REPO/.worktrees/competitive-gap-reconciliation/docs/portable-brain-v13.md`.

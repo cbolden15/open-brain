@@ -1,6 +1,6 @@
 # Isolated lifecycle journal foundation
 
-Worktree: `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation`. Implementation starts from `9af2303`. This records the isolated milestone at **17/12/12**. The subsequent engine integration uses **18/13/13**, documented in `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/portable-brain-v13.md`.
+Worktree: `$REPO/.worktrees/competitive-gap-reconciliation`. Implementation starts from `9af2303`. This records the isolated milestone at **17/12/12**. The subsequent engine integration uses **18/13/13**, documented in `$REPO/.worktrees/competitive-gap-reconciliation/docs/portable-brain-v13.md`.
 
 ## Implemented component
 
@@ -32,7 +32,7 @@ UV_PROJECT_ENVIRONMENT=/tmp/open-brain-lifecycle-15036c-venv uv run --frozen pyt
 
 The development environment is disposable and not needed by installed users. The focused tests cover canonical golden fixtures, malformed input and alias mutation, exact/changed replay, caught-error rollback, commit/reopen and process-close recovery, complete group activation, session append/retraction races, newer-head preservation, halt/retry, issuer changes and corrupted or impossible restore evidence. Independent review corrections have dedicated regressions.
 
-Full `make verify` results and independent review are recorded in the workstream at `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/ai/workstreams/20261015-open-brain-public-lifecycle-journal-foundation-15036c/`. No installed-client, model, private-source or two-platform acceptance is implied by these checks.
+Full `make verify` results and independent review are recorded in the workstream at `$REPO/.worktrees/competitive-gap-reconciliation/docs/ai/workstreams/20261015-open-brain-public-lifecycle-journal-foundation-15036c/`. No installed-client, model, private-source or two-platform acceptance is implied by these checks.
 
 ## Next integration slice
 

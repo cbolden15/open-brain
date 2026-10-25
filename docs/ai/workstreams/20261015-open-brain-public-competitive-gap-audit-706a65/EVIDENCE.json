@@ -3,7 +3,7 @@
   "scope": "read-only source/evidence reconciliation; documentation writes only",
   "inputs": [
     {
-      "path": "/Users/calebbolden/Downloads/Open Brain Competitive Gaps.md",
+      "path": "$HOME/Downloads/Open Brain Competitive Gaps.md",
       "sha256": "bfaffedf3ecd203581006fe4accdcaa46e4daa940381ab8e4198c85ccc6f67cf"
     },
     {

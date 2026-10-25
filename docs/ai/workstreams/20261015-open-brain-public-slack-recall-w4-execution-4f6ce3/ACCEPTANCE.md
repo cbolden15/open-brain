@@ -1,11 +1,11 @@
 # W4 local acceptance
 
 Tested HEAD: `7818f4f3138b887220c414119be9ac16e28b0a80`. Branch: `feat/slack-cited-recall-w4-20261015-6d407b`.
-Worktree: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b`.
+Worktree: `$WORKTREES/slack-cited-recall-w4-20261015-6d407b`.
 
 W4 synthetic repository and current-platform native acceptance passed. The exact
 commands, timings, log hashes, source/artifact digests, suite summaries, skips and
-limitations are in `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json`.
+limitations are in `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json`.
 All 1910 checkout input hashes stayed unchanged through all required gates.
 The source inventory SHA-256 is `f51dcc26593aef3b4fa9437410f187ade37a20719e20b165d47ca0de415a28c4`.
 

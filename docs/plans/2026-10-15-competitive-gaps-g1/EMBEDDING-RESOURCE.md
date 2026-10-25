@@ -8,7 +8,7 @@ The proper product is a pinned CPU helper, tokenizer and model installed with th
 
 ## 1. Source boundary and implementation seams
 
-All repository paths below are relative to `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/` unless written as absolute links.
+All repository paths below are relative to `$REPO/.worktrees/competitive-gap-reconciliation/` unless written as absolute links.
 
 | Inspected source | Current behavior and consequence |
 |---|---|
@@ -20,7 +20,7 @@ All repository paths below are relative to `/Users/calebbolden/Projects/oss/open
 | `engine/search_projection.py`, `engine/records.py`, `engine/sharing.py`, `engine/mcp_eligibility.py` | Public-safe projections, retained provenance, canonical members, effective privacy, source lifecycle, scope, implicit and external-provider eligibility remain authoritative. A vector never bypasses them. |
 | `engine/portability.py`, `engine/local_schema.py`, `docs/portable-brain-v12.md` | Current SQLite shape is 17. Existing authoritative search projections are Portable evidence; FTS identities/generations are local. New vectors/chunks/token data are derived, excluded from Portable, and rebuilt after restore. Do not remove existing Portable projection evidence. |
 
-The program authority is [the PRD](/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/plans/PRD-open-brain-competitive-gaps.md). This resource contract consumes the coordinator's tombstone, trusted session membership, import activation and eligibility contracts. Staged/custodied/materialized import segments stay invisible until the complete conversation revision activation transaction publishes its head/membership/receipt and advances `eligibility_generation`. Retracting one capture does not retire an unrelated newer logical-source head.
+The program authority is [the PRD]($REPO/.worktrees/competitive-gap-reconciliation/docs/plans/PRD-open-brain-competitive-gaps.md). This resource contract consumes the coordinator's tombstone, trusted session membership, import activation and eligibility contracts. Staged/custodied/materialized import segments stay invisible until the complete conversation revision activation transaction publishes its head/membership/receipt and advances `eligibility_generation`. Retracting one capture does not retire an unrelated newer logical-source head.
 
 ## 2. Candidate evidence and selection gates
 
