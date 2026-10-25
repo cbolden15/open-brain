@@ -4,6 +4,9 @@ Item I1 of `docs/audits/2026-10-25-integrations-assessment.md`. Extends the Goog
 `packages/connectors/src/open_brain_connectors/runtime/google_sources.py` and the collector's live
 capture path. The audit's inventory of the current Drive path is summarized under "What exists".
 
+Revision 1.2 (execution amendment): `known` holds at most 500 entries, because the collector bounds
+a serialized checkpoint at 131,072 bytes and realistic Drive ids and revisions reach that near 800
+entries; 500 entries serialize to about 85 KB.
 Revision 1.1 (plan-authoring amendments): descriptor labels sorted, watermark advances when a
 listing completes, 1 MiB export bodies are a transport error, `LiveBatch` notice pattern widened,
 collector revision-sink allow-list gains `google_drive`.
@@ -131,10 +134,10 @@ Per source, metadata only, validated on every fetch like `_drive_state` today:
 - Incremental run: the query bound is `watermark` minus 24 hours, constant for the listing. The
   overlap covers late indexing and clock skew. Files in `known` with an unchanged revision are
   skipped without a fetch.
-- `known` holds at most 2,000 entries. When full, the entries with the oldest `modified` value are
+- `known` holds at most 500 entries. When full, the entries with the oldest `modified` value are
   dropped. A dropped entry only risks one re-submit, which the sink answers as `duplicate`, so
   eviction is safe.
-- Any other shape, an unknown key, or more than 2,000 entries on read is `drive_invalid_checkpoint`.
+- Any other shape, an unknown key, or more than 500 entries on read is `drive_invalid_checkpoint`.
   A `reset` on configure clears it, as for every source.
 
 ## Fetch
@@ -251,7 +254,7 @@ and `slack_development`; it gains `google_drive` with a test, or no Drive intake
 ## Bounds
 
 - 100 files listed per page; 25 intakes and 25 notices per batch; 60,000 characters per part;
-  18 parts per Doc; 1 MiB per export body; 8 suffixes of 64 characters; 2,000 `known` entries.
+  18 parts per Doc; 1 MiB per export body; 8 suffixes of 64 characters; 500 `known` entries.
 - No new network destination: the Drive v3 `files` endpoints already used.
 - No background work in the core. Scheduling stays in the optional collector.
 
@@ -262,7 +265,7 @@ Synthetic fixtures only, no network, `tmp_path` roots.
 1. Connectors contract tests beside `test_google_sources.py`, using its `_Http` and `_auth`
    fakes: query string for each shape, with and without suffixes, with escaping; suffix check on
    returned names; two-page backfill moving the watermark and switching to incremental; incremental
-   bound 24 hours before the watermark; `known` skip and eviction at 2,000; 25-intake bound with
+   bound 24 hours before the watermark; `known` skip and eviction at 500; 25-intake bound with
    `has_more` and page repeat; every `drive_file_skipped` reason; `drive_folder_missing`; account
    errors leave the checkpoint unchanged; split at blank line, newline and hard cut; part titles and
    external ids; 18-part cap; a Doc under the limit unchanged. Fixtures: a Doc shaped like a Gemini

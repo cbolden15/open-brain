@@ -16,7 +16,7 @@ Spec: `docs/superpowers/specs/2026-10-25-drive-docs-sets-design.md` (revision 1,
 - `drive_file` behavior is byte-for-byte unchanged, and existing Drive tests pass without edits.
 - Resource ids: `drive_folder:<folderId>` and `drive_account:all`. Options: `date_floor` (`YYYY-MM-DD`, required for both), `title_suffixes` (list of 1 to 8 strings, each 1 to 64 characters after stripping, no duplicates, no NUL; required for `drive_account`, optional for `drive_folder`). Any other key, missing required option or malformed value is `drive_invalid_options`; a resource id that does not match its type is `drive_invalid_selection`.
 - Listing query: `mimeType = 'application/vnd.google-apps.document' and trashed = false and modifiedTime > '<bound>'`, plus `'<folderId>' in parents` for the folder shape, plus `(name contains '<s1>' or ...)` when suffixes are set; `orderBy=modifiedTime`, `pageSize=100`, `includeItemsFromAllDrives=true`, `supportsAllDrives=true`, fields add `parents` and `createdTime`. The exact suffix check (`name.endswith`) runs client-side. Suffix values are escaped for the Drive query grammar (backslash and single quote).
-- Checkpoint: `{"mode": "backfill"|"incremental", "page_token": str|null, "watermark": "<RFC 3339 UTC>", "known": {"<fileId>": {"revision": "<hash>", "modified": "<RFC 3339>"}}}`. First run `mode=backfill`, `watermark=<date_floor>T00:00:00Z`. The query bound is constant across one listing: `watermark` in backfill, `watermark` minus 24 hours (86,400 s) in incremental (a Drive page token is bound to its query). `page_token` advances when a page fully drains; `watermark` advances only when the listing completes (`nextPageToken` absent after the last page drains), to the newest `modified` in `known` if later; `mode` then becomes `incremental`. `known` holds at most 2,000 entries, oldest `modified` dropped first. Any other shape is `drive_invalid_checkpoint`.
+- Checkpoint: `{"mode": "backfill"|"incremental", "page_token": str|null, "watermark": "<RFC 3339 UTC>", "known": {"<fileId>": {"revision": "<hash>", "modified": "<RFC 3339>"}}}`. First run `mode=backfill`, `watermark=<date_floor>T00:00:00Z`. The query bound is constant across one listing: `watermark` in backfill, `watermark` minus 24 hours (86,400 s) in incremental (a Drive page token is bound to its query). `page_token` advances when a page fully drains; `watermark` advances only when the listing completes (`nextPageToken` absent after the last page drains), to the newest `modified` in `known` if later; `mode` then becomes `incremental`. `known` holds at most 500 entries, oldest `modified` dropped first. Any other shape is `drive_invalid_checkpoint`.
 - Batch: at most 25 intakes and 25 notices (`LiveBatch`); a split Doc's parts each count; `has_more` is true while files on the page or `nextPageToken` remain. Per-file failures are notices `drive_file_skipped:<reason>:<fileId>` with reason in `missing|access_lost|trashed|not_downloadable|not_text|too_large|empty`, the file recorded in `known`, the run continuing; files past the 25th notice stay out of `known`. An export body over 1 MiB is refused by the transport (`source_transport_unavailable`) before the client sees it and raises like an account-level error; `too_large` is reached by a body that splits into more than 18 parts. Folder 404 or lost access is notice `drive_folder_missing` with no intakes and the checkpoint unchanged. 401 `google_auth_required`, rate-limit 403 `google_rate_limited`, other 403 `drive_forbidden` raise with the checkpoint unchanged.
 - Splitting: parts of at most 60,000 characters, cut at the last blank line within the limit, else the last newline, else a hard cut; leading newlines of the next part stripped; at most 18 parts (a 19th is `too_large`). Part intake: `external_id` `file:<fileId>#part:<n>` (1-based), title `<name> (part <n> of <N>)` cut to 200 characters with the suffix preserved, `url` the Doc link, `revision_id` `revision:<hash>` for every part. A Doc under the limit is one intake with `external_id` `file:<fileId>`.
 - Revision gate: `_REVISION_CONNECTORS = {"slack": ("slack-source-v1", "slack-revisions"), "google_drive": ("drive-source-v1", "drive-revisions")}`; `observe_revision` attests `slack` intakes and `google_drive` intakes whose `resource_id` does not start with `drive_file:`; `observe_slack` is removed; privacy narrowing runs before observation; Slack bytes are unchanged. The collector revision sink's connector allow-list (`EngineRevisionSink._revision_capability` in `lifecycle.py`) becomes `{"saved_markdown", "slack", "slack_development", "google_drive"}`; the engine revision path has no Slack-specific constant.
@@ -34,7 +34,7 @@ Spec: `docs/superpowers/specs/2026-10-25-drive-docs-sets-design.md` (revision 1,
 **Interfaces:**
 - Consumes: `LiveSourceError` (`runtime/live_common.py:15`), `SourceResourceSelection` (`runtime/source_registry.py:166`; fields `connector_name, connection_id, resource_id, resource_type`).
 - Produces (all in `google_drive_sets.py`):
-  - Constants `MAX_PART_CHARS = 60_000`, `MAX_PARTS = 18`, `MAX_KNOWN = 2_000`, `MAX_SUFFIXES = 8`, `MAX_SUFFIX_CHARS = 64`, `MAX_TITLE_CHARS = 200`, `INCREMENTAL_OVERLAP_SECONDS = 86_400`, `DOCUMENT_MIME_TYPE = "application/vnd.google-apps.document"`, `FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"`, `SET_RESOURCE_TYPES = frozenset({"drive_folder", "drive_account"})`.
+  - Constants `MAX_PART_CHARS = 60_000`, `MAX_PARTS = 18`, `MAX_KNOWN = 500`, `MAX_SUFFIXES = 8`, `MAX_SUFFIX_CHARS = 64`, `MAX_TITLE_CHARS = 200`, `INCREMENTAL_OVERLAP_SECONDS = 86_400`, `DOCUMENT_MIME_TYPE = "application/vnd.google-apps.document"`, `FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"`, `SET_RESOURCE_TYPES = frozenset({"drive_folder", "drive_account"})`.
   - `DriveSetShape = Literal["folder", "account"]`.
   - `@dataclass(frozen=True, slots=True) class DriveSetSelection(shape: DriveSetShape, folder_id: str | None, date_floor: str, title_suffixes: tuple[str, ...])` with `matches_name(self, name: str) -> bool` (true when no suffixes, else exact `str.endswith` on any suffix).
   - `parse_drive_set(selection: SourceResourceSelection, options: dict[str, object]) -> DriveSetSelection`; raises `LiveSourceError("drive_invalid_selection")` for a non-set type or a resource id that does not match its type, `LiveSourceError("drive_invalid_options")` for any option fault. `date_floor` is normalized to `YYYY-MM-DD`; suffixes are stripped.
@@ -172,7 +172,7 @@ __all__ = [
 
 MAX_PART_CHARS = 60_000
 MAX_PARTS = 18
-MAX_KNOWN = 2_000
+MAX_KNOWN = 500
 MAX_SUFFIXES = 8
 MAX_SUFFIX_CHARS = 64
 MAX_TITLE_CHARS = 200
@@ -296,7 +296,7 @@ git commit -F "$(git rev-parse --git-dir)/P1_COMMIT_MSG"
 - Produces:
   - `DriveSetMode = Literal["backfill", "incremental"]`.
   - `@dataclass(frozen=True, slots=True) class DriveKnownEntry(revision: str, modified: str)`.
-  - `@dataclass(frozen=True, slots=True) class DriveSetCheckpoint(mode: DriveSetMode, page_token: str | None, watermark: str, known: dict[str, DriveKnownEntry])` with `@classmethod initial(cls, date_floor: str) -> DriveSetCheckpoint` (`backfill`, no token, `<date_floor>T00:00:00Z`, empty known), `@classmethod from_value(cls, value: object) -> DriveSetCheckpoint` (raises `LiveSourceError("drive_invalid_checkpoint")` for any other shape, unknown key, bad mode, non-string token, non-RFC 3339 UTC timestamp, bad file id, or more than 2,000 entries) and `to_dict(self) -> dict[str, object]` (keys `known`, `mode`, `page_token`, `watermark`; `known` sorted by file id, each `{"modified", "revision"}`).
+  - `@dataclass(frozen=True, slots=True) class DriveSetCheckpoint(mode: DriveSetMode, page_token: str | None, watermark: str, known: dict[str, DriveKnownEntry])` with `@classmethod initial(cls, date_floor: str) -> DriveSetCheckpoint` (`backfill`, no token, `<date_floor>T00:00:00Z`, empty known), `@classmethod from_value(cls, value: object) -> DriveSetCheckpoint` (raises `LiveSourceError("drive_invalid_checkpoint")` for any other shape, unknown key, bad mode, non-string token, non-RFC 3339 UTC timestamp, bad file id, or more than 500 entries) and `to_dict(self) -> dict[str, object]` (keys `known`, `mode`, `page_token`, `watermark`; `known` sorted by file id, each `{"modified", "revision"}`).
   - `parse_timestamp(value: str) -> datetime` (RFC 3339 ending in `Z`, UTC; raises `ValueError`), `format_timestamp(moment: datetime) -> str` (UTC ISO 8601 with `Z`).
   - `query_bound(checkpoint: DriveSetCheckpoint) -> str`: the watermark in `backfill`, the watermark minus `INCREMENTAL_OVERLAP_SECONDS` in `incremental`.
   - `evict_known(known: Mapping[str, DriveKnownEntry]) -> dict[str, DriveKnownEntry]`: at most `MAX_KNOWN` entries, dropping the oldest `modified` first.
@@ -378,14 +378,14 @@ def test_drive_set_checkpoint_rejects_bad_shapes_and_evicts_oldest() -> None:
     for value in bad_values:
         with pytest.raises(LiveSourceError, match="drive_invalid_checkpoint"):
             DriveSetCheckpoint.from_value(value)
-    DriveSetCheckpoint.from_value({**good, "known": {f"f{index}": entry for index in range(2_000)}})
+    DriveSetCheckpoint.from_value({**good, "known": {f"f{index}": entry for index in range(500)}})
 
     known = {
         f"k{index}": DriveKnownEntry("r", f"2026-01-01T00:{index // 60:02d}:{index % 60:02d}Z")
         for index in range(2_001)
     }
     evicted = evict_known(known)
-    assert len(evicted) == 2_000
+    assert len(evicted) == 500
     assert "k0" not in evicted and "k1" in evicted and "k2000" in evicted
     assert evict_known({"only": DriveKnownEntry("r", "2026-01-01T00:00:00Z")}) == {
         "only": DriveKnownEntry("r", "2026-01-01T00:00:00Z")
@@ -977,7 +977,7 @@ git commit -F "$(git rev-parse --git-dir)/P1_COMMIT_MSG"
   - `DriveSourceClient.fetch(selection, options, checkpoint)` dispatches on `selection.resource_type`: `"drive_file"` runs the existing code unchanged; `"drive_folder"` and `"drive_account"` run the set loop. Set intakes have `observation=None`, `title=<name>` or `part_title(...)`, `url=<Doc link>`, and keys `SourceRecordKey("google_drive", selection.connection_id, selection.resource_id, "file:<id>" | "file:<id>#part:<n>", "revision:<drive revision>")`.
   - Listing request: `GET {_DRIVE_ROOT}/files?fields=nextPageToken,files(<_DRIVE_FIELDS>,parents,createdTime)&includeItemsFromAllDrives=true&orderBy=modifiedTime&pageSize=100&q=<build_list_query>&supportsAllDrives=true[&pageToken=...]`; per-file metadata and export requests are identical to the `drive_file` path.
   - Notices `drive_file_skipped:<reason>:<fileId>` with reason in `missing|access_lost|trashed|not_downloadable|not_text|too_large|empty`, at most 25 per batch; `drive_folder_missing` for a folder-shape list 404 or lost-access 403 with the checkpoint unchanged.
-  - Checkpoint rules: the query bound is `query_bound(state)` and does not change while a `page_token` is outstanding; `page_token` advances when a page drains and `nextPageToken` is present; when the last page drains, `mode` becomes `incremental`, `page_token` is `None` and `watermark` becomes `advance_watermark(watermark, known)`; an undrained page (25-intake bound or 26th notice) keeps `mode`, `page_token` and `watermark` and returns `has_more=True`; `known` is always carried forward with new entries and evicted to 2,000.
+  - Checkpoint rules: the query bound is `query_bound(state)` and does not change while a `page_token` is outstanding; `page_token` advances when a page drains and `nextPageToken` is present; when the last page drains, `mode` becomes `incremental`, `page_token` is `None` and `watermark` becomes `advance_watermark(watermark, known)`; an undrained page (25-intake bound or 26th notice) keeps `mode`, `page_token` and `watermark` and returns `has_more=True`; `known` is always carried forward with new entries and evicted to 500.
   - Module constants `_DRIVE_LIST_FIELDS = f"{_DRIVE_FIELDS},parents,createdTime"`, `_MAX_EXPORT_BYTES = 1_048_576`; private `_SetFile` dataclass and `_set_intakes`, `_drive_modified` helpers.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1350,7 +1350,7 @@ def test_known_entries_evict_the_oldest_at_two_thousand(tmp_path: Path) -> None:
             "modified": f"2026-01-01T00:{index // 60:02d}:{index % 60:02d}Z",
             "revision": "r",
         }
-        for index in range(2_000)
+        for index in range(500)
     }
     checkpoint: dict[str, object] = {
         "known": known,
@@ -1366,7 +1366,7 @@ def test_known_entries_evict_the_oldest_at_two_thousand(tmp_path: Path) -> None:
     assert "modifiedTime > '2026-09-29T00:00:00Z'" in _query(http.urls[0])["q"][0]
     assert [item.key.external_id for item in batch.intakes] == ["file:fresh"]
     result = _known(batch.checkpoint)
-    assert len(result) == 2_000 and "k0" not in result and "k1" in result and "fresh" in result
+    assert len(result) == 500 and "k0" not in result and "k1" in result and "fresh" in result
     assert batch.checkpoint["watermark"] == "2026-10-01T00:00:00Z"
     assert isinstance(batch.intakes[0], SourceRecordIntake)
 ```
@@ -3128,7 +3128,7 @@ def test_drive_guide_documents_docs_sets_and_the_quarantined_single_file_edit() 
         "`watermark`",
         "`known`",
         "24 hours",
-        "2,000 entries",
+        "500 entries",
         "25 intakes and 25 notices",
         "`has_more`",
         "`drive_file_skipped:<reason>:<fileId>`",
@@ -3280,9 +3280,9 @@ The checkpoint is metadata only and is validated on every fetch:
   becomes `incremental`.
 - An incremental run queries from `watermark` minus 24 hours. The overlap covers late indexing and
   clock skew. Files in `known` with an unchanged revision are skipped without a fetch.
-- `known` holds at most 2,000 entries. When it is full, the entries with the oldest `modified`
+- `known` holds at most 500 entries. When it is full, the entries with the oldest `modified`
   value are dropped. A dropped entry risks one re-submit, which the sink answers as `duplicate`.
-- Any other shape, an unknown key or more than 2,000 entries is `drive_invalid_checkpoint`. A
+- Any other shape, an unknown key or more than 500 entries is `drive_invalid_checkpoint`. A
   `"reset": true` on configure clears it.
 
 ### Fetch and per-file notices
@@ -3473,7 +3473,7 @@ def test_drive_guide_documents_docs_sets_and_the_quarantined_single_file_edit() 
         "`watermark`",
         "`known`",
         "24 hours",
-        "2,000 entries",
+        "500 entries",
         "25 intakes and 25 notices",
         "`has_more`",
         "`drive_file_skipped:<reason>:<fileId>`",
