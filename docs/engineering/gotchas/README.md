@@ -4,6 +4,35 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### DOCS-005: The Drive guide said an edited single file re-imports; the engine quarantines it
+
+Category: Documentation / Google Drive.
+
+Symptom: `docs/integrations/google-sources.md` and the 2026-09-16 live acceptance
+record described a Drive body edit as a re-import of the selected file. On the
+current engine that is false for the `drive_file` shape. The collector submits a
+`drive_file` intake under a stable delivery id with a `Source revision:` text
+prefix and no revision observation, so a changed body reaches the engine as a
+`DeliveryConflict`; the collector records the receipt as `quarantined` with
+`source_revision_conflict` and the first capture stays searchable. The live
+"body edit" PASS at `9f22849` ran before the schema moved past `user_version 7`,
+where the legacy replacement rule still applied. No Drive test on the current
+schema pinned the behavior until the Docs-set work added one.
+
+Action: the Drive guide now states that an edited `drive_file` is quarantined,
+and only the `drive_folder` and `drive_account` shapes go through the
+collector's revision-aware path (`observe_revision` and `drive-revisions`).
+Drive set revisions have no exact-replay archive guard (that check is
+Slack-only in `lifecycle.py`); Drive relies on its revision hash, which
+includes `modifiedTime` and `version` and never repeats for different bytes.
+When a guide statement rests on a dated live receipt, re-check it against the
+current engine path before repeating it; an acceptance PASS certifies the schema
+it ran on, not later ones. Do not route `drive_file` through the revision sink to
+"fix" the docs: existing records would turn their first edit into a conflict
+against the stored capture.
+
+Discovered: 2026-10-25, Drive Docs sets design review.
+
 ### BUILD-021: The daily brief pushed the base archive past the audit object budget
 
 Category: Build Pipeline.

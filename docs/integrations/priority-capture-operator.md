@@ -44,7 +44,8 @@ open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRA
 
 Save one selection in a local arguments file. Use the exact connection and resource IDs returned
 by discovery. Gmail's date floor is a calendar date. Slack's date floor is RFC 3339 with a timezone.
-Drive options are an empty object and its selection is one file, without folder recursion.
+A `drive_file` selection takes an empty options object. Drive folder and account sets take
+`date_floor` and `title_suffixes`; see the Meet-notes walkthrough below.
 
 ```json
 {
@@ -74,6 +75,60 @@ uncertain response can be retried with the same preview ID. Changed selections r
 `"reset": true` in the configure arguments. Preview and import do not enable recurring collection.
 The duplicate cache holds at most 2,048 deliveries and protects every delivery in a pending batch.
 After cache eviction, the engine still enforces stable delivery identity.
+
+## Capture Gemini Meet notes from Drive
+
+Gemini writes a notes Doc and a transcript Doc into Drive after a Google Meet call. Notes for
+meetings other people organized reach the account as shared files and never sit in the owner's
+`Meet Recordings` folder, so the account shape with the two Meet title suffixes captures both the
+owner's and the shared Docs. To capture one folder instead, list folders first and use its id:
+
+```sh
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground resources --provider google_drive --connection-id account:REPLACE_FROM_ACCOUNTS \
+  --resource-type drive_folder
+```
+
+`--resource-type` accepts `drive_file` (the default) and `drive_folder`, for `google_drive` only.
+Each listed folder is `drive_folder:<id>`; use it as the `resource_id` with
+`"resource_type": "drive_folder"`. `drive_account:all` is a fixed id and is not listed.
+
+Save the account selection with the two suffixes and a date floor. Nothing modified before the
+date floor is listed:
+
+```json
+{
+  "selection": {
+    "connector_name": "google_drive",
+    "connection_id": "account:REPLACE_FROM_ACCOUNTS",
+    "resource_id": "drive_account:all",
+    "resource_type": "drive_account"
+  },
+  "options": {
+    "date_floor": "2026-10-01",
+    "title_suffixes": ["Notes by Gemini", "Transcript"]
+  }
+}
+```
+
+Then configure, preview, import and enable with the same commands as any other source:
+
+```sh
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground configure --arguments-file /absolute/path/to/meet-notes.json
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground preview --source-id REPLACE_FROM_CONFIGURE
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground import --source-id REPLACE_FROM_CONFIGURE --preview-id REPLACE_FROM_PREVIEW
+open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRAIN" \
+  --foreground control --source-id REPLACE_FROM_CONFIGURE --action enable --interval-seconds 900
+```
+
+The first preview backfills from the date floor; later runs are incremental. A transcript over
+60,000 characters previews and imports as parts titled `<name> (part <n> of <N>)`. An edited Doc
+becomes a new revision of the same record. A `drive_file` selection does not get this behavior:
+an edited single file is quarantined with `source_revision_conflict`. Options, the checkpoint,
+splitting and the per-file notices are described in [Google setup](google-sources.md).
 
 ## Recurring collection
 
