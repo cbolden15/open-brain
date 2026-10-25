@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 
 from open_brain_connectors.runtime.google_drive_sets import (
@@ -16,8 +19,11 @@ from open_brain_connectors.runtime.google_drive_sets import (
     require_file_id,
     split_document,
 )
-from open_brain_connectors.runtime.live_common import LiveSourceError
+from open_brain_connectors.runtime.google_sources import DriveSourceClient
+from open_brain_connectors.runtime.live_common import LiveBatch, LiveResource, LiveSourceError
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
+
+from .test_google_sources import _auth, _Http, _json
 
 
 def _folder_selection(folder_id: str = "folder-1") -> SourceResourceSelection:
@@ -231,3 +237,68 @@ def test_split_document_caps_parts_and_part_titles_keep_the_suffix() -> None:
     assert len(long_title) == 200
     assert long_title.endswith(" (part 12 of 18)")
     assert long_title.startswith("n" * 184)
+
+
+def _client(tmp_path: Path, http: _Http) -> DriveSourceClient:
+    return DriveSourceClient(_auth(tmp_path, "google_drive", http), http=http)
+
+
+def _query(url: str) -> dict[str, list[str]]:
+    return parse_qs(urlsplit(url).query)
+
+
+def test_resources_lists_folders_on_request_and_files_by_default(tmp_path: Path) -> None:
+    http = _Http(
+        [
+            _json(
+                200,
+                {
+                    "files": [
+                        {
+                            "id": "folder-1",
+                            "mimeType": "application/vnd.google-apps.folder",
+                            "name": "Meet Recordings",
+                        }
+                    ],
+                    "nextPageToken": "n2",
+                },
+            ),
+            _json(200, {"files": [{"id": "file-1", "name": "Synthetic doc"}]}),
+        ]
+    )
+    client = _client(tmp_path, http)
+
+    folders = client.resources("account:abc", resource_type="drive_folder")
+    assert folders.resources == (
+        LiveResource("drive_folder:folder-1", "Meet Recordings", "drive_folder"),
+    )
+    assert folders.next_cursor == "n2"
+    folder_query = _query(http.urls[0])
+    assert folder_query["q"] == [
+        "mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    ]
+    assert folder_query["pageSize"] == ["100"]
+    assert folder_query["includeItemsFromAllDrives"] == ["true"]
+    assert folder_query["supportsAllDrives"] == ["true"]
+
+    files = client.resources("account:abc", cursor="n2")
+    assert files.resources == (LiveResource("drive_file:file-1", "Synthetic doc", "drive_file"),)
+    file_query = _query(http.urls[1])
+    assert file_query["q"] == ["trashed = false"] and file_query["pageToken"] == ["n2"]
+
+    with pytest.raises(LiveSourceError, match="drive_invalid_selection"):
+        client.resources("account:abc", resource_type="drive_account")
+    assert len(http.urls) == 2
+
+
+def test_live_batch_accepts_set_notices_with_reason_and_file_id() -> None:
+    notices = (
+        "drive_file_skipped:missing:1aB_c-9",
+        "drive_folder_missing",
+        "gmail_history_reset",
+    )
+    batch = LiveBatch((), {}, notices=notices)
+    assert batch.notices == notices
+    for notice in ("Drive:bad", "drive_file_skipped:missing:a:b:c", "drive_file_skipped::x"):
+        with pytest.raises(LiveSourceError, match="source_invalid_batch"):
+            LiveBatch((), {}, notices=(notice,))

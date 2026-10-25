@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime
 from typing import cast
 from urllib.parse import quote, urlencode
 
+from open_brain_connectors.runtime.google_drive_sets import FOLDER_MIME_TYPE
 from open_brain_connectors.runtime.google_sources_auth import GoogleSourcesAuth
 from open_brain_connectors.runtime.live_common import (
     LiveBatch,
@@ -386,12 +387,24 @@ class DriveSourceClient:
         self._http = http or auth._http
         self._adapter = DriveSourceAdapter()
 
-    def resources(self, connection_id: str, *, cursor: str | None = None) -> LiveResourcePage:
+    def resources(
+        self,
+        connection_id: str,
+        *,
+        cursor: str | None = None,
+        resource_type: str = "drive_file",
+    ) -> LiveResourcePage:
+        if resource_type == "drive_file":
+            listing = "trashed = false"
+        elif resource_type == "drive_folder":
+            listing = f"mimeType = '{FOLDER_MIME_TYPE}' and trashed = false"
+        else:
+            raise LiveSourceError("drive_invalid_selection")
         query = {
             "fields": f"nextPageToken,files({_DRIVE_FIELDS})",
             "includeItemsFromAllDrives": "true",
             "pageSize": "100",
-            "q": "trashed = false",
+            "q": listing,
             "supportsAllDrives": "true",
         }
         if cursor is not None:
@@ -400,9 +413,9 @@ class DriveSourceClient:
         files = _items(payload, "files", maximum=100)
         resources = tuple(
             LiveResource(
-                f"drive_file:{_text(file.get('id'), maximum=512)}",
+                f"{resource_type}:{_text(file.get('id'), maximum=512)}",
                 _text(file.get("name"), maximum=512),
-                "drive_file",
+                resource_type,
             )
             for file in files
         )
