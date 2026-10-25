@@ -74,7 +74,9 @@ manager, cryptography, key-custody, or container dependency. The native audit re
 families if they enter the executable. Native builds require the standard-library
 compiled Decimal implementation and omit its unused Python fallback; the build
 and installed self-check refuse an unavailable or substituted implementation.
-Artifact audit limits and reviewed standard-library payload hashes remain fixed.
+Artifact audit content rules, the depth limit, the CPU limit and reviewed standard-library payload
+hashes remain fixed. The audit's marshal object budget (`MAX_OBJECTS`) is a measured constant: raise
+it only in its own reviewed commit with a gotcha entry recording the measured count (BUILD-021).
 
 ## Release surface
 
