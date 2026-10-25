@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
-from typing import Literal
+from datetime import UTC, date, datetime, timedelta
+from typing import Literal, cast
 
-from open_brain_connectors.runtime.live_common import LiveSourceError
+from open_brain_connectors.runtime.live_common import LiveSourceError, safe_text
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
 __all__ = [
@@ -21,8 +22,15 @@ __all__ = [
     "MAX_SUFFIX_CHARS",
     "MAX_TITLE_CHARS",
     "SET_RESOURCE_TYPES",
+    "DriveKnownEntry",
+    "DriveSetCheckpoint",
     "DriveSetSelection",
+    "advance_watermark",
+    "evict_known",
+    "format_timestamp",
     "parse_drive_set",
+    "parse_timestamp",
+    "query_bound",
     "require_file_id",
 ]
 
@@ -122,3 +130,118 @@ def _title_suffixes(value: object) -> tuple[str, ...]:
             raise LiveSourceError("drive_invalid_options")
         result.append(suffix)
     return tuple(result)
+
+
+DriveSetMode = Literal["backfill", "incremental"]
+_CHECKPOINT_KEYS = frozenset({"mode", "page_token", "watermark", "known"})
+_KNOWN_KEYS = frozenset({"revision", "modified"})
+
+
+@dataclass(frozen=True, slots=True)
+class DriveKnownEntry:
+    """The provider revision last submitted or skipped for one file and its modifiedTime."""
+
+    revision: str
+    modified: str
+
+
+@dataclass(frozen=True, slots=True)
+class DriveSetCheckpoint:
+    """Metadata-only progress for one Docs set; validated on every fetch."""
+
+    mode: DriveSetMode
+    page_token: str | None
+    watermark: str
+    known: dict[str, DriveKnownEntry]
+
+    @classmethod
+    def initial(cls, date_floor: str) -> DriveSetCheckpoint:
+        return cls("backfill", None, f"{date_floor}T00:00:00Z", {})
+
+    @classmethod
+    def from_value(cls, value: object) -> DriveSetCheckpoint:
+        if type(value) is not dict or set(value) != _CHECKPOINT_KEYS:
+            raise LiveSourceError("drive_invalid_checkpoint")
+        mode = value["mode"]
+        if mode not in {"backfill", "incremental"}:
+            raise LiveSourceError("drive_invalid_checkpoint")
+        page_token = value["page_token"]
+        if page_token is not None:
+            _checkpoint_text(page_token, maximum=8_192)
+        watermark = _checkpoint_timestamp(value["watermark"])
+        known_value = value["known"]
+        if type(known_value) is not dict or len(known_value) > MAX_KNOWN:
+            raise LiveSourceError("drive_invalid_checkpoint")
+        known: dict[str, DriveKnownEntry] = {}
+        for file_id, entry in known_value.items():
+            require_file_id(file_id, "drive_invalid_checkpoint")
+            if type(entry) is not dict or set(entry) != _KNOWN_KEYS:
+                raise LiveSourceError("drive_invalid_checkpoint")
+            known[file_id] = DriveKnownEntry(
+                _checkpoint_text(entry["revision"], maximum=512),
+                _checkpoint_timestamp(entry["modified"]),
+            )
+        return cls(cast(DriveSetMode, mode), cast(str | None, page_token), watermark, known)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "known": {
+                file_id: {"modified": entry.modified, "revision": entry.revision}
+                for file_id, entry in sorted(self.known.items())
+            },
+            "mode": self.mode,
+            "page_token": self.page_token,
+            "watermark": self.watermark,
+        }
+
+
+def parse_timestamp(value: str) -> datetime:
+    """Parse one RFC 3339 UTC timestamp ending in Z, the form Drive uses for modifiedTime."""
+    if type(value) is not str or not 20 <= len(value) <= 64 or not value.endswith("Z"):
+        raise ValueError("invalid timestamp")
+    moment = datetime.fromisoformat(value)
+    if moment.tzinfo is None or moment.utcoffset() != timedelta(0):
+        raise ValueError("invalid timestamp")
+    return moment
+
+
+def format_timestamp(moment: datetime) -> str:
+    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def query_bound(checkpoint: DriveSetCheckpoint) -> str:
+    """The exclusive modifiedTime lower bound for the next listing."""
+    if checkpoint.mode == "backfill":
+        return checkpoint.watermark
+    overlap = timedelta(seconds=INCREMENTAL_OVERLAP_SECONDS)
+    return format_timestamp(parse_timestamp(checkpoint.watermark) - overlap)
+
+
+def evict_known(known: Mapping[str, DriveKnownEntry]) -> dict[str, DriveKnownEntry]:
+    """Keep at most MAX_KNOWN entries, dropping the oldest modifiedTime first."""
+    if len(known) <= MAX_KNOWN:
+        return dict(known)
+    ordered = sorted(known.items(), key=lambda item: (parse_timestamp(item[1].modified), item[0]))
+    return dict(ordered[len(ordered) - MAX_KNOWN :])
+
+
+def advance_watermark(watermark: str, known: Mapping[str, DriveKnownEntry]) -> str:
+    """Move the watermark to the newest modifiedTime recorded in known, never backwards."""
+    current = parse_timestamp(watermark)
+    newest = max((parse_timestamp(entry.modified) for entry in known.values()), default=current)
+    return watermark if newest <= current else format_timestamp(newest)
+
+
+def _checkpoint_text(value: object, *, maximum: int) -> str:
+    try:
+        return safe_text(value, maximum=maximum)
+    except LiveSourceError:
+        raise LiveSourceError("drive_invalid_checkpoint") from None
+
+
+def _checkpoint_timestamp(value: object) -> str:
+    try:
+        parse_timestamp(cast(str, value))
+    except ValueError:
+        raise LiveSourceError("drive_invalid_checkpoint") from None
+    return cast(str, value)

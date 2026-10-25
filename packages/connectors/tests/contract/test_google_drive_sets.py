@@ -3,8 +3,13 @@ from __future__ import annotations
 import pytest
 
 from open_brain_connectors.runtime.google_drive_sets import (
+    DriveKnownEntry,
+    DriveSetCheckpoint,
     DriveSetSelection,
+    advance_watermark,
+    evict_known,
     parse_drive_set,
+    query_bound,
     require_file_id,
 )
 from open_brain_connectors.runtime.live_common import LiveSourceError
@@ -83,3 +88,73 @@ def test_parse_drive_set_rejects_bad_options() -> None:
             parse_drive_set(_folder_selection(), options)
     with pytest.raises(LiveSourceError, match="drive_invalid_options"):
         parse_drive_set(_account_selection(), {"date_floor": "2026-10-01"})
+
+
+def _checkpoint_value() -> dict[str, object]:
+    return {
+        "known": {"f1": {"modified": "2026-10-05T10:00:00Z", "revision": "r1"}},
+        "mode": "incremental",
+        "page_token": "p2",
+        "watermark": "2026-10-05T10:00:00Z",
+    }
+
+
+def test_drive_set_checkpoint_initial_roundtrip_bound_and_watermark() -> None:
+    initial = DriveSetCheckpoint.initial("2026-10-01")
+    assert initial.to_dict() == {
+        "known": {},
+        "mode": "backfill",
+        "page_token": None,
+        "watermark": "2026-10-01T00:00:00Z",
+    }
+    assert query_bound(initial) == "2026-10-01T00:00:00Z"
+
+    parsed = DriveSetCheckpoint.from_value(_checkpoint_value())
+    assert parsed.mode == "incremental" and parsed.page_token == "p2"
+    assert parsed.known == {"f1": DriveKnownEntry("r1", "2026-10-05T10:00:00Z")}
+    assert parsed.to_dict() == _checkpoint_value()
+    assert query_bound(parsed) == "2026-10-04T10:00:00Z"
+
+    newer = {
+        "a": DriveKnownEntry("r", "2026-10-06T00:00:00Z"),
+        "b": DriveKnownEntry("r", "2026-10-01T00:00:00Z"),
+    }
+    assert advance_watermark("2026-10-05T10:00:00Z", newer) == "2026-10-06T00:00:00Z"
+    assert advance_watermark("2026-10-05T10:00:00Z", {}) == "2026-10-05T10:00:00Z"
+    older = {"b": DriveKnownEntry("r", "2026-10-01T00:00:00Z")}
+    assert advance_watermark("2026-10-05T10:00:00Z", older) == "2026-10-05T10:00:00Z"
+
+
+def test_drive_set_checkpoint_rejects_bad_shapes_and_evicts_oldest() -> None:
+    good = _checkpoint_value()
+    entry = {"modified": "2026-10-05T10:00:00Z", "revision": "r"}
+    bad_values: tuple[object, ...] = (
+        [],
+        {**good, "extra": 1},
+        {key: value for key, value in good.items() if key != "page_token"},
+        {**good, "mode": "full"},
+        {**good, "page_token": 3},
+        {**good, "watermark": "2026-10-05"},
+        {**good, "watermark": "2026-10-05T10:00:00+02:00"},
+        {**good, "watermark": "2026-10-05T10:00:00"},
+        {**good, "known": []},
+        {**good, "known": {"f1": {"revision": "r1"}}},
+        {**good, "known": {"f1": {"modified": "yesterday", "revision": "r1"}}},
+        {**good, "known": {"f.1": entry}},
+        {**good, "known": {f"f{index}": entry for index in range(2_001)}},
+    )
+    for value in bad_values:
+        with pytest.raises(LiveSourceError, match="drive_invalid_checkpoint"):
+            DriveSetCheckpoint.from_value(value)
+    DriveSetCheckpoint.from_value({**good, "known": {f"f{index}": entry for index in range(2_000)}})
+
+    known = {
+        f"k{index}": DriveKnownEntry("r", f"2026-01-01T00:{index // 60:02d}:{index % 60:02d}Z")
+        for index in range(2_001)
+    }
+    evicted = evict_known(known)
+    assert len(evicted) == 2_000
+    assert "k0" not in evicted and "k1" in evicted and "k2000" in evicted
+    assert evict_known({"only": DriveKnownEntry("r", "2026-01-01T00:00:00Z")}) == {
+        "only": DriveKnownEntry("r", "2026-01-01T00:00:00Z")
+    }
