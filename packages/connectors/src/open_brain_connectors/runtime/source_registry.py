@@ -374,14 +374,14 @@ def gmail_source_descriptor() -> SourceConnectorDescriptor:
 
 
 def google_drive_source_descriptor() -> SourceConnectorDescriptor:
-    """Return D4's planned Google Drive source capability without importing a provider client."""
+    """Return D4's Google Drive source capability: one file, a Docs folder, or account Docs."""
 
     return SourceConnectorDescriptor(
         schema_version=1,
         connector_name=D4_GOOGLE_DRIVE_SOURCE,
         display_name="Google Drive",
         auth_mode=SourceAuthMode.DEVICE_FLOW,
-        resource_types=("drive_file",),
+        resource_types=("drive_account", "drive_file", "drive_folder"),
         content_types=("drive_file",),
         preview_limit=25,
         public_onboarding=True,

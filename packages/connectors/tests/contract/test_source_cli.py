@@ -91,7 +91,7 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "display_name": "Google Drive",
             "preview_limit": 25,
             "public_onboarding": True,
-            "resource_types": ["drive_file"],
+            "resource_types": ["drive_account", "drive_file", "drive_folder"],
             "schema_version": 1,
         },
         {
