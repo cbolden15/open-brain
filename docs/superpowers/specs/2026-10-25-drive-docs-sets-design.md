@@ -4,6 +4,9 @@ Item I1 of `docs/audits/2026-10-25-integrations-assessment.md`. Extends the Goog
 `packages/connectors/src/open_brain_connectors/runtime/google_sources.py` and the collector's live
 capture path. The audit's inventory of the current Drive path is summarized under "What exists".
 
+Revision 1.1 (plan-authoring amendments): descriptor labels sorted, watermark advances when a
+listing completes, 1 MiB export bodies are a transport error, `LiveBatch` notice pattern widened,
+collector revision-sink allow-list gains `google_drive`.
 Revision 1.
 
 ## Goal
@@ -120,12 +123,14 @@ Per source, metadata only, validated on every fetch like `_drive_state` today:
 - `mode` is `backfill` or `incremental`. `page_token` is a string or null. `watermark` is an
   RFC 3339 UTC timestamp. `known` maps file id to the provider revision last submitted or skipped
   and the `modifiedTime` seen with it.
-- First run: `mode=backfill`, `watermark=<date_floor>T00:00:00Z`. The query bound is the watermark.
-  `page_token` and `watermark` advance only when a page is fully drained (every file on it submitted
-  or skipped); `watermark` then becomes the newest `modifiedTime` on that page. When
-  `nextPageToken` is absent after the last page drains, `mode` becomes `incremental`.
-- Incremental run: the query bound is `watermark` minus 24 hours. The overlap covers late indexing
-  and clock skew. Files in `known` with an unchanged revision are skipped without a fetch.
+- First run: `mode=backfill`, `watermark=<date_floor>T00:00:00Z`. The query bound is the watermark
+  and stays constant for the whole listing, because a Drive page token is bound to its query.
+  `page_token` advances when a page is fully drained (every file on it submitted or skipped). When
+  `nextPageToken` is absent after the last page drains, `watermark` moves to the newest `modified`
+  recorded in `known` (if later) and `mode` becomes `incremental`.
+- Incremental run: the query bound is `watermark` minus 24 hours, constant for the listing. The
+  overlap covers late indexing and clock skew. Files in `known` with an unchanged revision are
+  skipped without a fetch.
 - `known` holds at most 2,000 entries. When full, the entries with the oldest `modified` value are
   dropped. A dropped entry only risks one re-submit, which the sink answers as `duplicate`, so
   eviction is safe.
@@ -151,10 +156,13 @@ Per-file metadata and export are the same two requests the single-file path make
 ### Per-file failures are notices
 
 A single file must not stall a set. For a file that returns 404, a lost-access 403, `trashed`,
-`canDownload != true`, a non-UTF-8 body, a body over 1 MiB, or an empty body, the fetch appends the
-notice `drive_file_skipped:<reason>:<fileId>` with `reason` in
+`canDownload != true`, a non-UTF-8 body, a body that would split into more than 18 parts, or an
+empty body, the fetch appends the notice `drive_file_skipped:<reason>:<fileId>` with `reason` in
 `missing|access_lost|trashed|not_downloadable|not_text|too_large|empty`, records the file in `known`
-with the revision seen, and continues. Notices are capped at 25 per batch; the 26th and later
+with the revision seen, and continues. An export body over 1 MiB never reaches the client: the
+transport raises `source_transport_unavailable`, which stalls the set like an account-level error.
+File and folder ids are `[A-Za-z0-9_-]{1,128}` so notices stay well formed; the `LiveBatch` notice
+pattern widens to `[a-z][a-z0-9_]{0,99}(?::[A-Za-z0-9_-]{1,128}){0,2}`. Notices are capped at 25 per batch; the 26th and later
 skipped files are left out of `known` so the next call reports them.
 
 Account-level errors still raise and leave the checkpoint unchanged: 401 is
@@ -208,8 +216,9 @@ submitted as a new revision of the same source record. The previous text stays i
 new text is searchable. Follow-up evidence quoted from an earlier revision stays bound to that
 revision, as it does for Slack.
 
-Plan-time check: confirm the engine revision path has no Slack-specific constant (normalization
-version, connector name, or directory). If one exists, generalizing it is a plan task.
+Plan-time check result: the engine revision path has no Slack-specific constant. The collector's
+`EngineRevisionSink._revision_capability` in `lifecycle.py` allows only `saved_markdown`, `slack`
+and `slack_development`; it gains `google_drive` with a test, or no Drive intake reaches the sink.
 
 ## Surfaces
 
@@ -219,7 +228,8 @@ version, connector name, or directory). If one exists, generalizing it is a plan
 - Collector: the provider-to-resource-type map becomes a set per provider; `_provider` and the CLI
   `--provider` choices are unchanged.
 - Descriptor: `google_drive_source_descriptor().resource_types` becomes
-  `("drive_file", "drive_folder", "drive_account")`; `content_types` stays `("drive_file",)`.
+  `("drive_account", "drive_file", "drive_folder")` (the descriptor requires sorted labels);
+  `content_types` stays `("drive_file",)`.
 - App, engine, catalog, grants and MCP: unchanged.
 
 ## Failure behavior
@@ -235,6 +245,7 @@ version, connector name, or directory). If one exists, generalizing it is a plan
 | Folder 404 or access lost | notice `drive_folder_missing`, no intakes, checkpoint unchanged |
 | Per-file loss or bad body | notice `drive_file_skipped:<reason>:<fileId>`, run continues |
 | Over 18 parts | notice `drive_file_skipped:too_large:<fileId>` |
+| Export body over 1 MiB | `source_transport_unavailable` from the transport, checkpoint unchanged |
 | Edited Doc | new revision of the same record |
 
 ## Bounds
