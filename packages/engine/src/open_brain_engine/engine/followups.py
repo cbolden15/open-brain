@@ -726,6 +726,11 @@ class FollowupTasks:
             return False
         if filter.project is not None and item.project != filter.project:
             return False
+        if (
+            filter.new_evidence is not None
+            and item.new_evidence_since_decision is not filter.new_evidence
+        ):
+            return False
         return filter.due_before is None or (item.due is not None and item.due < filter.due_before)
 
     def show(

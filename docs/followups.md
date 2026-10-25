@@ -304,5 +304,5 @@ No other refusal code is returned.
 - Any write to a ticket system or any outgoing message. Draft ticket updates and follow-up
   messages stay in your client conversation until you act on them yourself.
 - Follow-up tools for external-provider MCP sessions.
-- The daily brief, which will read this store later.
+- The daily brief is a separate feature that reads this store; see [daily brief](daily-brief.md).
 - A packaged client workflow or prompt for detection. The example above is the whole guidance.

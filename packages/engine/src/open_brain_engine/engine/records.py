@@ -79,6 +79,14 @@ class RecordProjector:
             raise T03Error("not_found")
         self._require_effective_privacy(row["effective_privacy_json"])
 
+    def source_revision_readable(self, capture_id: str) -> bool:
+        """Tier and external-egress rule for one source revision, exactly as `source` applies it."""
+        try:
+            self._require_source_revision_privacy(capture_id)
+        except T03Error:
+            return False
+        return True
+
     def _require_canonical_revision_privacy(self, publication_id: str) -> None:
         row = self.connection.execute(
             "SELECT effective_privacy_json FROM canonical_revision_privacy WHERE revision_id=?",

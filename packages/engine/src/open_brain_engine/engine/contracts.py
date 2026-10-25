@@ -3572,6 +3572,9 @@ class EngineTaskSet:
     owner_egress_policy: Any = None
     # Follow-up items; MCP surfaces consume it through the followup-* grants.
     followups: Any = None
+    # Read-only capture-family freshness for the daily brief; MCP surfaces consume it through the
+    # brief-read grant.
+    source_freshness: Any = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

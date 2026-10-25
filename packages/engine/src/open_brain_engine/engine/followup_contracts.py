@@ -383,6 +383,9 @@ class ListFilter:
     include_closed: bool = False
     limit: int = 50
     cursor: str | None = None
+    # None keeps every item; True keeps only items with evidence added after their last
+    # decision (``new_evidence_since_decision``), False only those without.
+    new_evidence: bool | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -393,6 +396,7 @@ class ListFilter:
             or (self.owner is not None and type(self.owner) is not OwnerKind)
             or (self.due_before is not None and type(self.due_before) is not date)
             or type(self.include_closed) is not bool
+            or (self.new_evidence is not None and type(self.new_evidence) is not bool)
         ):
             raise _invalid()
         _require_text(self.project, limit=128, allow_none=True)
