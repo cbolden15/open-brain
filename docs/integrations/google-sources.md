@@ -179,26 +179,31 @@ metadata, exports the body and splits it. A batch holds at most 25 intakes and 2
 not reached stay on the same page for the next call, and `has_more` is true while files on the
 page remain or a `nextPageToken` is present.
 
-A single file never stalls a set. A file that returns 404, a lost-access 403, `trashed`,
+Most per-file problems do not stall a set. A file that returns 404, a lost-access 403, `trashed`,
 `canDownload != true`, a non-UTF-8 body, a body of more than 18 parts or an empty body produces the notice
 `drive_file_skipped:<reason>:<fileId>` with `reason` in
 `missing|access_lost|trashed|not_downloadable|not_text|too_large|empty`; the file is recorded in
 `known` and the run continues. Account-level errors still raise and leave the checkpoint
-unchanged: 401 is `google_auth_required`, a rate-limit 403 is `google_rate_limited`, and any other
-403 on the list call is `drive_forbidden`. When the folder itself returns 404 or lost access, the
-fetch returns no intakes with the notice `drive_folder_missing` and the checkpoint unchanged; no
-placeholder record is written.
+unchanged: 401 is `google_auth_required`, a rate-limit 403 is `google_rate_limited`, a lost-access
+403 on the account-shape list call is `drive_access_lost`, and any other 403 on the list call is
+`drive_forbidden`. When the folder itself returns 404 or lost access, the fetch returns no intakes
+with the notice `drive_folder_missing` and the checkpoint unchanged; no placeholder record is
+written.
 
-One exception to the per-file rule: an export body over 1 MiB is refused by the transport with
-`source_transport_unavailable` before the connector sees it. That error raises like an
-account-level error, so the checkpoint stays unchanged and the set retries the same Doc on every
-run until the Doc shrinks or the selection changes.
+Some per-file failures are exceptions to that rule. On the metadata or export call, a 403 that is
+not an access loss raises `drive_forbidden` or `google_rate_limited`, a 429 raises
+`google_rate_limited`, and a server error raises `google_fetch_failed`. An export body over 1 MiB
+is refused by the transport with `source_transport_unavailable` before the connector sees it. Each
+of these raises like an account-level error, so the run stops with the checkpoint unchanged and the
+set retries the same Doc on every run until the error clears, the Doc shrinks or the selection
+changes.
 
 ### Splitting
 
 An exported text over 60,000 characters is split into parts of at most 60,000 characters. The cut
 is the last blank line within the limit, else the last newline, else a hard cut; leading newlines
-of the next part are stripped. At most 18 parts are produced. A Doc that would need a 19th is
+of the next part are stripped. A part also stays within 120,000 bytes of ASCII-escaped JSON, so a
+Doc written mostly in non-ASCII text splits into shorter parts. At most 18 parts are produced. A Doc that would need a 19th is
 skipped with `drive_file_skipped:too_large:<fileId>`. Each part is one record. Its `external_id`
 is `file:<fileId>#part:<n>` (1-based). Its title is `<name> (part <n> of <N>)`, cut to
 200 characters with the suffix preserved. Its link is the Doc link, and every part carries the
@@ -213,7 +218,8 @@ Doc is edited, its revision hash changes, the file is re-exported and re-split, 
 submitted as a new revision of the same source record: the earlier text stays in history and the
 new text is searchable. Follow-up evidence quoted from an earlier revision stays bound to that
 revision. When a later revision has fewer parts, the surplus parts keep their last revision; this
-is documented, not repaired.
+is documented, not repaired. A Doc that crosses the 60,000-character limit in either direction
+starts new part records, and the previous records keep their last revision.
 
 ## Live acceptance and limits
 
@@ -239,10 +245,19 @@ credential reference. Plan equivalent reconnection before testing upstream revoc
 
 The Docs-set live gate is owner-authorized and separate from the automated suite. It needs a
 development OAuth client, a consenting test account and a disposable Brain, and its receipts stay
-outside Git. The gate passes when three checks are recorded here: one real Gemini note captured
-through `drive_account:all` with the suffixes above, one real transcript over 60,000 characters
-captured as parts, and one edit to the note stored as a new revision with the first text still in
-history. The same run answers the open question on Gemini's title format: if real titles differ
+outside Git. The gate passes when these checks are recorded here:
+
+- one real Gemini note captured through `drive_account:all` with the suffixes above;
+- one real transcript over 60,000 characters captured as parts;
+- one edit to the note stored as a new revision with the first text still in history;
+- `files.list` with an unknown or revoked parent id returns 404 or an access-loss 403, which
+  `drive_folder_missing` depends on;
+- the query grammar accepts a millisecond `modifiedTime` bound;
+- `name contains 'Notes by Gemini'` matches a title ending in that phrase. Drive's `contains` is
+  word-prefix matching; if it does not match, the name clause is dropped and the client-side
+  suffix check alone selects titles.
+
+The same run answers the open question on Gemini's title format: if real titles differ
 from `Notes by Gemini` and `Transcript`, only the `title_suffixes` values change. Until that run is
 recorded, the Docs-set shapes have synthetic acceptance only, through the collector integration
 tests.

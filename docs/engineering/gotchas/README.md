@@ -24,7 +24,7 @@ and only the `drive_folder` and `drive_account` shapes go through the
 collector's revision-aware path (`observe_revision` and `drive-revisions`).
 Drive set revisions have no exact-replay archive guard (that check is
 Slack-only in `lifecycle.py`); Drive relies on its revision hash, which
-includes `modifiedTime` and `version` and never repeats for different bytes.
+includes `modifiedTime` and `version` and changes whenever Drive records an edit.
 When a guide statement rests on a dated live receipt, re-check it against the
 current engine path before repeating it; an acceptance PASS certifies the schema
 it ran on, not later ones. Do not route `drive_file` through the revision sink to
