@@ -61,6 +61,76 @@ def _service(tmp_path: Path, runtime: Runtime) -> LiveCaptureService:
     return LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
 
 
+DRIVE_SET = SourceResourceSelection(
+    "google_drive", "account:synthetic", "drive_folder:folder-1", "drive_folder"
+)
+DRIVE_FILE = SourceResourceSelection(
+    "google_drive", "account:synthetic", "drive_file:doc-1", "drive_file"
+)
+SLACK = SourceResourceSelection("slack", "account:synthetic", "channel:CSYNTHETIC", "channel")
+
+
+def _drive_intake(
+    text: str = "Firstdrivetext",
+    *,
+    selection: SourceResourceSelection = DRIVE_SET,
+    external_id: str = "file:doc-1",
+    revision: str = "a",
+) -> SourceRecordIntake:
+    return SourceRecordIntake(
+        SourceRecordKey(
+            "google_drive",
+            "account:synthetic",
+            selection.resource_id,
+            external_id,
+            "revision:" + revision * 64,
+        ),
+        "https://docs.google.com/document/d/doc-1/edit",
+        text,
+        local_source_privacy(),
+        title="Weekly sync - Notes by Gemini",
+    )
+
+
+def _slack_intake(text: str = "Slackneedle", *, revision: str = "edited:1") -> SourceRecordIntake:
+    return SourceRecordIntake(
+        SourceRecordKey(
+            "slack", "account:synthetic", SLACK.resource_id, "message:1791900000.000001", revision
+        ),
+        "https://example.slack.com/archives/CSYNTHETIC/p1791900000000001",
+        text,
+        local_source_privacy(),
+        title="Synthetic Slack thread",
+    )
+
+
+class Routed(Runtime):
+    """One fake provider answering several selections by resource id."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.batches: dict[str, LiveBatch] = {}
+
+    def fetch(
+        self,
+        selection: SourceResourceSelection,
+        options: dict[str, object],
+        checkpoint: dict[str, object] | None,
+    ) -> LiveBatch:
+        self.calls += 1
+        self.checkpoints.append(checkpoint)
+        return self.batches[selection.resource_id]
+
+
+def _apply(service: LiveCaptureService, source_id: str) -> dict[str, object]:
+    preview = service.preview(source_id)
+    return service.apply(source_id, cast(str, preview["preview_id"]))
+
+
+def _envelopes(state: Path, directory: str) -> list[Path]:
+    return sorted((state / directory).glob("saved-revision-*.json"))
+
+
 def test_preview_then_unordered_revision_refusal_preserves_source_and_checkpoint(
     tmp_path: Path,
 ) -> None:
@@ -371,3 +441,35 @@ def test_duplicate_cache_is_bounded_and_engine_deduplicates_after_eviction(tmp_p
     assert third["preview_id"] == second["preview_id"]
     service.apply("gmail", cast(str, third["preview_id"]))
     assert service._load("gmail")["pending"] is None
+
+
+def test_revision_envelopes_live_in_the_connector_directory(tmp_path: Path) -> None:
+    runtime = Routed()
+    runtime.batches = {
+        DRIVE_FILE.resource_id: LiveBatch(
+            (_drive_intake("Singlefiletext", selection=DRIVE_FILE),), {"cursor": "1"}
+        ),
+        DRIVE_SET.resource_id: LiveBatch((_drive_intake("Setdrivetext"),), {"cursor": "1"}),
+        SLACK.resource_id: LiveBatch((_slack_intake(),), {"cursor": "1"}),
+    }
+    service = _service(tmp_path, runtime)
+    state = tmp_path / "state"
+    service.configure("file", DRIVE_FILE, {})
+    assert _apply(service, "file")["captured_count"] == 1
+    assert not (state / "drive-revisions").exists()
+    assert not (state / "slack-revisions").exists()
+    service.configure("set", DRIVE_SET, {"date_floor": "2026-10-01"})
+    assert _apply(service, "set")["captured_count"] == 1
+    assert (state / "drive-revisions").is_dir()
+    assert len(_envelopes(state, "drive-revisions")) == 1
+    assert not (state / "slack-revisions").exists()
+    service.configure("slack", SLACK, {})
+    assert _apply(service, "slack")["captured_count"] == 1
+    assert len(_envelopes(state, "slack-revisions")) == 1
+    assert len(_envelopes(state, "drive-revisions")) == 1
+    assert not list(state.glob("saved-revision-*.json"))
+    assert not list(state.glob("slack-order-*.json"))
+    assert len(list((state / "slack-revisions").glob("slack-order-*.json"))) == 1
+    profile = compile_single_user_local(tmp_path / "brain")
+    for needle in ("Singlefiletext", "Setdrivetext", "Slackneedle"):
+        assert len(open_local_engine(profile).retrieval.search(needle)) == 1

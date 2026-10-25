@@ -635,11 +635,14 @@ class LiveCaptureService:
             duplicate = bool(getattr(result, "duplicate", False))
             capture_id = getattr(result, "capture_id", None)
             return ("duplicate" if duplicate else "captured", capture_id)
-        if intake.key.connector_name == "slack" and intake.observation is not None:
+        from open_brain_collector.capture_policy import revision_store_dirname
+
+        revisions = revision_store_dirname(intake.key.connector_name)
+        if revisions is not None and intake.observation is not None:
             from open_brain_collector.runner import collector_revision_sink
 
             result = collector_revision_sink(
-                self._brain_root, self._store.root / "slack-revisions"
+                self._brain_root, self._store.root / revisions
             ).submit(intake)
             if result.source_receipt is None or result.outcome not in {"captured", "duplicate"}:
                 raise LiveSourceError("source_revision_pending")
