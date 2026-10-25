@@ -134,6 +134,8 @@ def test_drive_set_checkpoint_initial_roundtrip_bound_and_watermark() -> None:
     assert parsed.known == {"f1": DriveKnownEntry("r1", "2026-10-05T10:00:00Z")}
     assert parsed.to_dict() == _checkpoint_value()
     assert query_bound(parsed) == "2026-10-04T10:00:00Z"
+    millis = DriveSetCheckpoint("incremental", None, "2026-10-05T10:00:00.123Z", {})
+    assert query_bound(millis) == "2026-10-04T10:00:00.123Z"
 
     newer = {
         "a": DriveKnownEntry("r", "2026-10-06T00:00:00Z"),
@@ -153,6 +155,8 @@ def test_drive_set_checkpoint_rejects_bad_shapes_and_evicts_oldest() -> None:
         {**good, "extra": 1},
         {key: value for key, value in good.items() if key != "page_token"},
         {**good, "mode": "full"},
+        {**good, "mode": []},
+        {**good, "mode": {}},
         {**good, "page_token": 3},
         {**good, "watermark": "2026-10-05"},
         {**good, "watermark": "2026-10-05T10:00:00+02:00"},

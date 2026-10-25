@@ -167,7 +167,7 @@ class DriveSetCheckpoint:
         if type(value) is not dict or set(value) != _CHECKPOINT_KEYS:
             raise LiveSourceError("drive_invalid_checkpoint")
         mode = value["mode"]
-        if mode not in {"backfill", "incremental"}:
+        if type(mode) is not str or mode not in {"backfill", "incremental"}:
             raise LiveSourceError("drive_invalid_checkpoint")
         page_token = value["page_token"]
         if page_token is not None:
@@ -210,7 +210,8 @@ def parse_timestamp(value: str) -> datetime:
 
 
 def format_timestamp(moment: datetime) -> str:
-    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    timespec = "milliseconds" if moment.microsecond else "seconds"
+    return moment.astimezone(UTC).isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
 def query_bound(checkpoint: DriveSetCheckpoint) -> str:
