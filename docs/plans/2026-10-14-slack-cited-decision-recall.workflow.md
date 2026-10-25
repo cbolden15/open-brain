@@ -4,7 +4,7 @@ Date: 2026-10-14. Status: W0 and the atomic W1a/W1b unit are verified. W1a accep
 
 Start with W0 in an isolated feature worktree. Use one coordinator, two implementation workers when their files are disjoint, and one independent reviewer. Keep package acceptance ordered. Complete W1a and W1b together before making the new persisted format available to a retained Brain.
 
-This is a companion to the [implementation plan](/Users/calebbolden/Projects/oss/open-brain-public/docs/plans/2026-10-14-slack-cited-decision-recall.md), not a replacement for its contracts or acceptance matrix. The [hardening report](/Users/calebbolden/Projects/oss/open-brain-public/docs/plans/2026-10-14-slack-cited-decision-recall.md.hardening.md) identified the owner decisions now recorded in the plan and said the final remediation edits had not received independent review at that time. Neither document establishes that the feature is ready to ship.
+This is a companion to the [implementation plan]($REPO/docs/plans/2026-10-14-slack-cited-decision-recall.md), not a replacement for its contracts or acceptance matrix. The [hardening report]($REPO/docs/plans/2026-10-14-slack-cited-decision-recall.md.hardening.md) identified the owner decisions now recorded in the plan and said the final remediation edits had not received independent review at that time. Neither document establishes that the feature is ready to ship.
 
 ## Recommended execution shape
 
@@ -17,7 +17,7 @@ The fastest credible path is the plan's approved Work-copy architecture, impleme
 | Approved copies with stronger default session gating | Requires explicit policy before Slack Work reads, rather than relying on detecting unscoped configurations. Changes existing defaults and compatibility expectations. | Owner option before W2; estimate and test the change separately. |
 | Controlled egress and deterministic evidence broker | Enforces destination, evidence bounds and tool isolation at a controlled boundary. A network broker belongs in a separate distribution; deterministic pre-model retrieval also changes this slice's no-runner boundary. | Proper architecture for end-to-end transport/tool enforcement. Separate project; feasibility, client integration and effort remain unverified. |
 
-Revised planning target after B/B/B: W2 requires **6–10 engineer-days**, with a **4–7 working day elapsed** allowance for a familiar coordinator and two bounded implementers after contract freeze. W3/W4 add their separate 1–2 days each. This replaces the original scheduling baseline, is not a measured agent speedup, and excludes private pilot runs and new persisted-format work. See the [W2 scope and feasibility assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
+Revised planning target after B/B/B: W2 requires **6–10 engineer-days**, with a **4–7 working day elapsed** allowance for a familiar coordinator and two bounded implementers after contract freeze. W3/W4 add their separate 1–2 days each. This replaces the original scheduling baseline, is not a measured agent speedup, and excludes private pilot runs and new persisted-format work. See the [W2 scope and feasibility assessment]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-14-slack-cited-decision-recall.w2-scope.md).
 
 ## Grounding and authority
 
@@ -25,9 +25,9 @@ The design was grounded against branch `docs/work-laptop-product-evaluation`, HE
 
 Source bytes reviewed, SHA-256: implementation plan `8f1cd3bd39e902c27233130ad82340355208be9df57b2f2279cb3e274e9c771b`; hardening report `00bb2a1f0c35e596713ee8a3b5f2b8437e6c43a464ac6444d69979e80cc65de9`. Re-read changed inputs before execution rather than applying this schedule to a different plan silently.
 
-The governing project instructions are [root CLAUDE.md](/Users/calebbolden/Projects/oss/open-brain-public/CLAUDE.md) and [app CLAUDE.md](/Users/calebbolden/Projects/oss/open-brain-public/packages/app/CLAUDE.md). Verification comes from the actual [Makefile](/Users/calebbolden/Projects/oss/open-brain-public/Makefile). CodeGraph is available; use narrow indexed queries before reading indexed implementation code. No context-mode recall tool was available during this design pass.
+The governing project instructions are [root CLAUDE.md]($REPO/CLAUDE.md) and [app CLAUDE.md]($REPO/packages/app/CLAUDE.md). Verification comes from the actual [Makefile]($REPO/Makefile). CodeGraph is available; use narrow indexed queries before reading indexed implementation code. No context-mode recall tool was available during this design pass.
 
-Relevant existing [gotchas](/Users/calebbolden/Projects/oss/open-brain-public/docs/engineering/gotchas/README.md): SLACK-003, SHARING-001/002/005, COMPAT-002, FACETS-013/015 and TESTING-006. They cover local-only Work originals, snapshot closure, damaged managed-copy markers, pre-query eligibility, compatibility collisions, frozen resources, migration settlement and contention from concurrent native builds.
+Relevant existing [gotchas]($REPO/docs/engineering/gotchas/README.md): SLACK-003, SHARING-001/002/005, COMPAT-002, FACETS-013/015 and TESTING-006. They cover local-only Work originals, snapshot closure, damaged managed-copy markers, pre-query eligibility, compatibility collisions, frozen resources, migration settlement and contention from concurrent native builds.
 
 The plan says to implement one package at a time. Preserve that order. Parallelism below is inside a package, or read-only preparation for a later package. Do not start W2 implementation before W1b acceptance and the owner decisions. Do not start W3 implementation before W2 acceptance.
 
@@ -49,7 +49,7 @@ The plan says to implement one package at a time. Preserve that order. Paralleli
 4. Freeze the contract manifest below and map every acceptance-matrix scenario to a test owner. Have an independent reviewer inspect the hardening remediations against the current source. Resolve implementation blockers before dispatching production changes.
 5. Commit the passing baseline and contract fixtures locally. Keep future failing tests in a clearly identified development patch or commit until the corresponding implementation turns them green; do not merge a failing suite or hide it with broad skips. Persist a compact verified handoff.
 
-The future journey target is `/Users/calebbolden/Projects/oss/open-brain-public/packages/app/tests/integration/services/test_slack_decision_recall.py`. It did not exist at workflow design time.
+The future journey target is `$REPO/packages/app/tests/integration/services/test_slack_decision_recall.py`. It did not exist at workflow design time.
 
 Contract freeze fields:
 
@@ -93,7 +93,7 @@ Preparation while W1 runs is limited to reading the current setup implementation
 4. Write the guide and task template using response-derived IDs and exact implemented commands. Include dedicated release-space guidance, unknown upstream coverage, manual refresh, separate new-message correction approval and restricted client tools. Record the actual-client check as `recorded` or `not_run` with a reason; its private, owner-authorized run is separate from repository completion and must satisfy the selected injection-resistance gate before private pilot use.
 5. Run W3 focused tests and `make verify`, review protocol and guide consistency, then commit and hand off locally. Deterministic citation plumbing is not proof of real-model quality or injection resistance.
 
-The future guide target is `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md`.
+The future guide target is `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md`.
 
 ### Phase 5: W4 on a frozen candidate
 
@@ -107,7 +107,7 @@ The future guide target is `/Users/calebbolden/Projects/oss/open-brain-public-wo
 
 Use a maximum of four active agents including the coordinator, matching this runtime. Start two implementation workers only after their contracts and exact file lists are fixed. Reserve the remaining slot for a reviewer or an independent test author; do not add another writer just to fill capacity.
 
-All paths below are under the explicit root `/Users/calebbolden/Projects/oss/open-brain-public`; expand them to absolute paths in worker prompts. These are proposed ownership groups, not permission to edit every listed file.
+All paths below are under the explicit root `$REPO`; expand them to absolute paths in worker prompts. These are proposed ownership groups, not permission to edit every listed file.
 
 | Owner | Exclusive implementation scope | Boundary |
 |---|---|---|
@@ -115,11 +115,11 @@ All paths below are under the explicit root `/Users/calebbolden/Projects/oss/ope
 | Sharing worker | `packages/engine/src/open_brain_engine/engine/sharing.py`, new sharing-specific modules and assigned sharing tests | Uses frozen contracts; does not invent an alternate proof, copy privacy policy or version. |
 | Projection worker | `packages/engine/src/open_brain_engine/engine/records.py`, `paging.py`, `search_projection.py`, assigned projection/race tests | Starts only after sharing eligibility APIs are fixed; shared-helper changes go through coordinator. |
 | Portable/setup worker, in later waves | Assigned new Portable validator/restore module and tests in W1b; `packages/app/src/open_brain/services/agent_setup.py` and its tests in W2 | Separate sequential roles, not simultaneous edits of shared catalog/CLI files. |
-| Journey/docs worker, in W3 | Assigned journey/validator tests or `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md` | Use separate workers only when fixture ownership is disjoint. Reviewer always remains read-only. |
+| Journey/docs worker, in W3 | Assigned journey/validator tests or `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md` | Use separate workers only when fixture ownership is disjoint. Reviewer always remains read-only. |
 
 Engine contracts or eligibility APIs that cannot be separated safely stay with one owner. Stop parallel writes immediately when a new shared dependency appears; serial integration is cheaper than incompatible implementations.
 
-Use the installed [workflow-governance skill](/Users/calebbolden/.codex/skills/workflow-governance/SKILL.md) to render bounded phase/TDD/review prompts; do not write a new orchestration framework for this one implementation. Create one collision-resistant workstream state at execution start and carry its ledger across worker turns. Each prompt must name objective, source of truth, exact write scope or read-only status, verification, stop condition, output contract and synthetic-data policy.
+Use the installed [workflow-governance skill]($HOME/.codex/skills/workflow-governance/SKILL.md) to render bounded phase/TDD/review prompts; do not write a new orchestration framework for this one implementation. Create one collision-resistant workstream state at execution start and carry its ledger across worker turns. Each prompt must name objective, source of truth, exact write scope or read-only status, verification, stop condition, output contract and synthetic-data policy.
 
 Use `gpt-6.1-sol` for bounded implementation and source mapping, `gpt-6-luna` only for mechanical inventories, and the session model or `gpt-6-astra` for independent security/compatibility judgment when available. Pass explicit models on context-free forks with complete task contracts; a full-history fork cannot take an override. These are agent-execution choices, not changes to the user's recall model.
 

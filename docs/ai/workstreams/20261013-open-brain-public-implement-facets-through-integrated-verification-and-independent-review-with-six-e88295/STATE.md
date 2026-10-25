@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261013-open-brain-public-implement-facets-through-integrated-verification-and-independent-review-with-six-e88295`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public
+- Worktree: $REPO
 - Branch: feat/facets-stage-one
 - Objective: Implement facets through integrated verification and independent review with six workers
 - Created date: 2026-10-13
@@ -13,7 +13,7 @@
 Status: complete. Verified integrated candidate: `abeab52136a668fd851a6d4a7c72aa8fa67baedb`.
 make verify passed: Ruff, mypy (431 files), 3975 Python tests with 5 filesystem skips, four package builds, 291 plugin tests, 259 desktop frontend tests, 1 desktop packaging test and 26 Rust tests.
 Independent review: READY, F01–F22 complete, R1–R5 closed. Audit:
-`/Users/calebbolden/Projects/oss/open-brain-public/docs/audits/2026-10-13-owner-defined-facets-stage-one-audit.md`.
+`$REPO/docs/audits/2026-10-13-owner-defined-facets-stage-one-audit.md`.
 
 C0 revision `facets-c0-v4`, verified commit `ed74327f34ec2526fd36b1737e36b05bcd2cdc62`;
 fixture hash `95e85b535eeb4263a6e430970ecf1d49de8d0b72de7425e41be703897d93dbc5`.
@@ -55,12 +55,12 @@ three existing native sessions are reused. Independent review will use a freed s
 
 | Task | Executor/session | Worktree | State |
 |---|---|---|---|
-| E | native / /root/wire | /Users/calebbolden/Projects/oss/open-brain-facets-stage-one-e | running |
-| A | codex-cli / 95334 | /Users/calebbolden/Projects/oss/open-brain-facets-stage-one-a | running |
-| T | native / /root/check | /Users/calebbolden/Projects/oss/open-brain-facets-stage-one-t | running |
-| P | codex-cli / 21768 | /Users/calebbolden/Projects/oss/open-brain-facets-stage-one-p | running |
-| X | native / /root/evidence | /Users/calebbolden/Projects/oss/open-brain-facets-stage-one-x | running |
-| V | codex-cli / 55885 | /Users/calebbolden/Projects/oss/open-brain-facets-stage-one-v | running |
+| E | native / /root/wire | $HOME/Projects/oss/open-brain-facets-stage-one-e | running |
+| A | codex-cli / 95334 | $HOME/Projects/oss/open-brain-facets-stage-one-a | running |
+| T | native / /root/check | $HOME/Projects/oss/open-brain-facets-stage-one-t | running |
+| P | codex-cli / 21768 | $HOME/Projects/oss/open-brain-facets-stage-one-p | running |
+| X | native / /root/evidence | $HOME/Projects/oss/open-brain-facets-stage-one-x | running |
+| V | codex-cli / 55885 | $HOME/Projects/oss/open-brain-facets-stage-one-v | running |
 
 Machine execution details and private reports are retained in the coordinator run ledger. No
 worker completion or real-engine proof is recorded yet.
@@ -87,7 +87,7 @@ Focused engine integration pin `015480fff34608e87115a04240b1d1078def0033`: 48 re
 
 Independent T `f1e2b6` integrated as `8306334`: first actual run passed 36 and failed 22, largely absent P/V composition plus three MCP filter failures and two overstrict test expectations. T correction `d8b8bda` preserves one-event retry guarantees and asserts the existing committed-upgrade wrapper; all 11 fault/migration tests pass. Coordinator fixed the real MCP outer authorization filter; ten real F15 tests pass. These are real-handler checks, not fake proof.
 
-Full candidate `8306334` ran in isolated coordinator verification worktree `/Users/calebbolden/Projects/oss/open-brain-facets-verify-1`. Lint and mypy (431 files) passed; full pytest collection failed on a Portable-first circular import. X fix `b08b59f` integrated as `8425134`, with three fresh-process import-order regression checks. The full gate is invalid until rerun on the corrected candidate. Interface regression suite: 238 passed with five failures; parser repair and current-version updates resolved those in focused reruns (142 passed plus two current-version checks). Final full verification remains required.
+Full candidate `8306334` ran in isolated coordinator verification worktree `$HOME/Projects/oss/open-brain-facets-verify-1`. Lint and mypy (431 files) passed; full pytest collection failed on a Portable-first circular import. X fix `b08b59f` integrated as `8425134`, with three fresh-process import-order regression checks. The full gate is invalid until rerun on the corrected candidate. Interface regression suite: 238 passed with five failures; parser repair and current-version updates resolved those in focused reruns (142 passed plus two current-version checks). Final full verification remains required.
 
 ## Current integration checkpoint
 

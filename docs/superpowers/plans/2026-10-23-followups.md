@@ -9200,7 +9200,7 @@ def test_drafts_are_never_sent_no_ticket_or_message_egress_path(brain: Brain) ->
 Run:
 
 ```sh
-cd /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/followups-design
+cd $REPO/.worktrees/followups-design
 uv run --frozen pytest -q packages/app/tests/integration/services/test_followups_acceptance.py -x
 ```
 
@@ -9883,7 +9883,7 @@ the new path-sensitive tests.
 - [ ] **Step 1: Freeze the tree**
 
 ```sh
-cd /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/followups-design
+cd $REPO/.worktrees/followups-design
 git status --porcelain
 ```
 

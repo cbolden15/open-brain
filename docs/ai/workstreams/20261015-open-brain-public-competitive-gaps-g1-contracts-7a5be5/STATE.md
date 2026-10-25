@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261015-open-brain-public-competitive-gaps-g1-contracts-7a5be5`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Repo root: $REPO/.worktrees/competitive-gap-reconciliation
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Worktree: $REPO/.worktrees/competitive-gap-reconciliation
 - Branch: feat/competitive-gap-reconciliation
 - Objective: Specify G1 persistence, embedding resource and both consumer-export contracts; documentation only; no performance interference or runtime implementation
 - Created date: 2026-10-15

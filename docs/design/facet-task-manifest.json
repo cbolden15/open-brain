@@ -74,12 +74,12 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facets_engine.py packages/engine/tests/integration/test_facets_migration.py",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
+        "$REPO/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facets_engine.py packages/engine/tests/integration/test_facets_migration.py",
+        "$REPO/.venv/bin/ruff check .",
+        "$REPO/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
-      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-e",
+      "initial_worktree": "$HOME/Projects/oss/open-brain-facets-stage-one-e",
       "initial_branch": "feat/facets-stage-one-e",
       "initial_input_pin": {
         "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
@@ -152,16 +152,16 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/app/tests/unit/test_facets_adapters.py packages/app/tests/integration/services/test_facets_cli_mcp.py",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
+        "$REPO/.venv/bin/python -m pytest -q packages/app/tests/unit/test_facets_adapters.py packages/app/tests/integration/services/test_facets_cli_mcp.py",
+        "$REPO/.venv/bin/ruff check .",
+        "$REPO/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
       "final_integration_requires": [
         "E",
         "P"
       ],
-      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-a",
+      "initial_worktree": "$HOME/Projects/oss/open-brain-facets-stage-one-a",
       "initial_branch": "feat/facets-stage-one-a",
       "initial_input_pin": {
         "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
@@ -249,9 +249,9 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/contract/test_facets_acceptance.py packages/engine/tests/integration/test_facets_faults.py packages/app/tests/integration/services/test_facets_end_to_end.py",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
+        "$REPO/.venv/bin/python -m pytest -q packages/engine/tests/contract/test_facets_acceptance.py packages/engine/tests/integration/test_facets_faults.py packages/app/tests/integration/services/test_facets_end_to_end.py",
+        "$REPO/.venv/bin/ruff check .",
+        "$REPO/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
       "final_integration_requires": [
@@ -261,7 +261,7 @@
         "X",
         "V"
       ],
-      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-t",
+      "initial_worktree": "$HOME/Projects/oss/open-brain-facets-stage-one-t",
       "initial_branch": "feat/facets-stage-one-t",
       "initial_input_pin": {
         "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
@@ -336,12 +336,12 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facet_publication.py",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
+        "$REPO/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facet_publication.py",
+        "$REPO/.venv/bin/ruff check .",
+        "$REPO/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
-      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-p",
+      "initial_worktree": "$HOME/Projects/oss/open-brain-facets-stage-one-p",
       "initial_branch": "feat/facets-stage-one-p",
       "initial_input_pin": {
         "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
@@ -423,16 +423,16 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/contract/test_portable_brain_v6.py",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
+        "$REPO/.venv/bin/python -m pytest -q packages/engine/tests/contract/test_portable_brain_v6.py",
+        "$REPO/.venv/bin/ruff check .",
+        "$REPO/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
       "final_integration_requires": [
         "P pending proposal evidence",
         "V managed export evidence"
       ],
-      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-x",
+      "initial_worktree": "$HOME/Projects/oss/open-brain-facets-stage-one-x",
       "initial_branch": "feat/facets-stage-one-x",
       "initial_input_pin": {
         "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
@@ -506,12 +506,12 @@
         "handoff with contract revision and fixture manifest hash"
       ],
       "focused_verification": [
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facet_vault.py",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/ruff check .",
-        "/Users/calebbolden/Projects/oss/open-brain-public/.venv/bin/mypy"
+        "$REPO/.venv/bin/python -m pytest -q packages/engine/tests/integration/test_facet_vault.py",
+        "$REPO/.venv/bin/ruff check .",
+        "$REPO/.venv/bin/mypy"
       ],
       "completion_gate": "real-producer acceptance plus coordinator repository checks; fake results alone do not complete task",
-      "initial_worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-v",
+      "initial_worktree": "$HOME/Projects/oss/open-brain-facets-stage-one-v",
       "initial_branch": "feat/facets-stage-one-v",
       "initial_input_pin": {
         "commit": "4a29944b4fead146c6f9bf5c535d0a1595799870",
@@ -704,7 +704,7 @@
       ],
       "execution_status": "complete; integrated candidate and independent review passed",
       "executor": "native strong-model session",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-facets-stage-one-r",
+      "worktree": "$HOME/Projects/oss/open-brain-facets-stage-one-r",
       "current_contract_pin": {
         "commit": "ed74327f34ec2526fd36b1737e36b05bcd2cdc62",
         "contract_revision": "facets-c0-v4",

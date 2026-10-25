@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261015-open-brain-public-lifecycle-journal-foundation-15036c`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Repo root: $REPO/.worktrees/competitive-gap-reconciliation
 - Remote identity SHA-256 fingerprint: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Worktree: $REPO/.worktrees/competitive-gap-reconciliation
 - Branch: feat/competitive-gap-reconciliation
 - Objective: Implement and verify isolated lifecycle journal contracts, staging, replay and restore foundation; no production version cutover or public commands
 - Created date: 2026-10-15

@@ -16,7 +16,7 @@ The first full gate passed all 7474 Python cases and package builds, then failed
 
 The previous W2 worktree was removed only after its five dirty/untracked continuity files were SHA-256 matched in the old tree, new tree and preservation commit b39c2ef. Its tip 8eb36e5ac97318537ab19aa4163c38cd0d03ff0d is an ancestor. Dirty inventory was unchanged, ignored files rebuildable and no process used it. Exact removal and unchanged-ref evidence are in CLEANUP.json.
 
-Removed worktree: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13
+Removed worktree: $WORKTREES/slack-cited-recall-w2-20261014-d5fe13
 
 Retained checkpoint branch: feat/slack-cited-recall-w2-20261014-d5fe13
 

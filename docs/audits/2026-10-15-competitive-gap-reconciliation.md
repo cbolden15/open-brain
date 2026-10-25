@@ -1,10 +1,10 @@
 # Competitive gaps reconciled against current source
 
-Date: 2026-10-15. Scope: all eleven gaps in `/Users/calebbolden/Downloads/Open Brain Competitive Gaps.md`. This is a source/evidence audit, not feature implementation or a new runtime acceptance run. Competitor features, prices, star counts, market dominance and trademark claims were not re-audited.
+Date: 2026-10-15. Scope: all eleven gaps in `$HOME/Downloads/Open Brain Competitive Gaps.md`. This is a source/evidence audit, not feature implementation or a new runtime acceptance run. Competitor features, prices, star counts, market dominance and trademark claims were not re-audited.
 
 ## Baselines and conclusion
 
-The main-source baseline is `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`, confirmed against remote main during this audit. Worktree: `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation`; branch: `feat/competitive-gap-reconciliation`. A separate completed local branch ends at `19f2f160e67a91623b5ec252d4002b8826b03830`. W4 was completed there with full/native verification at `7818f4f3138b887220c414119be9ac16e28b0a80`; W5 has a completed P0 specification only and remains parked. Neither branch's later capabilities are silently counted as main or as released product.
+The main-source baseline is `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`, confirmed against remote main during this audit. Worktree: `$REPO/.worktrees/competitive-gap-reconciliation`; branch: `feat/competitive-gap-reconciliation`. A separate completed local branch ends at `19f2f160e67a91623b5ec252d4002b8826b03830`. W4 was completed there with full/native verification at `7818f4f3138b887220c414119be9ac16e28b0a80`; W5 has a completed P0 specification only and remains parked. Neither branch's later capabilities are silently counted as main or as released product.
 
 The assessment identifies real product gaps, but it conflates absent features with implemented candidate functionality, release availability and current-candidate acceptance. The clearest missing capabilities remain offline semantic query retrieval, official ChatGPT/Claude export ingestion, sync/mobile and Windows. Capture/session undo, broad client support, source onboarding and collaboration are narrower gaps than the assessment describes. A public release already exists.
 
@@ -78,7 +78,7 @@ Windows remains outside [native_platform_tag](https://github.com/cbolden15/open-
 
 ## Completed local W4 and parked W5
 
-W4 completion is explicit in `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json`: status complete, tested HEAD7818f4f,7,480Python passed/five filesystem skips, plugin700, desktop frontend286/Python30, Rust26, full verify and combined native-audit/Homebrew smoke exit0, independent Astra approved. These are historical exact-W4 receipts, not fresh results from this audit. W4 closes its authorized synthetic citation/sharing/currentness/Portable acceptance scope. Actual-client/model status remains not_run and private-pilot gate false; that was an explicit W4 stop boundary, not failure to complete W4.
+W4 completion is explicit in `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json`: status complete, tested HEAD7818f4f,7,480Python passed/five filesystem skips, plugin700, desktop frontend286/Python30, Rust26, full verify and combined native-audit/Homebrew smoke exit0, independent Astra approved. These are historical exact-W4 receipts, not fresh results from this audit. W4 closes its authorized synthetic citation/sharing/currentness/Portable acceptance scope. Actual-client/model status remains not_run and private-pilot gate false; that was an explicit W4 stop boundary, not failure to complete W4.
 
 The local branch now ends at19f2f16 with all handoff continuity committed. W5 P0's five contracts are complete at5afb137, followed by its continuity commit; P1 implementation has not started. This audit neither resumes W5 nor merges/cherry-picks any local work. A later feature branch must explicitly decide whether to build on main or completed local W4 before making17/12/12 compatibility assumptions.
 

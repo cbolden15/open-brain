@@ -2,14 +2,14 @@
 
 Status: implemented on branch `feat/w5-guided-slack-workflow`, pending final gates (P1–P4 code head `67fad50`, 2026-10-22). Native acceptance and live checks are not run. The five contracts below supersede ambiguous W5 proposal wording only for the bounded guide v1. Source baseline is `377d23849467bb33ec4bcb31dcd79b812b60fbbb`; W4 tested candidate remains `7818f4f3138b887220c414119be9ac16e28b0a80` and is historical evidence only.
 
-Worktree/source root: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b`. Branch `feat/slack-cited-recall-w4-20261015-6d407b`; local origin/main `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`, no fetch. No other checkout or worktree is changed.
+Worktree/source root: `$WORKTREES/slack-cited-recall-w4-20261015-6d407b`. Branch `feat/slack-cited-recall-w4-20261015-6d407b`; local origin/main `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`, no fetch. No other checkout or worktree is changed.
 
 ## Five deliverables and precedence
 
-1. [Interface contract](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/INTERFACE.md): exact additive CLI/closed DTOs, executable capability/trust and bounded subprocess rules.
-2. [Identity contract](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/IDENTITY.md): collector-to-engine chain, currentness and reset refusal.
-3. [Recovery table](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/RECOVERY.md): each write, exact request, owner checkpoint, receipt and conditional replay/halt.
-4. [Health contract](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/HEALTH.md): per-store evidence, safe bounded noncreating reads and explicit unknown consistency/retry time.
+1. [Interface contract]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/INTERFACE.md): exact additive CLI/closed DTOs, executable capability/trust and bounded subprocess rules.
+2. [Identity contract]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/IDENTITY.md): collector-to-engine chain, currentness and reset refusal.
+3. [Recovery table]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/RECOVERY.md): each write, exact request, owner checkpoint, receipt and conditional replay/halt.
+4. [Health contract]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5-p0/HEALTH.md): per-store evidence, safe bounded noncreating reads and explicit unknown consistency/retry time.
 5. This acceptance map: existing source evidence, exact missing W5 fixture families, ownership, limits and P0 exit criteria.
 
 These are specifications, not five implemented features. Do not treat plan completion as W5 acceptance. No change to schema/runtime/Portable17/12/12, engine admission, existing account/custody formats or same-coordinate old-binary fencing. Journal is app-local only. Optional collector remains separately installed; core closure has no optional imports/dependencies. No model runner, broker, listener, daemon or new MCP recall tool.
@@ -62,8 +62,8 @@ For P0 only: validate every file/symbol reference, all DTO/action/table cross-li
 
 ## Absolute source roots
 
-- App: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain`.
-- Engine: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine`.
-- Collector: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector`.
-- Connectors: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/connectors/src/open_brain_connectors`.
-- Historical W4 matrix: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/MATRIX.md`.
+- App: `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain`.
+- Engine: `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine`.
+- Collector: `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector`.
+- Connectors: `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/connectors/src/open_brain_connectors`.
+- Historical W4 matrix: `$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/MATRIX.md`.

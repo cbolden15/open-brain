@@ -10,7 +10,7 @@ last_verified.command: make verify; make native-audit homebrew-smoke; independen
 last_verified.result: Passed: Python7074/skips5, Obsidian664, existing desktop259TS/30Python/26Rust; native audit and installed journey; actual synthetic host; review findings fixed
 changes: ["Stage2 bridge/client/UI/publication/reconciliation integration","Independent real-engine and transport acceptance tests","Local verification ledger; frozen contracts unchanged","Approved cache cleanup reclaimed8.6GB; retained evidence bytes verified"]
 blocker: null
-next_action: Review /Users/calebbolden/Projects/oss/open-brain-public/docs/audits/2026-10-13-obsidian-facets-stage-two.md
+next_action: Review $REPO/docs/audits/2026-10-13-obsidian-facets-stage-two.md
 safe_to_start_new_thread: true
 
 Emit this complete block as one packet; keep the heading and field names exact. Keep values bounded and redacted. This packet summarizes verified state; it does not override project instructions or machine-authoritative runner state.

@@ -43,6 +43,6 @@ broadened to admit consumer envelopes. Retraction barriers, original privacy,
 scope identities and old-issuer restrictions survive clean restore.
 
 The exact catalog is in
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/packages/engine/src/open_brain_engine/portable/v15_catalog.py`.
+`$REPO/.worktrees/competitive-gap-reconciliation/packages/engine/src/open_brain_engine/portable/v15_catalog.py`.
 Engine APIs are documented in
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/consumer-intake.md`.
+`$REPO/.worktrees/competitive-gap-reconciliation/docs/consumer-intake.md`.

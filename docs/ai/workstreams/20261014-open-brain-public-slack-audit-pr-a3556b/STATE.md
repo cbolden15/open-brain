@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261014-open-brain-public-slack-audit-pr-a3556b`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `0aaeca2a6d1b421eaa7439b39b3228c836f6c7c55026bac150b0aeda757566cf`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public
+- Worktree: $REPO
 - Branch: feat/slack-capture
 - Objective: Audit public Slack plan completeness and deliver a reviewed draft PR
 - Created date: 2026-10-14

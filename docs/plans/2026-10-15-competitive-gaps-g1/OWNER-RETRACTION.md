@@ -29,7 +29,7 @@ The existing journal adapter admits exact18/13 and19/14 coordinates, retaining
 the same journal evidence format at both coordinates.
 
 The new module
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/packages/engine/src/open_brain_engine/engine/owner_retraction_contracts.py`
+`$REPO/.worktrees/competitive-gap-reconciliation/packages/engine/src/open_brain_engine/engine/owner_retraction_contracts.py`
 owns strict canonical validation. Its `approval_record(request, receipt)` helper
 validates and returns the exact object `{request,receipt}`. Public IDs and errors
 are body-free; errors have a closed `code`. Its `validate_approval_records(records,
@@ -89,5 +89,5 @@ The owner CLI is exactly `retract preview --capture ID|--session ID`,
 `retract commit --preview-id ID --operation-id UUID`, and
 `retract status --operation-id UUID`, with common local `--json`/`--data-dir`.
 Output follows the approved preview/commit DTOs in
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/PERSISTENCE.md`.
+`$REPO/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/PERSISTENCE.md`.
 No MCP/plugin/desktop mutation surface or provider parser activation is included.

@@ -62,4 +62,4 @@ benchmark. Provider import profiles and local model execution remain separate
 gates.
 
 The exact evidence contract is
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/OWNER-RETRACTION.md`.
+`$REPO/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/OWNER-RETRACTION.md`.

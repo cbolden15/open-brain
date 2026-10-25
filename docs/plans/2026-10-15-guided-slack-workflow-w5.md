@@ -167,20 +167,20 @@ Before any later actual-client/real-source use, retain all W4 pilot gates: insta
 
 ### Source index
 
-- [Product assessment](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/audits/2026-10-14-work-laptop-product-evaluation.md)
-- [W4 acceptance](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json)
-- [W4 operator and private pilot guide](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md)
-- [Collector source CLI](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector/sources_cli.py)
-- [Collector dispatch and health integration](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector/live_manager.py)
-- [Source status and import receipts](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector/live_capture.py)
-- [Custody inspection](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector/custody.py)
-- [Engine capture and source metadata](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine/engine/records.py)
-- [Source route authority and CAS](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine/engine/sources.py)
-- [Owner CLI entrypoints](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/local_entrypoints.py)
-- [Scoped client setup](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/agent_setup.py)
-- [Health coverage regression tests](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/tests/integration/test_capture_health.py)
-- [App dependency boundary](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/app/pyproject.toml)
-- [Collector dependency boundary](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/collector/pyproject.toml)
+- [Product assessment]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/audits/2026-10-14-work-laptop-product-evaluation.md)
+- [W4 acceptance]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-slack-recall-w4-execution-4f6ce3/ACCEPTANCE.json)
+- [W4 operator and private pilot guide]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/integrations/slack-decision-recall.md)
+- [Collector source CLI]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector/sources_cli.py)
+- [Collector dispatch and health integration]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector/live_manager.py)
+- [Source status and import receipts]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector/live_capture.py)
+- [Custody inspection]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/src/open_brain_collector/custody.py)
+- [Engine capture and source metadata]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine/engine/records.py)
+- [Source route authority and CAS]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/engine/src/open_brain_engine/engine/sources.py)
+- [Owner CLI entrypoints]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/local_entrypoints.py)
+- [Scoped client setup]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/src/open_brain/services/agent_setup.py)
+- [Health coverage regression tests]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/tests/integration/test_capture_health.py)
+- [App dependency boundary]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/app/pyproject.toml)
+- [Collector dependency boundary]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/collector/pyproject.toml)
 
-- [Private storage creation and read semantics](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/connectors/src/open_brain_connectors/runtime/live_storage.py).
-- [Existing source profile reads](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/packages/connectors/src/open_brain_connectors/runtime/source_host.py).
+- [Private storage creation and read semantics]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/connectors/src/open_brain_connectors/runtime/live_storage.py).
+- [Existing source profile reads]($WORKTREES/slack-cited-recall-w4-20261015-6d407b/packages/connectors/src/open_brain_connectors/runtime/source_host.py).

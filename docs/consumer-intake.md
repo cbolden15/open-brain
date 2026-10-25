@@ -66,6 +66,6 @@ old unfinished work but cannot resume its authorization. Portable15 retains
 accepted intent and terminal custody while refusing nonterminal operations.
 
 Implementation:
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/packages/engine/src/open_brain_engine/engine/consumer_intake.py`.
+`$REPO/.worktrees/competitive-gap-reconciliation/packages/engine/src/open_brain_engine/engine/consumer_intake.py`.
 The complete engine contract is in
-`/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/CONSUMER-INTAKE.md`.
+`$REPO/.worktrees/competitive-gap-reconciliation/docs/plans/2026-10-15-competitive-gaps-g1/CONSUMER-INTAKE.md`.

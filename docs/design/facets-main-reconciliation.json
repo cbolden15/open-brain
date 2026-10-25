@@ -75,7 +75,7 @@
     {
       "role": "E",
       "status": "completed",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-e",
+      "worktree": "$HOME/Projects/oss/open-brain-reconcile-e",
       "budget_minutes": 60,
       "input_pin": {
         "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
@@ -93,7 +93,7 @@
     {
       "role": "X",
       "status": "completed",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-x",
+      "worktree": "$HOME/Projects/oss/open-brain-reconcile-x",
       "budget_minutes": 60,
       "input_pin": {
         "feature": "7e161c2336c126c59c68b00b294e3823d5707491",
@@ -111,7 +111,7 @@
     {
       "role": "A",
       "status": "completed",
-      "worktree": "/Users/calebbolden/Projects/oss/open-brain-reconcile-a",
+      "worktree": "$HOME/Projects/oss/open-brain-reconcile-a",
       "budget_minutes": 60,
       "input_pin": {
         "feature": "7e161c2336c126c59c68b00b294e3823d5707491",

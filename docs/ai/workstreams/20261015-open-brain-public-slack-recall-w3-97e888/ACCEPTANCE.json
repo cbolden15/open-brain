@@ -1,7 +1,7 @@
 {
   "head": "b36dfed44f063b5b1d98d4f0130e1a460a945147",
   "branch": "feat/slack-cited-recall-w3-20261015-86014d",
-  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d",
+  "worktree": "$WORKTREES/slack-cited-recall-w3-20261015-86014d",
   "verification": {
     "make-verify": {
       "command": "make verify",
@@ -81,7 +81,7 @@
     "reason": "No actual client/model/provider, real Slack or private pilot execution authorized for W3; later recorded injection-resistance evidence remains mandatory before private pilot use."
   },
   "cleanup": {
-    "removed_worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13",
+    "removed_worktree": "$WORKTREES/slack-cited-recall-w2-20261014-d5fe13",
     "preserved_local_branch": "feat/slack-cited-recall-w2-20261014-d5fe13",
     "preserved_tip": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
     "continuity_files": 5,

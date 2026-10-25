@@ -1,6 +1,6 @@
 {
-  "old": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w2-20261014-d5fe13",
-  "new": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w3-20261015-86014d",
+  "old": "$WORKTREES/slack-cited-recall-w2-20261014-d5fe13",
+  "new": "$WORKTREES/slack-cited-recall-w3-20261015-86014d",
   "branch": "feat/slack-cited-recall-w3-20261015-86014d",
   "base": "8eb36e5ac97318537ab19aa4163c38cd0d03ff0d",
   "files": [

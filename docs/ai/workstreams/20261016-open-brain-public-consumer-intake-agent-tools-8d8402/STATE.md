@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261016-open-brain-public-consumer-intake-agent-tools-8d8402`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/consumer-intake-agent-tools
+- Worktree: $REPO/.worktrees/consumer-intake-agent-tools
 - Branch: feat/consumer-intake-agent-tools
 - Objective: Expose owner-authorized consumer intake to Codex and Claude Code through a strict foreground CLI
 - Created date: 2026-10-16

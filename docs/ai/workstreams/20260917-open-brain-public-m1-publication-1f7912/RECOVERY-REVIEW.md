@@ -1,7 +1,7 @@
 **CHANGES_REQUIRED**
 
 Candidate: `32b3b030beda9553d5e823e3bd72f79f8401ab4d`, branch `ob-new-user/m1-search`.
-Reviewed checkout: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search`.
+Reviewed checkout: `$WORKTREES/m1-search`.
 Independent checkpoint-C review, reserved attempt12. Product/coordinator files were read-only; all review fixtures and artifacts are in the assigned private run directory. No dispatch, installation, real Brain access, provider calls, or native build occurred.
 
 Two actionable findings, ordered by impact:
@@ -35,7 +35,7 @@ Two actionable findings, ordered by impact:
 Review-only reproductions are retained in `test_review_repros.py` beside this report. Across the two invocations, four safety assertions failed, confirming the two findings; one late-root-validation control passed. They use only repository synthetic fixture helpers and bounded fault injection. To reproduce all five cases from the candidate checkout:
 
 ```sh
-RUN=/Users/calebbolden/.codex/workflow-runs/open-brain-wave1-20260917T055433Z-05fb82/checkpoint-c-review-be10e0
+RUN=$HOME/.codex/workflow-runs/open-brain-wave1-20260917T055433Z-05fb82/checkpoint-c-review-be10e0
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -p no:cacheprovider -q --tb=short \
   --basetemp="$RUN/recheck-tmp" "$RUN/test_review_repros.py"
 ```

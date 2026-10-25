@@ -19,7 +19,7 @@ format or provide an end-user archive parser/CLI.
 
 ## Current seams and implementation boundary
 
-Current source was read in `/Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation`. The global CodeGraph index targets another worktree and was not used as source authority.
+Current source was read in `$REPO/.worktrees/competitive-gap-reconciliation`. The global CodeGraph index targets another worktree and was not used as source authority.
 
 | Current source, relative to that worktree | Observed seam and consequence |
 |---|---|

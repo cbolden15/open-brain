@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20260917-open-brain-public-vault-refresh-dcd7f6`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search
+- Repo root: $WORKTREES/m1-search
 - Remote identity SHA-256 fingerprint: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/m1-search
+- Worktree: $WORKTREES/m1-search
 - Branch: ob-new-user/m1-search
 - Objective: Repair explicit vault refresh before integration
 - Created date: 2026-09-17

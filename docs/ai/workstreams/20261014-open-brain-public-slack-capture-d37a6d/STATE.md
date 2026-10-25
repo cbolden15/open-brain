@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261014-open-brain-public-slack-capture-d37a6d`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public
+- Worktree: $REPO
 - Branch: feat/slack-capture
 - Objective: Implement public Slack capture plan phases 0 through 6 with synthetic acceptance
 - Created date: 2026-10-14

@@ -4,16 +4,16 @@ Status: W0 complete. Focused baseline, future-red probes, storage recovery and f
 
 ## Pinned inputs
 
-Execution worktree: `/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67`.
+Execution worktree: `$WORKTREES/slack-cited-recall-w0-20261014-006b67`.
 Branch: `feat/slack-cited-recall-w0-20261014-006b67`. Starting HEAD: `01a904e2c310e9820ec083b480185cda846e6ebb`; application baseline: `d5cf64e652366dc14a8cf18732f7cb1e82ae4187`.
 
-The implementation plan and hardening report are content-exact copies of the dirty planning inputs. Their hashes and metadata-only observations are in [BASELINE.json](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67/docs/ai/workstreams/20261014-open-brain-public-slack-recall-w0-20e138/BASELINE.json). Local origin/main still points to the application baseline; it was not fetched, so W1 must recheck the compatibility reservation.
+The implementation plan and hardening report are content-exact copies of the dirty planning inputs. Their hashes and metadata-only observations are in [BASELINE.json]($WORKTREES/slack-cited-recall-w0-20261014-006b67/docs/ai/workstreams/20261014-open-brain-public-slack-recall-w0-20e138/BASELINE.json). Local origin/main still points to the application baseline; it was not fetched, so W1 must recheck the compatibility reservation.
 
 The source catalog reports schema/runtime/Portable `16/11/11`, task contract `t03.v1`, and public acceptance `not_certified`. The installed executable at `/opt/homebrew/bin/open-brain` returns exit 2 for `catalog --json`; its compatibility is unknown. No installed command opened the owner's Brain. Existing MCP accepts policy/consent flags; generic agent setup currently rejects both.
 
 ## Frozen contract examples
 
-[slack-recall-contracts.v2.json](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67/packages/app/tests/fixtures/slack-recall-contracts.v2.json) contains canonical bytes and SHA-256 goldens for the unchanged saved-Markdown request, new Slack request, untrusted evidence envelope, immutable selection and structured read selection. These are synthetic specimens, not retained source proof, approved receipts or Portable exports. W1 must replace every example identity with proof from the real fixture producer.
+[slack-recall-contracts.v2.json]($WORKTREES/slack-cited-recall-w0-20261014-006b67/packages/app/tests/fixtures/slack-recall-contracts.v2.json) contains canonical bytes and SHA-256 goldens for the unchanged saved-Markdown request, new Slack request, untrusted evidence envelope, immutable selection and structured read selection. These are synthetic specimens, not retained source proof, approved receipts or Portable exports. W1 must replace every example identity with proof from the real fixture producer.
 
 1. Keep the saved-Markdown DTO, request digest domain and public-copy policy unchanged. Introduce a separate `SlackSharingPreviewRequest` dispatched only for `dto_version=2` and `sharing_kind=slack_work_evidence`. Unknown request fields and version/kind combinations fail closed. The new request binds destination Work space and optional selection ID without changing v1 serialization.
 2. Construct `slack-recall-evidence.v1` from exact current projected message text and canonical intake proof. Current Slack reference projection includes the `[protected] ` URL prefix; do not silently strip or change approved bytes. Freeze source time when proven, observation time separately, unknown upstream currency/coverage and the owner-approved safe permalink. Missing/unproven source time is null; permalink and its unavailability reason are mutually exclusive. Original IDs are provenance, never read authority.
@@ -33,7 +33,7 @@ The canonical fixture tests preserve v1 bytes/digests and verify that the frozen
 
 ## Deliberately red future probes
 
-[W1-W2-RED.patch](/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w0-20261014-006b67/docs/ai/workstreams/20261014-open-brain-public-slack-recall-w0-20e138/W1-W2-RED.patch) remains unapplied. It was applied temporarily to the synthetic journey, executed, and the green file restored byte-for-byte.
+[W1-W2-RED.patch]($WORKTREES/slack-cited-recall-w0-20261014-006b67/docs/ai/workstreams/20261014-open-brain-public-slack-recall-w0-20e138/W1-W2-RED.patch) remains unapplied. It was applied temporarily to the synthetic journey, executed, and the green file restored byte-for-byte.
 
 | Probe | Observed baseline failure | Future owner |
 |---|---|---|

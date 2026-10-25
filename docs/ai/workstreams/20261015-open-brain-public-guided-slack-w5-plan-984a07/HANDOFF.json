@@ -17,11 +17,11 @@
   "blocker": null,
   "next_action": "Review the W5 proposal, then explicitly authorize implementation preparation and P0 contract freeze. Do not run actual-client/provider, real Slack/Brain, private pilot, push, merge or deployment under this planning authorization.",
   "safe_to_start_new_thread": true,
-  "plan_path": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5.md",
+  "plan_path": "$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/plans/2026-10-15-guided-slack-workflow-w5.md",
   "plan_sha256": "a3b384a9b9a626e14ace4f3e14b2eaf784d9c89c0400601818dfa57bb053fce7",
-  "worktree": "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b",
+  "worktree": "$WORKTREES/slack-cited-recall-w4-20261015-6d407b",
   "post_commit_uncommitted_files": [
-    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-plan-984a07/HANDOFF.json",
-    "/Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-plan-984a07/HANDOFF.md"
+    "$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-plan-984a07/HANDOFF.json",
+    "$WORKTREES/slack-cited-recall-w4-20261015-6d407b/docs/ai/workstreams/20261015-open-brain-public-guided-slack-w5-plan-984a07/HANDOFF.md"
   ]
 }

@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261015-open-brain-public-slack-recall-w4-7629d6`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b
+- Repo root: $WORKTREES/slack-cited-recall-w4-20261015-6d407b
 - Remote identity SHA-256 fingerprint: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public-worktrees/slack-cited-recall-w4-20261015-6d407b
+- Worktree: $WORKTREES/slack-cited-recall-w4-20261015-6d407b
 - Branch: feat/slack-cited-recall-w4-20261015-6d407b
 - Objective: Prepare W4 worktree and preserve W3 continuity, remove only the superseded W3 worktree; W4 implementation and verification not started
 - Created date: 2026-10-15

@@ -1,9 +1,9 @@
 # Workstream State
 
 - ID: `20261016-open-brain-owner-retraction-af062d`
-- Repo root: /Users/calebbolden/Projects/oss/open-brain-public
+- Repo root: $REPO
 - Remote identity SHA-256 fingerprint: `51c3141e8dd7ccbb712aa075e0b4c373f3894d9e9b386c6db8f4301edc6bdfab`
-- Worktree: /Users/calebbolden/Projects/oss/open-brain-public/.worktrees/competitive-gap-reconciliation
+- Worktree: $REPO/.worktrees/competitive-gap-reconciliation
 - Branch: feat/competitive-gap-reconciliation
 - Objective: Implement owner preview-bound capture and session retraction with durable replay
 - Created date: 2026-10-16
