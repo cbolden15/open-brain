@@ -218,8 +218,8 @@ Doc is edited, its revision hash changes, the file is re-exported and re-split, 
 submitted as a new revision of the same source record: the earlier text stays in history and the
 new text is searchable. Follow-up evidence quoted from an earlier revision stays bound to that
 revision. When a later revision has fewer parts, the surplus parts keep their last revision; this
-is documented, not repaired. A Doc that crosses the 60,000-character limit in either direction
-starts new part records, and the previous records keep their last revision.
+is documented, not repaired. A Doc that changes between one part and several parts in either
+direction starts new part records, and the previous records keep their last revision.
 
 ## Live acceptance and limits
 

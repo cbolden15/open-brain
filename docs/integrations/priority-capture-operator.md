@@ -124,7 +124,7 @@ open-brain-collector sources --state "$CAPTURE_STATE" --brain-root "$CAPTURE_BRA
   --foreground control --source-id REPLACE_FROM_CONFIGURE --action enable --interval-seconds 900
 ```
 
-The first runs backfill from the date floor, one page per run, until the listing completes; later
+The first runs backfill from the date floor, at most one page per run, until the listing completes; later
 runs are incremental. A transcript over
 60,000 characters previews and imports as parts titled `<name> (part <n> of <N>)`. An edited Doc
 becomes a new revision of the same record. A `drive_file` selection does not get this behavior:
