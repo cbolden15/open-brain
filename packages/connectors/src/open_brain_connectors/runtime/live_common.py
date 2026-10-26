@@ -11,6 +11,8 @@ from open_brain_engine.engine import PrivacyDecision
 
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake
 
+_NOTICE = re.compile(r"[a-z][a-z0-9_]{0,99}(?::[A-Za-z0-9_-]{1,128}){0,2}")
+
 
 class LiveSourceError(RuntimeError):
     """Safe metadata-only error; provider payloads must never enter exceptions."""
@@ -63,7 +65,7 @@ class LiveBatch:
             or type(self.has_more) is not bool
             or type(self.notices) is not tuple
             or len(self.notices) > 25
-            or any(not re.fullmatch(r"[a-z][a-z0-9_]{0,99}", n) for n in self.notices)
+            or any(_NOTICE.fullmatch(n) is None for n in self.notices)
         ):
             raise LiveSourceError("source_invalid_batch")
         bounded_json(self.checkpoint)

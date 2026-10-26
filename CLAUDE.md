@@ -31,6 +31,7 @@ The Tauri desktop companion was archived to `archive/open-brain-desktop` on 2026
 never released. It is excluded from the workspace, Makefile and CI. Priority Gmail, Drive and
 selected Claude Code/Codex capture share `packages/collector/src/open_brain_collector/live_manager.py`,
 and the collector CLI exposes the source operations headlessly.
+Drive capture selects a file, a folder of Docs, or account Docs by title suffix.
 The existing Slack implementation is deferred from the active priority milestone.
 The optional collector owns scheduling, credential references, private Unix control IPC, and service
 permissions. Source enablement and background service installation are separate opt-ins. The

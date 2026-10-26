@@ -69,10 +69,35 @@ def admitted_intake(intake: SourceRecordIntake, options: dict[str, object]) -> S
     )
 
 
-def observe_slack(intake: SourceRecordIntake) -> SourceRecordIntake:
-    """Attest transformed payload and privacy for the existing revision capability."""
-    if intake.key.connector_name != "slack" or intake.observation is not None:
+_REVISION_CONNECTORS: dict[str, tuple[str, str]] = {
+    "slack": ("slack-source-v1", "slack-revisions"),
+    "google_drive": ("drive-source-v1", "drive-revisions"),
+}
+
+
+def revision_store_dirname(connector_name: str) -> str | None:
+    """Collector state directory holding a connector's retained revision envelopes."""
+    entry = _REVISION_CONNECTORS.get(connector_name)
+    return None if entry is None else entry[1]
+
+
+def _revision_gated(intake: SourceRecordIntake) -> bool:
+    if intake.key.connector_name not in _REVISION_CONNECTORS or intake.observation is not None:
+        return False
+    # A single selected Drive file keeps the plain capture path with its
+    # `Source revision:` text prefix. Routing it through the revision sink would
+    # turn its first edit into a conflict against the existing capture.
+    return not (
+        intake.key.connector_name == "google_drive"
+        and intake.key.resource_id.startswith("drive_file:")
+    )
+
+
+def observe_revision(intake: SourceRecordIntake) -> SourceRecordIntake:
+    """Attest transformed payload and privacy for the connector's revision capability."""
+    if not _revision_gated(intake):
         return intake
+    normalization_version = _REVISION_CONNECTORS[intake.key.connector_name][0]
     digest = hashlib.sha256(intake.text.encode()).hexdigest()
     privacy = intake.privacy.to_dict()
     payload = intake.payload().to_dict()
@@ -82,7 +107,7 @@ def observe_slack(intake: SourceRecordIntake) -> SourceRecordIntake:
         observation=SourceRevisionObservation(
             original_sha256=digest,
             transformed_sha256=digest,
-            normalization_version="slack-source-v1",
+            normalization_version=normalization_version,
             privacy_policy_version=cast(str, privacy["policy_version"]),
             privacy_policy_sha256=hashlib.sha256(bounded_json(privacy)).hexdigest(),
             admitted_payload_sha256=hashlib.sha256(

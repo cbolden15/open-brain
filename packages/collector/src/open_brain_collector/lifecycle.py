@@ -1486,7 +1486,7 @@ class EngineRevisionSink:
         self, intake: SourceRecordIntake,
     ) -> tuple[SourceRevisionBinding, PublicJobRevisionSink]:
         if type(intake) is not SourceRecordIntake or intake.key.connector_name not in {
-            "saved_markdown", "slack", "slack_development"
+            "saved_markdown", "slack", "slack_development", "google_drive"
         }:
             raise ConnectorContractError("invalid collector capture")
         identity = self._capture_sink.brain_identity

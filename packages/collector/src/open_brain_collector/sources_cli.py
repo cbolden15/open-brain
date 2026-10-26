@@ -300,6 +300,11 @@ def main(argv: Sequence[str]) -> int:
             item.add_argument("--connection-id", required=True)
         if name == "resources":
             item.add_argument("--cursor")
+            item.add_argument(
+                "--resource-type",
+                choices=("drive_file", "drive_folder"),
+                help="kind of Drive resource to list (google_drive only; default drive_file)",
+            )
     for name in ("configure", "session-preview"):
         commands.add_parser(name).add_argument("--arguments-file", required=True)
     slack_setup = commands.add_parser("slack-policy-setup")
@@ -419,6 +424,12 @@ def _command_arguments(args: argparse.Namespace) -> dict[str, object]:
     result = {
         key: value for key, value in values.items() if key not in ignored and value is not None
     }
+    if (
+        args.command == "resources"
+        and args.provider == "google_drive"
+        and result.get("resource_type") is None
+    ):
+        result["resource_type"] = "drive_file"
     if args.command == "slack-policy-setup":
         if args.keywords is None and args.continue_without_keywords:
             result["keywords"] = []

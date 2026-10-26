@@ -309,12 +309,20 @@ class LiveSourceManager:
         if operation in {"sources.accounts", "sources.connect", "sources.disconnect"}:
             return self._account(operation, args)
         if operation == "sources.resources":
-            _shape(args, {"provider", "connection_id"}, {"cursor"})
+            _shape(args, {"provider", "connection_id"}, {"cursor", "resource_type"})
+            provider = _provider(args["provider"])
+            resource_type = args.get("resource_type")
+            if resource_type is not None and provider != "google_drive":
+                raise LiveSourceError("source_invalid_arguments")
+            connection_id = safe_text(args["connection_id"])
             cursor = args.get("cursor")
-            page = self.runtime.client(_provider(args["provider"])).resources(
-                safe_text(args["connection_id"]),
-                cursor=None if cursor is None else safe_text(cursor, maximum=8192),
-            )
+            page_cursor = None if cursor is None else safe_text(cursor, maximum=8192)
+            kind = "drive_file" if resource_type is None else safe_text(resource_type)
+            client = self.runtime.client(provider)
+            if isinstance(client, DriveSourceClient):
+                page = client.resources(connection_id, cursor=page_cursor, resource_type=kind)
+            else:
+                page = client.resources(connection_id, cursor=page_cursor)
             return {
                 "resources": [item.to_dict() for item in page.resources],
                 "next_cursor": page.next_cursor,

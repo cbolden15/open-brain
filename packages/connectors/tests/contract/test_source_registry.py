@@ -70,7 +70,11 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
     assert catalog.require("github").auth_mode is SourceAuthMode.DEVICE_FLOW
     assert catalog.require("gitlab").content_types == ("comment", "issue", "merge_request")
     assert catalog.require("gmail").resource_types == ("mail_label",)
-    assert catalog.require("google_drive").resource_types == ("drive_file",)
+    assert catalog.require("google_drive").resource_types == (
+        "drive_account",
+        "drive_file",
+        "drive_folder",
+    )
     assert catalog.require("imessage").resource_types == ("conversation",)
     assert catalog.require("jira").content_types == ("comment", "issue")
     assert catalog.require("confluence").resource_types == ("cloud_page", "cloud_space")
@@ -109,7 +113,7 @@ def test_d4_mail_and_drive_descriptors_declare_selected_resource_scopes() -> Non
     assert gmail.auth_mode is SourceAuthMode.DEVICE_FLOW
     assert gmail.public_onboarding is True
     assert drive.connector_name == "google_drive"
-    assert drive.resource_types == ("drive_file",)
+    assert drive.resource_types == ("drive_account", "drive_file", "drive_folder")
     assert drive.content_types == ("drive_file",)
     assert microsoft.connector_name == "microsoft_mail"
     assert microsoft.resource_types == ("mail_folder",)

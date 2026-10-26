@@ -5,10 +5,28 @@ from __future__ import annotations
 import base64
 import hashlib
 from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from typing import cast
 from urllib.parse import quote, urlencode
 
+from open_brain_connectors.runtime.google_drive_sets import (
+    DOCUMENT_MIME_TYPE,
+    FOLDER_MIME_TYPE,
+    MAX_TITLE_CHARS,
+    SET_RESOURCE_TYPES,
+    DriveKnownEntry,
+    DriveSetCheckpoint,
+    advance_watermark,
+    build_list_query,
+    evict_known,
+    parse_drive_set,
+    parse_timestamp,
+    part_title,
+    query_bound,
+    require_file_id,
+    split_document,
+)
 from open_brain_connectors.runtime.google_sources_auth import GoogleSourcesAuth
 from open_brain_connectors.runtime.live_common import (
     LiveBatch,
@@ -39,6 +57,8 @@ _GMAIL_TRACKED_IDS = 200
 _DRIVE_FIELDS = (
     "id,name,mimeType,webViewLink,trashed,capabilities/canDownload,modifiedTime,version,md5Checksum"
 )
+_DRIVE_LIST_FIELDS = f"{_DRIVE_FIELDS},parents,createdTime"
+_MAX_EXPORT_BYTES = 1_048_576
 _WORKSPACE_EXPORTS = {
     "application/vnd.google-apps.document": "text/plain",
     "application/vnd.google-apps.presentation": "text/plain",
@@ -377,7 +397,7 @@ class GmailSourceClient:
 
 
 class DriveSourceClient:
-    """Discover files and fetch exactly one selected text-like Drive file."""
+    """Discover files or folders; fetch one selected file or a bounded page of a Docs set."""
 
     def __init__(self, auth: GoogleSourcesAuth, *, http: LiveHttpTransport | None = None) -> None:
         if type(auth) is not GoogleSourcesAuth or auth.provider != "google_drive":
@@ -386,12 +406,24 @@ class DriveSourceClient:
         self._http = http or auth._http
         self._adapter = DriveSourceAdapter()
 
-    def resources(self, connection_id: str, *, cursor: str | None = None) -> LiveResourcePage:
+    def resources(
+        self,
+        connection_id: str,
+        *,
+        cursor: str | None = None,
+        resource_type: str = "drive_file",
+    ) -> LiveResourcePage:
+        if resource_type == "drive_file":
+            listing = "trashed = false"
+        elif resource_type == "drive_folder":
+            listing = f"mimeType = '{FOLDER_MIME_TYPE}' and trashed = false"
+        else:
+            raise LiveSourceError("drive_invalid_selection")
         query = {
             "fields": f"nextPageToken,files({_DRIVE_FIELDS})",
             "includeItemsFromAllDrives": "true",
             "pageSize": "100",
-            "q": "trashed = false",
+            "q": listing,
             "supportsAllDrives": "true",
         }
         if cursor is not None:
@@ -400,9 +432,9 @@ class DriveSourceClient:
         files = _items(payload, "files", maximum=100)
         resources = tuple(
             LiveResource(
-                f"drive_file:{_text(file.get('id'), maximum=512)}",
+                f"{resource_type}:{_text(file.get('id'), maximum=512)}",
                 _text(file.get("name"), maximum=512),
-                "drive_file",
+                resource_type,
             )
             for file in files
         )
@@ -416,6 +448,11 @@ class DriveSourceClient:
         options: dict[str, object],
         checkpoint: dict[str, object] | None,
     ) -> LiveBatch:
+        if (
+            type(selection) is SourceResourceSelection
+            and selection.resource_type in SET_RESOURCE_TYPES
+        ):
+            return self._fetch_set(selection, options, checkpoint)
         file_id = _drive_selection(selection)
         if type(options) is not dict or options:
             raise LiveSourceError("drive_invalid_options")
@@ -480,6 +517,151 @@ class DriveSourceClient:
         except Exception as error:
             raise LiveSourceError("drive_invalid_response") from error
         return LiveBatch((intake,), base_checkpoint)
+
+    def _fetch_set(
+        self,
+        selection: SourceResourceSelection,
+        options: dict[str, object],
+        checkpoint: dict[str, object] | None,
+    ) -> LiveBatch:
+        drive_set = parse_drive_set(selection, options)
+        state = (
+            DriveSetCheckpoint.initial(drive_set.date_floor)
+            if checkpoint is None
+            else DriveSetCheckpoint.from_value(checkpoint)
+        )
+        query = {
+            "fields": f"nextPageToken,files({_DRIVE_LIST_FIELDS})",
+            "includeItemsFromAllDrives": "true",
+            "orderBy": "modifiedTime",
+            "pageSize": "100",
+            "q": build_list_query(drive_set, query_bound(state)),
+            "supportsAllDrives": "true",
+        }
+        if state.page_token is not None:
+            query["pageToken"] = state.page_token
+        response = self._response(
+            selection.connection_id, "GET", f"{_DRIVE_ROOT}/files?{urlencode(query)}"
+        )
+        if response.status == 401:
+            raise LiveSourceError("google_auth_required")
+        if response.status == 403:
+            error = _drive_forbidden(response)
+            if drive_set.shape == "folder" and error.code == "drive_access_lost":
+                return LiveBatch((), state.to_dict(), notices=("drive_folder_missing",))
+            raise error
+        if response.status == 404 and drive_set.shape == "folder":
+            return LiveBatch((), state.to_dict(), notices=("drive_folder_missing",))
+        payload = _response_json(response)
+        files = _items(payload, "files", maximum=100)
+        next_token = _optional_text(payload.get("nextPageToken"), maximum=8_192)
+        intakes: list[SourceRecordIntake] = []
+        notices: list[str] = []
+        known = dict(state.known)
+        drained = True
+        for file in files:
+            file_id = require_file_id(file.get("id"), "google_invalid_response")
+            if not drive_set.matches_name(_text(file.get("name"), maximum=512)):
+                continue
+            modified = _drive_modified(file)
+            listed_revision = _drive_revision(file)
+            entry = known.get(file_id)
+            if entry is not None and entry.revision == listed_revision:
+                continue
+            result = self._set_file(selection.connection_id, file_id, listed_revision)
+            if result.skipped is not None:
+                if len(notices) >= _MAX_PAGE:
+                    drained = False
+                    break
+                notices.append(f"drive_file_skipped:{result.skipped}:{file_id}")
+                known[file_id] = DriveKnownEntry(result.revision, modified)
+                continue
+            if len(intakes) + len(result.parts) > _MAX_PAGE:
+                drained = False
+                break
+            intakes.extend(_set_intakes(selection, file_id, result))
+            known[file_id] = DriveKnownEntry(result.revision, modified)
+        known = evict_known(known)
+        if not drained:
+            next_state = replace(state, known=known)
+        elif next_token is not None:
+            next_state = replace(state, page_token=next_token, known=known)
+        else:
+            next_state = DriveSetCheckpoint(
+                "incremental", None, advance_watermark(state.watermark, known), known
+            )
+        return LiveBatch(
+            tuple(intakes),
+            next_state.to_dict(),
+            has_more=not drained or next_token is not None,
+            notices=tuple(notices),
+        )
+
+    def _set_file(self, connection_id: str, file_id: str, listed_revision: str) -> _SetFile:
+        metadata_query = urlencode({"fields": _DRIVE_FIELDS, "supportsAllDrives": "true"})
+        response = self._response(
+            connection_id,
+            "GET",
+            f"{_DRIVE_ROOT}/files/{quote(file_id, safe='')}?{metadata_query}",
+        )
+        if response.status == 404:
+            return _SetFile(listed_revision, skipped="missing")
+        if response.status == 401:
+            raise LiveSourceError("google_auth_required")
+        if response.status == 403:
+            error = _drive_forbidden(response)
+            if error.code == "drive_access_lost":
+                return _SetFile(listed_revision, skipped="access_lost")
+            raise error
+        metadata = _response_json(response)
+        if _text(metadata.get("id"), maximum=512) != file_id:
+            raise LiveSourceError("drive_invalid_response")
+        revision = _drive_revision(metadata)
+        if metadata.get("trashed") is True:
+            return _SetFile(revision, skipped="trashed")
+        capability = metadata.get("capabilities")
+        if not isinstance(capability, Mapping) or capability.get("canDownload") is not True:
+            return _SetFile(revision, skipped="not_downloadable")
+        if _text(metadata.get("mimeType"), maximum=256) != DOCUMENT_MIME_TYPE:
+            return _SetFile(revision, skipped="not_text")
+        export_query = urlencode({"mimeType": "text/plain", "supportsAllDrives": "true"})
+        export = self._response(
+            connection_id,
+            "GET",
+            f"{_DRIVE_ROOT}/files/{quote(file_id, safe='')}/export?{export_query}",
+            accept="text/plain, text/csv",
+        )
+        if export.status == 404:
+            return _SetFile(revision, skipped="missing")
+        if export.status == 401:
+            raise LiveSourceError("google_auth_required")
+        if export.status == 403:
+            error = _drive_forbidden(export)
+            if error.code == "drive_access_lost":
+                return _SetFile(revision, skipped="access_lost")
+            raise error
+        if export.status >= 400:
+            raise _provider_error(export)
+        if len(export.body) > _MAX_EXPORT_BYTES:
+            return _SetFile(revision, skipped="too_large")
+        try:
+            text = export.body.decode("utf-8")
+        except UnicodeDecodeError:
+            return _SetFile(revision, skipped="not_text")
+        if "\x00" in text:
+            return _SetFile(revision, skipped="not_text")
+        if not text.strip():
+            return _SetFile(revision, skipped="empty")
+        try:
+            parts = split_document(text)
+        except LiveSourceError:
+            return _SetFile(revision, skipped="too_large")
+        return _SetFile(
+            revision,
+            name=_text(metadata.get("name"), maximum=512)[:MAX_TITLE_CHARS],
+            url=_drive_url(metadata, file_id),
+            parts=tuple(parts),
+        )
 
     def _content(self, connection_id: str, file_id: str, mime_type: str) -> str | None:
         if mime_type.startswith("text/") or mime_type in _TEXT_MIME_TYPES:
@@ -917,3 +1099,52 @@ def _drive_url(metadata: Mapping[str, object], file_id: str) -> str:
     if isinstance(link, str) and link.startswith("https://drive.google.com/"):
         return link
     return f"https://drive.google.com/open?id={quote(file_id, safe='')}"
+
+
+@dataclass(frozen=True, slots=True)
+class _SetFile:
+    """One Docs-set file after metadata and export: either parts to submit or a skip reason."""
+
+    revision: str
+    skipped: str | None = None
+    name: str = ""
+    url: str = ""
+    parts: tuple[str, ...] = ()
+
+
+def _set_intakes(
+    selection: SourceResourceSelection, file_id: str, result: _SetFile
+) -> list[SourceRecordIntake]:
+    total = len(result.parts)
+    intakes: list[SourceRecordIntake] = []
+    try:
+        for index, part in enumerate(result.parts, start=1):
+            external_id = f"file:{file_id}" if total == 1 else f"file:{file_id}#part:{index}"
+            title = result.name if total == 1 else part_title(result.name, index, total)
+            intakes.append(
+                SourceRecordIntake(
+                    key=SourceRecordKey(
+                        "google_drive",
+                        selection.connection_id,
+                        selection.resource_id,
+                        external_id,
+                        f"revision:{result.revision}",
+                    ),
+                    url=result.url,
+                    title=title,
+                    text=part,
+                    privacy=local_source_privacy(),
+                )
+            )
+    except Exception as error:
+        raise LiveSourceError("drive_invalid_response") from error
+    return intakes
+
+
+def _drive_modified(metadata: Mapping[str, object]) -> str:
+    value = _text(metadata.get("modifiedTime"), maximum=64)
+    try:
+        parse_timestamp(value)
+    except ValueError:
+        raise LiveSourceError("google_invalid_response") from None
+    return value

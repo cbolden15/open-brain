@@ -30,11 +30,11 @@ from open_brain_connectors.runtime.source_host import existing_source_profile
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
-_PROVIDERS = {
-    "gmail": "mail_label",
-    "google_drive": "drive_file",
-    "slack": "channel",
-    "agent_session": "local_project",
+_PROVIDERS: dict[str, frozenset[str]] = {
+    "gmail": frozenset({"mail_label"}),
+    "google_drive": frozenset({"drive_file", "drive_folder", "drive_account"}),
+    "slack": frozenset({"channel"}),
+    "agent_session": frozenset({"local_project"}),
 }
 _MAX_COMMITTED = 2048
 
@@ -85,7 +85,7 @@ def _selection(value: object) -> SourceResourceSelection:
         raise LiveSourceError("source_invalid_selection")
     try:
         result = SourceResourceSelection(**value)
-        if _PROVIDERS.get(result.connector_name) != result.resource_type:
+        if result.resource_type not in _PROVIDERS.get(result.connector_name, frozenset()):
             raise ValueError
         return result
     except TypeError, ValueError:
@@ -507,7 +507,7 @@ class LiveCaptureService:
                 selected = _selection(entry["selection"])
                 from open_brain_collector.capture_policy import (
                     admitted_intake,
-                    observe_slack,
+                    observe_revision,
                     provider_options,
                 )
 
@@ -526,7 +526,7 @@ class LiveCaptureService:
                 ):
                     raise LiveSourceError("source_selection_mismatch")
                 admitted = tuple(
-                    observe_slack(admitted_intake(item, options)) for item in batch.intakes
+                    observe_revision(admitted_intake(item, options)) for item in batch.intakes
                 )
                 pending = {
                     "schema_version": 1,
@@ -635,12 +635,15 @@ class LiveCaptureService:
             duplicate = bool(getattr(result, "duplicate", False))
             capture_id = getattr(result, "capture_id", None)
             return ("duplicate" if duplicate else "captured", capture_id)
-        if intake.key.connector_name == "slack" and intake.observation is not None:
+        from open_brain_collector.capture_policy import revision_store_dirname
+
+        revisions = revision_store_dirname(intake.key.connector_name)
+        if revisions is not None and intake.observation is not None:
             from open_brain_collector.runner import collector_revision_sink
 
-            result = collector_revision_sink(
-                self._brain_root, self._store.root / "slack-revisions"
-            ).submit(intake)
+            result = collector_revision_sink(self._brain_root, self._store.root / revisions).submit(
+                intake
+            )
             if result.source_receipt is None or result.outcome not in {"captured", "duplicate"}:
                 raise LiveSourceError("source_revision_pending")
             return result.outcome, result.source_receipt.capture_id

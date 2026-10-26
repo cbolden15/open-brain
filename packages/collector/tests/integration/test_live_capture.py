@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
 import pytest
 from open_brain_engine.engine import open_local_engine
+from open_brain_engine.engine.local_schema import open_local_database_read_only
 
 from open_brain.profile import compile_single_user_local
-from open_brain_collector.live_capture import LiveCaptureService
+from open_brain_collector.live_capture import _PROVIDERS, LiveCaptureService
 from open_brain_connectors.runtime.live_common import (
     LiveBatch,
     LiveSourceError,
@@ -60,6 +62,76 @@ def _service(tmp_path: Path, runtime: Runtime) -> LiveCaptureService:
     return LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
 
 
+DRIVE_SET = SourceResourceSelection(
+    "google_drive", "account:synthetic", "drive_folder:folder-1", "drive_folder"
+)
+DRIVE_FILE = SourceResourceSelection(
+    "google_drive", "account:synthetic", "drive_file:doc-1", "drive_file"
+)
+SLACK = SourceResourceSelection("slack", "account:synthetic", "channel:CSYNTHETIC", "channel")
+
+
+def _drive_intake(
+    text: str = "Firstdrivetext",
+    *,
+    selection: SourceResourceSelection = DRIVE_SET,
+    external_id: str = "file:doc-1",
+    revision: str = "a",
+) -> SourceRecordIntake:
+    return SourceRecordIntake(
+        SourceRecordKey(
+            "google_drive",
+            "account:synthetic",
+            selection.resource_id,
+            external_id,
+            "revision:" + revision * 64,
+        ),
+        "https://docs.google.com/document/d/doc-1/edit",
+        text,
+        local_source_privacy(),
+        title="Weekly sync - Notes by Gemini",
+    )
+
+
+def _slack_intake(text: str = "Slackneedle", *, revision: str = "edited:1") -> SourceRecordIntake:
+    return SourceRecordIntake(
+        SourceRecordKey(
+            "slack", "account:synthetic", SLACK.resource_id, "message:1791900000.000001", revision
+        ),
+        "https://example.slack.com/archives/CSYNTHETIC/p1791900000000001",
+        text,
+        local_source_privacy(),
+        title="Synthetic Slack thread",
+    )
+
+
+class Routed(Runtime):
+    """One fake provider answering several selections by resource id."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.batches: dict[str, LiveBatch] = {}
+
+    def fetch(
+        self,
+        selection: SourceResourceSelection,
+        options: dict[str, object],
+        checkpoint: dict[str, object] | None,
+    ) -> LiveBatch:
+        self.calls += 1
+        self.checkpoints.append(checkpoint)
+        return self.batches[selection.resource_id]
+
+
+def _apply(service: LiveCaptureService, source_id: str) -> dict[str, object]:
+    preview = service.preview(source_id)
+    return service.apply(source_id, cast(str, preview["preview_id"]))
+
+
+def _envelopes(state: Path, directory: str) -> list[Path]:
+    return sorted((state / directory).glob("saved-revision-*.json"))
+
+
 def test_preview_then_unordered_revision_refusal_preserves_source_and_checkpoint(
     tmp_path: Path,
 ) -> None:
@@ -89,6 +161,48 @@ def test_preview_then_unordered_revision_refusal_preserves_source_and_checkpoint
     assert service.custody_inspect(receipt_id)["reason_code"] == "source_revision_conflict"
     restarted = LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
     assert restarted.custody_inspect(receipt_id)["outcome"] == "quarantined"
+
+
+def test_selection_admits_every_drive_shape_and_rejects_foreign_resource_types(
+    tmp_path: Path,
+) -> None:
+    assert {
+        "gmail": frozenset({"mail_label"}),
+        "google_drive": frozenset({"drive_file", "drive_folder", "drive_account"}),
+        "slack": frozenset({"channel"}),
+        "agent_session": frozenset({"local_project"}),
+    } == _PROVIDERS
+    service = _service(tmp_path, Runtime())
+    shapes: tuple[tuple[str, str, dict[str, object]], ...] = (
+        ("drive_file", "drive_file:doc-1", {}),
+        ("drive_folder", "drive_folder:folder-1", {"date_floor": "2026-10-01"}),
+        (
+            "drive_account",
+            "drive_account:all",
+            {"date_floor": "2026-10-01", "title_suffixes": ["Notes by Gemini", "Transcript"]},
+        ),
+    )
+    for resource_type, resource_id, options in shapes:
+        selection = SourceResourceSelection(
+            "google_drive", "account:synthetic", resource_id, resource_type
+        )
+        summary = service.configure("drive-" + resource_type, selection, options)
+        assert summary["selection"] == asdict(selection)
+        assert summary["status"] == "disabled"
+    assert len(cast(list[object], service.status()["sources"])) == 3
+    for connector, resource_type in (
+        ("google_drive", "mail_label"),
+        ("google_drive", "channel"),
+        ("gmail", "drive_folder"),
+        ("slack", "drive_account"),
+        ("agent_session", "drive_file"),
+    ):
+        selection = SourceResourceSelection(
+            connector, "account:synthetic", resource_type + ":x", resource_type
+        )
+        with pytest.raises(LiveSourceError, match="source_invalid_selection"):
+            service.configure("rejected", selection, {})
+    assert len(cast(list[object], service.status()["sources"])) == 3
 
 
 def test_crash_reuses_staged_batch_without_provider_refetch_and_commits_after_ack(
@@ -328,3 +442,125 @@ def test_duplicate_cache_is_bounded_and_engine_deduplicates_after_eviction(tmp_p
     assert third["preview_id"] == second["preview_id"]
     service.apply("gmail", cast(str, third["preview_id"]))
     assert service._load("gmail")["pending"] is None
+
+
+def test_revision_envelopes_live_in_the_connector_directory(tmp_path: Path) -> None:
+    runtime = Routed()
+    runtime.batches = {
+        DRIVE_FILE.resource_id: LiveBatch(
+            (_drive_intake("Singlefiletext", selection=DRIVE_FILE),), {"cursor": "1"}
+        ),
+        DRIVE_SET.resource_id: LiveBatch((_drive_intake("Setdrivetext"),), {"cursor": "1"}),
+        SLACK.resource_id: LiveBatch((_slack_intake(),), {"cursor": "1"}),
+    }
+    service = _service(tmp_path, runtime)
+    state = tmp_path / "state"
+    service.configure("file", DRIVE_FILE, {})
+    assert _apply(service, "file")["captured_count"] == 1
+    assert not (state / "drive-revisions").exists()
+    assert not (state / "slack-revisions").exists()
+    service.configure("set", DRIVE_SET, {"date_floor": "2026-10-01"})
+    assert _apply(service, "set")["captured_count"] == 1
+    assert (state / "drive-revisions").is_dir()
+    assert len(_envelopes(state, "drive-revisions")) == 1
+    assert not (state / "slack-revisions").exists()
+    service.configure("slack", SLACK, {})
+    assert _apply(service, "slack")["captured_count"] == 1
+    assert len(_envelopes(state, "slack-revisions")) == 1
+    assert len(_envelopes(state, "drive-revisions")) == 1
+    assert not list(state.glob("saved-revision-*.json"))
+    assert not list(state.glob("slack-order-*.json"))
+    assert len(list((state / "slack-revisions").glob("slack-order-*.json"))) == 1
+    profile = compile_single_user_local(tmp_path / "brain")
+    for needle in ("Singlefiletext", "Setdrivetext", "Slackneedle"):
+        assert len(open_local_engine(profile).retrieval.search(needle)) == 1
+
+
+def test_edited_drive_set_doc_becomes_new_revision_with_first_text_in_history(
+    tmp_path: Path,
+) -> None:
+    runtime = Routed()
+    runtime.batches = {
+        DRIVE_SET.resource_id: LiveBatch((_drive_intake("Firstdrivetext"),), {"mode": "backfill"})
+    }
+    service = _service(tmp_path, runtime)
+    service.configure(
+        "meet",
+        DRIVE_SET,
+        {"date_floor": "2026-10-01", "title_suffixes": ["Notes by Gemini", "Transcript"]},
+    )
+    first = service.preview("meet")
+    assert first["count"] == 1
+    assert "Firstdrivetext" not in json.dumps(first)
+    assert cast(list[dict[str, str]], first["records"])[0]["title"] == (
+        "Weekly sync - Notes by Gemini"
+    )
+    assert service.apply("meet", cast(str, first["preview_id"]))["captured_count"] == 1
+    profile = compile_single_user_local(tmp_path / "brain")
+    hits = open_local_engine(profile).retrieval.search("Firstdrivetext")
+    assert len(hits) == 1 and hits[0].trust == "third_party"
+    runtime.batches[DRIVE_SET.resource_id] = LiveBatch(
+        (_drive_intake("Seconddrivetext", revision="b"),), {"mode": "incremental"}
+    )
+    second = service.preview("meet")
+    assert second["preview_id"] != first["preview_id"]
+    result = service.apply("meet", cast(str, second["preview_id"]))
+    assert result["captured_count"] == 1
+    assert result["quarantined_count"] == 0
+    assert runtime.checkpoints == [None, {"mode": "backfill"}]
+    tasks = open_local_engine(profile)
+    assert len(tasks.retrieval.search("Seconddrivetext")) == 1
+    assert not tasks.retrieval.search("Firstdrivetext")
+    with open_local_database_read_only(profile) as connection:
+        rows = connection.execute(
+            "SELECT capture_id, source_id, sequence, predecessor_capture_id, source_bytes "
+            "FROM source_revisions ORDER BY sequence"
+        ).fetchall()
+    assert [row["sequence"] for row in rows] == [1, 2]
+    assert rows[0]["source_id"] == rows[1]["source_id"]
+    assert rows[0]["predecessor_capture_id"] is None
+    assert rows[1]["predecessor_capture_id"] == rows[0]["capture_id"]
+    assert rows[0]["capture_id"] == hits[0].capture_id
+    assert b"Firstdrivetext" in bytes(rows[0]["source_bytes"])
+    assert b"Seconddrivetext" in bytes(rows[1]["source_bytes"])
+    assert b"Firstdrivetext" not in bytes(rows[1]["source_bytes"])
+    # One head envelope for the logical source plus its archived predecessor.
+    envelopes = [path.name for path in _envelopes(tmp_path / "state", "drive-revisions")]
+    assert len(envelopes) == 2
+    assert len([name for name in envelopes if name.startswith("saved-revision-archive-")]) == 1
+    custody = service.custody_status("meet")
+    assert cast(dict[str, int], custody["counts"]).get("quarantined", 0) == 0
+    restarted = LiveCaptureService(tmp_path / "state", tmp_path / "brain", runtime=runtime)
+    assert restarted.apply("meet", cast(str, second["preview_id"])) == result
+
+
+def test_edited_drive_file_is_still_quarantined_with_source_revision_conflict(
+    tmp_path: Path,
+) -> None:
+    runtime = Routed()
+    runtime.batches = {
+        DRIVE_FILE.resource_id: LiveBatch(
+            (_drive_intake("Firstfiletext", selection=DRIVE_FILE),), {"cursor": "1"}
+        )
+    }
+    service = _service(tmp_path, runtime)
+    service.configure("file", DRIVE_FILE, {})
+    first = service.preview("file")
+    assert service.apply("file", cast(str, first["preview_id"]))["captured_count"] == 1
+    profile = compile_single_user_local(tmp_path / "brain")
+    assert len(open_local_engine(profile).retrieval.search("Firstfiletext")) == 1
+    runtime.batches[DRIVE_FILE.resource_id] = LiveBatch(
+        (_drive_intake("Secondfiletext", selection=DRIVE_FILE, revision="b"),), {"cursor": "2"}
+    )
+    second = service.preview("file")
+    result = service.apply("file", cast(str, second["preview_id"]))
+    assert result["quarantined_count"] == 1
+    assert result["captured_count"] == 0
+    assert runtime.checkpoints == [None, {"cursor": "1"}]
+    assert len(open_local_engine(profile).retrieval.search("Firstfiletext")) == 1
+    assert not open_local_engine(profile).retrieval.search("Secondfiletext")
+    custody = service.custody_status("file")
+    assert cast(dict[str, int], custody["counts"])["quarantined"] == 1
+    receipt_id = cast(list[str], custody["receipt_ids"])[0]
+    assert service.custody_inspect(receipt_id)["reason_code"] == "source_revision_conflict"
+    assert not (tmp_path / "state" / "drive-revisions").exists()
