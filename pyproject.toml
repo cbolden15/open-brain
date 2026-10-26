@@ -8,7 +8,7 @@ dev = [
   "open-brain-engine==0.1.0",
   "pytest>=9.1.1,<10",
   "pytest-xdist>=3.8,<4",
-  "ruff>=0.17.1,<1",
+  "ruff>=0.17.2,<1",
 ]
 native-build = [
   "open-brain==0.1.0",
