@@ -171,13 +171,13 @@ also do not enable those other capabilities.
 
 | Workflow | MCP tools | Setup flags |
 |---|---|---|
-| Find a page and its current revision ID | `brain_search_page`, or `brain_history_list` | `--allow-search`, or `--allow-history-read` |
+| Find a page, or get the current revision for a known page | `brain_search_page`, or `brain_history_list` for a known `record_id` | `--allow-search`, or `--allow-history-read` for a known `record_id` |
 | Read a complete page or source | `brain_read` (needs `record_id` and a current `expected_revision_id`) | `--allow-content-read` |
 | Read retained revisions | `brain_history_list`, `brain_history_show` | `--allow-history-read` |
 | Inspect proposals | `brain_review_list`, `brain_review_show` | `--allow-review-read` |
 | Draft a note or an update | `brain_review_propose` | `--allow-review-propose` |
 | Approve, reject, or edit-and-approve | `brain_review_approve`, `brain_review_reject`, `brain_review_edit_and_approve` | `--allow-review-decide` |
-| Merge new material into an existing page | all of the read and review tools above | `--allow-search` or `--allow-history-read`, plus `--allow-content-read`, `--allow-review-read`, `--allow-review-propose`, `--allow-review-decide` |
+| Merge new material into an existing page | the read and review tools above | `--allow-search` or `--allow-history-read` (requires a known `record_id`), plus `--allow-content-read`, `--allow-review-read`, `--allow-review-propose`, `--allow-review-decide` |
 
 The MCP server reads its grants when the client starts it. After `agent setup ... --apply` adds a
 grant, restart the agent client (or start a new session) before the new tools appear.

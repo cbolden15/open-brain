@@ -10,7 +10,7 @@ against the [current compatibility matrix](core-v01-features.md#compatibility-co
 
 The marked runnable blocks below are the preserved **10/5/5 historical candidate fixture**, bound
 by the documentation gate to its exact executable and example hashes. They are not a runnable
-acceptance guide for the current 17/12/12 candidate: the initial coordinate assertions deliberately
+acceptance guide for the current 23/16/18 candidate: the initial coordinate assertions deliberately
 reject a different runtime. Do not remove those assertions to make a newer binary pass. Current
 candidate certification requires a separately reviewed executable and matching guide receipt.
 
