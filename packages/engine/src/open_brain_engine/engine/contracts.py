@@ -571,6 +571,7 @@ class ProposalRecord:
     operation: str = "create"
     review_digest: str | None = None
     draft_type: str = "full_page"
+    stale: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -605,6 +606,7 @@ class ReviewProposal:
     patch: PatchDraft | None = None
     patch_diff: str | None = None
     facet_binding_json: str | None = None
+    stale: bool = False
 
 
 @dataclass(frozen=True, slots=True)

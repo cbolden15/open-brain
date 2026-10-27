@@ -180,6 +180,28 @@ _MAX_PROVIDER_ATTEMPTS = 40
 _MAX_PROVIDER_INPUT_BYTES = 1024 * 1024
 
 
+# Review fields added after bridge protocol 1 froze. The plugin's exact-key
+# parsers reject unknown keys, so the bridge withholds them (OBSIDIAN-007).
+_BRIDGE_HIDDEN_REVIEW_FIELDS = frozenset({"stale"})
+
+
+def _frozen_publication_result(result: dict[str, object]) -> dict[str, object]:
+    visible = {
+        key: value for key, value in result.items() if key not in _BRIDGE_HIDDEN_REVIEW_FIELDS
+    }
+    rows = visible.get("proposals")
+    if isinstance(rows, list):
+        visible["proposals"] = [
+            {
+                key: value
+                for key, value in cast(dict[str, object], row).items()
+                if key not in _BRIDGE_HIDDEN_REVIEW_FIELDS
+            }
+            for row in rows
+        ]
+    return visible
+
+
 class PluginBridgeFailure(RuntimeError):
     """One bounded plugin-facing failure category."""
 
@@ -640,6 +662,8 @@ def dispatch_plugin_request(
             )
             if operation == "publication.propose":
                 runtime.commit_review(_plugin_result_size(request_id, publication_result))
+            if operation in {"publication.show", "publication.list"}:
+                publication_result = _frozen_publication_result(publication_result)
             return publication_result
         except ReviewPublicationError as error:
             raise PluginBridgeFailure(error.code) from None

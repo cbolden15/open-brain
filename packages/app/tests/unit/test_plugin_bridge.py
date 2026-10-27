@@ -1973,3 +1973,23 @@ def test_subscription_provider_remains_closed_at_the_plugin_boundary(tmp_path: P
                 base_executable=None,
                 runtime=runtime,
             )
+
+
+def test_bridge_hides_review_fields_added_after_protocol_one() -> None:
+    hide = plugin_bridge_module._frozen_publication_result
+    assert hide({"status": "shown", "proposal_id": "p", "stale": True}) == {
+        "status": "shown",
+        "proposal_id": "p",
+    }
+    listed: dict[str, object] = {
+        "status": "listed",
+        "proposals": [{"proposal_id": "p", "stale": False}],
+        "offset": 0,
+        "next_offset": None,
+    }
+    assert hide(listed) == {
+        "status": "listed",
+        "proposals": [{"proposal_id": "p"}],
+        "offset": 0,
+        "next_offset": None,
+    }

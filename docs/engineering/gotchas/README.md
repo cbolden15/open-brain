@@ -4,6 +4,28 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### OBSIDIAN-007: Bridge publication DTOs are exact-key; shared review fields must be withheld
+
+Category: Obsidian plugin / Wire compatibility.
+
+Symptom: `ReviewPublicationService.show` and `list` serve MCP, the CLI and the
+plugin bridge. The plugin parses facet `publication.show` responses and
+`publication.list` rows with `exact(...)` (`facet-inspection.ts`,
+`facet-publication.ts`), and
+`test_bridge_uses_shared_organization_and_publication_services` pins the show
+key set to `t06-client-api.json`. Adding an agent-facing field such as `stale`
+to the shared output breaks facet publication in the plugin. New error codes
+fail the same way: `PluginBridgeFailure` raises on any code outside its
+allowlist.
+
+Action: `plugin_bridge._frozen_publication_result` strips
+`_BRIDGE_HIDDEN_REVIEW_FIELDS`, and `_BRIDGE_REVIEW_CODES` folds new review
+codes into `review_conflict` before `PluginBridgeFailure`. Add each new
+agent-facing review field or code there unless the plugin parsers change in the
+same commit.
+
+Discovered: 2026-10-27, issue #126.
+
 ### REVIEW-006: Rejecting a proposal was bound to the live target revision
 
 Category: Review / Publication.

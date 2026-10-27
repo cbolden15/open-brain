@@ -552,6 +552,22 @@ def validate_current_binding(
         connection.close()
 
 
+def target_head_advanced(connection: sqlite3.Connection, binding: Mapping[str, object]) -> bool:
+    """Return whether a reviewed update's target page head moved; reads no page files."""
+    if binding["operation"] != "update":
+        return False
+    head = connection.execute(
+        "SELECT publication_id, published_sha256 FROM review_page_heads WHERE page_id = ?",
+        (binding["page_id"],),
+    ).fetchone()
+    if head is None:
+        return False
+    return (
+        head["publication_id"] != binding["expected_publication_id"]
+        or head["published_sha256"] != binding["expected_page_sha256"]
+    )
+
+
 def bound_edited_bytes(
     engine: Any,
     proposal: Mapping[str, object],

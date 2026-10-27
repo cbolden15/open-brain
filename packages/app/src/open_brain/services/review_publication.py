@@ -314,6 +314,7 @@ def _proposal_summary(record: ProposalRecord) -> dict[str, object]:
         "page_id": record.page_id,
         "target_page_id": record.target_page_id,
         "terminal_decision_id": record.terminal_decision_id,
+        "stale": record.stale,
     }
 
 

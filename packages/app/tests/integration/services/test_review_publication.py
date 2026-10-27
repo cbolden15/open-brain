@@ -323,3 +323,12 @@ def test_terminal_conflict_does_not_reserve_a_fresh_decision_retry_key(
     )
 
     assert decided["proposal_id"] == second_proposal["proposal_id"]
+
+
+def test_list_and_show_surface_derived_staleness() -> None:
+    service, task = _service()
+    task.list.return_value = (replace(_record(), stale=True),)
+    listed = service.list({})
+    assert cast(list[dict[str, object]], listed["proposals"])[0]["stale"] is True
+    task.show.return_value = replace(_detail(), stale=True)
+    assert service.show({"proposal_id": PROPOSAL})["stale"] is True

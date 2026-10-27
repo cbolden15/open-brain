@@ -55,6 +55,7 @@ from .review_bound import (
     load_bound_context,
     patch_draft_from_binding,
     propose_bound,
+    target_head_advanced,
     validate_current_binding,
 )
 from .t03_contracts import EffectiveAuthority, T03Error
@@ -655,6 +656,15 @@ class ReviewOperations(_LocalEngineOperations):
                 )
                 for row in rows
             }
+            stale_ids: set[str] = set()
+            for row in rows:
+                bound = contexts[cast(str, row["proposal_id"])]
+                if (
+                    bound is not None
+                    and cast(str, row["status"]) == "pending"
+                    and target_head_advanced(connection, bound[1])
+                ):
+                    stale_ids.add(cast(str, row["proposal_id"]))
         finally:
             connection.close()
         siblings: dict[str, list[str]] = {}
@@ -707,6 +717,7 @@ class ReviewOperations(_LocalEngineOperations):
                     operation=operation,
                     review_digest=review_digest,
                     draft_type=draft_type,
+                    stale=proposal_id in stale_ids,
                 )
             )
         return tuple(result)
@@ -783,6 +794,11 @@ class ReviewOperations(_LocalEngineOperations):
                 )
             }
             references = tuple(cast(str, item["source_reference"]) for item in sources.values())
+            stale = (
+                binding is not None
+                and cast(str, proposal["status"]) == "pending"
+                and target_head_advanced(connection, binding)
+            )
         finally:
             connection.close()
         proposed_bytes = cast(bytes, proposal["proposed_bytes"])
@@ -876,6 +892,7 @@ class ReviewOperations(_LocalEngineOperations):
                 if binding is not None and review_binding_base_version(binding) == 5
                 else None
             ),
+            stale=stale,
         )
 
     def _decide(

@@ -1061,3 +1061,45 @@ def test_binding_conflicts_name_the_draft_and_route(tmp_path: Path) -> None:
     )
     assert rejected.outcome is DecisionOutcome.REJECTED
     assert tuple((root / "content" / "spaces").rglob(f"{proposal.page_id}.md")) == ()
+
+
+def test_show_and_list_derive_stale_for_an_advanced_update_target(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    first, second = _sources(engine)
+    third = _text_sources(engine, 1, prefix="derived")[0]
+    created = engine.review.propose(
+        (first,), (ProposalDraft("Stable", "Root"),), delivery_id="delivery.derived.root"
+    )[0]
+    engine.review.decide(
+        created.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.derived.root.approve",
+        expected_review_digest=created.review_digest,
+    )
+    winner, loser = (
+        engine.review.propose(
+            (source,),
+            (ProposalDraft("Stable", body),),
+            delivery_id=f"delivery.derived.{body}",
+            target_page_id=created.page_id,
+        )[0]
+        for source, body in ((second, "Winner"), (third, "Loser"))
+    )
+
+    assert engine.review.show(loser.proposal_id).stale is False
+    assert {row.proposal_id: row.stale for row in engine.review.list(status="pending")} == {
+        winner.proposal_id: False,
+        loser.proposal_id: False,
+    }
+    engine.review.decide(
+        winner.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.derived.winner.approve",
+        expected_review_digest=winner.review_digest,
+    )
+    assert engine.review.show(loser.proposal_id).stale is True
+    assert {row.proposal_id: row.stale for row in engine.review.list(status="pending")} == {
+        loser.proposal_id: True
+    }
+    assert engine.review.show(winner.proposal_id).stale is False
+    assert engine.review.show(created.proposal_id).stale is False
