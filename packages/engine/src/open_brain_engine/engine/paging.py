@@ -878,6 +878,7 @@ def read_record(
             "end_byte": end,
             "complete": complete,
             "next_cursor": None,
+            "projection_applied": projected.projection_applied,
         }
         from .slack_sharing import read_selection
 

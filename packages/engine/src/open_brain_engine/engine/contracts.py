@@ -654,6 +654,19 @@ _PUBLIC_CREDENTIAL_MARKER = "[redacted]"
 _PUBLIC_OUTPUT_TOKEN = re.compile(r"\S+")
 _PUBLIC_OUTPUT_DECODING_PASSES = 4
 
+PUBLIC_PROJECTION_MARKERS = (
+    _PUBLIC_LITERAL_MARKER,
+    _PUBLIC_PATH_MARKER,
+    _PUBLIC_CREDENTIAL_MARKER,
+)
+
+
+def projection_markers_added(original: str, candidate: str) -> bool:
+    """Return whether candidate holds more public projection placeholders than original."""
+    return any(
+        candidate.count(marker) > original.count(marker) for marker in PUBLIC_PROJECTION_MARKERS
+    )
+
 
 def project_public_result_text(
     value: str,

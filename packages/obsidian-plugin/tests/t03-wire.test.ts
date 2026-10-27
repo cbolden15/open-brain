@@ -112,3 +112,20 @@ describe("additive Slack recall responses", () => {
     })).toThrow();
   });
 });
+
+
+describe("record read projection flag", () => {
+  const original = JSON.parse(
+    corpus.cases.find(item => item.accept && item.schema === "record.read.response")!.raw,
+  ) as Record<string, unknown>;
+
+  it("accepts an optional boolean projection_applied", () => {
+    const flagged = { ...original, projection_applied: true };
+    expect(validateT03Wire("record.read.response", flagged)).toBe(flagged);
+    expect(validateT03Wire("record.read.response", original)).toBe(original);
+  });
+
+  it("rejects a non-boolean projection_applied", () => {
+    expect(() => validateT03Wire("record.read.response", { ...original, projection_applied: "yes" })).toThrow();
+  });
+});

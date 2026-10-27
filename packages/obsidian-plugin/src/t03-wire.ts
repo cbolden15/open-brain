@@ -74,8 +74,8 @@ const schemas: Record<string, Rule> = {
     dto_version: { enum: [1] }, record_id: id(["capture", "page"]), expected_revision_id: id(["capture", "revision"]),
     target_bytes: { type: "integer", min: 1, max: 65536 }, cursor,
   } },
-  "record.read.response": { type: "object", optional: ["selection"], properties: {
-    selection,
+  "record.read.response": { type: "object", optional: ["selection", "projection_applied"], properties: {
+    selection, projection_applied: { type: "boolean" },
     status: { enum: ["ok"] }, dto_version: { enum: [1] }, next_cursor: cursor, complete: { type: "boolean" }, record: summary,
     content: { type: "object", optional: [], properties: { kind: { enum: ["untrusted_text"] }, text: { type: "string" } } },
     start_byte: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER }, end_byte: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER },

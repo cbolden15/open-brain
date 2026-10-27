@@ -16,7 +16,7 @@ from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
 from .consent_contracts import EgressMode
-from .contracts import LocalEngineContext
+from .contracts import LocalEngineContext, projection_markers_added
 from .materializer import _payload_search_text
 from .mcp_eligibility import capture_visible, record_visible
 from .normalization import _privacy, _role_claim
@@ -36,6 +36,7 @@ class ProjectedRecord:
     summary: dict[str, Any]
     text: str
     indexed_text: str | None = None
+    projection_applied: bool = False
 
 
 class RecordProjector:
@@ -207,7 +208,15 @@ class RecordProjector:
             "source_update_available": False,
         }
         validate_wire("summary", summary)
-        return ProjectedRecord(summary, body, indexed_text=indexed_body)
+        return ProjectedRecord(
+            summary,
+            body,
+            indexed_text=indexed_body,
+            projection_applied=(
+                projection_markers_added(text, body)
+                or projection_markers_added(title, cast(str, summary["title"]))
+            ),
+        )
 
     @staticmethod
     def _origin(record: dict[str, Any]) -> str:
@@ -435,7 +444,15 @@ class RecordProjector:
                 protected_source_reference=references[0],
                 additional_source_references=references[1:],
             )
-        return ProjectedRecord(summary, body, indexed_text)
+        return ProjectedRecord(
+            summary,
+            body,
+            indexed_text,
+            projection_applied=(
+                projection_markers_added(page.body, body)
+                or projection_markers_added(cast(str, page.fields["title"]), title)
+            ),
+        )
 
     def _publication(self, publication_id: str) -> tuple[dict[str, Any], bytes]:
         self._require_canonical_revision_privacy(publication_id)

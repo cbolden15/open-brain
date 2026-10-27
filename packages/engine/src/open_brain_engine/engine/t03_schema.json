@@ -339,9 +339,14 @@
           "type": "integer",
           "min": 0,
           "max": 9007199254740991
+        },
+        "projection_applied": {
+          "type": "boolean"
         }
       },
-      "optional": []
+      "optional": [
+        "projection_applied"
+      ]
     },
     "history.list.request": {
       "type": "object",
@@ -538,9 +543,14 @@
           "type": "integer",
           "min": 0,
           "max": 9007199254740991
+        },
+        "projection_applied": {
+          "type": "boolean"
         }
       },
-      "optional": []
+      "optional": [
+        "projection_applied"
+      ]
     },
     "error": {
       "type": "object",

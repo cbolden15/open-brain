@@ -175,3 +175,16 @@ def test_effective_authority_validates_scoped_privacy_and_egress_fields() -> Non
     ):
         with pytest.raises(ValueError, match="invalid effective authority"):
             replace(authority, **changes)
+
+
+def test_read_responses_accept_an_optional_boolean_projection_flag() -> None:
+    baseline = next(
+        cast(dict[str, Any], parse_wire(str(case["raw"])))
+        for case in CASES
+        if case["schema"] == "record.read.response" and case["accept"]
+    )
+    for schema in ("record.read.response", "history.show.response"):
+        validate_wire(schema, baseline)
+        validate_wire(schema, {**baseline, "projection_applied": True})
+        with pytest.raises(T03Error):
+            validate_wire(schema, {**baseline, "projection_applied": "yes"})

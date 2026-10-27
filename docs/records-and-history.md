@@ -21,7 +21,14 @@ Copy IDs from a result and replace the uppercase placeholders:
 open-brain read RECORD_ID --expected-revision-id REVISION_ID --json
 ```
 
-Read responses contain `content.kind=untrusted_text`, `content.text`, UTF-8 byte offsets, a continuation cursor and a completion flag. Append text in byte-offset order, preserving Unicode and newlines. These bytes represent the complete public projection of the retained record. Capture normalizes text to NFC and line endings to LF before storage; compare reconstructed text with that retained projection when the input uses decomposed Unicode. The default chunk target is 32 KiB; `--target-bytes` can request a smaller chunk. Supply `--cursor` with the same record and expected revision for continuation. Current reads through an old source capture anchor resolve the current proven source head; an old expected revision is refused with `revision_changed`.
+Read responses contain `content.kind=untrusted_text`, `content.text`, UTF-8 byte offsets, a continuation cursor and a completion flag.
+
+`projection_applied` is `true` when protected values in the record were replaced with
+`[protected]`, `[redacted]`, or `[private-path]` in this response. The stored record keeps the
+original text. Do not copy a placeholder into an edit; see
+[review and publish](review-publication.md).
+
+Append text in byte-offset order, preserving Unicode and newlines. These bytes represent the complete public projection of the retained record. Capture normalizes text to NFC and line endings to LF before storage; compare reconstructed text with that retained projection when the input uses decomposed Unicode. The default chunk target is 32 KiB; `--target-bytes` can request a smaller chunk. Supply `--cursor` with the same record and expected revision for continuation. Current reads through an old source capture anchor resolve the current proven source head; an old expected revision is refused with `revision_changed`.
 
 Retained revisions require explicit history operations:
 
