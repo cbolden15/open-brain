@@ -127,6 +127,12 @@ The update keeps the page ID and canonical location. Earlier provenance stays in
 selected captures are appended. Open Brain rejects a stale or manually changed target instead of
 overwriting it.
 
+An update proposal replaces the whole page body. `review show` labels it with
+`replacement: "full_page"` and includes `page_diff`, a unified diff from the current page to the
+proposed body, projected the same way as the draft. `page_diff` is `null` when the diff would exceed
+64 KiB or the current page cannot be read; the draft itself is still complete. Typed Slack patches
+keep their own `patch_diff` and are not labelled as replacements.
+
 ### Review a Slack append patch
 
 Recurring Slack updates use a separate typed patch draft. They do not overload `markdown` with a

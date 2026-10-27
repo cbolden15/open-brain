@@ -221,6 +221,9 @@ class ReviewPublicationService:
         if proposal.patch is None:
             result.pop("patch")
             result.pop("patch_diff")
+        if proposal.replacement is None:
+            result.pop("replacement")
+            result.pop("page_diff")
         return {**result, "proposal_status": proposal_status, "status": "shown"}
 
     def approve(self, arguments: Mapping[str, object]) -> dict[str, object]:

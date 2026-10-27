@@ -182,7 +182,7 @@ _MAX_PROVIDER_INPUT_BYTES = 1024 * 1024
 
 # Review fields added after bridge protocol 1 froze. The plugin's exact-key
 # parsers reject unknown keys, so the bridge withholds them (OBSIDIAN-007).
-_BRIDGE_HIDDEN_REVIEW_FIELDS = frozenset({"stale"})
+_BRIDGE_HIDDEN_REVIEW_FIELDS = frozenset({"stale", "replacement", "page_diff"})
 
 
 def _frozen_publication_result(result: dict[str, object]) -> dict[str, object]:

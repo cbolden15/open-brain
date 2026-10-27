@@ -65,6 +65,19 @@ if TYPE_CHECKING:
     from .local import BrainEngine
 
 
+def _bounded_page_diff(current: str, proposed: str) -> str | None:
+    """Return a unified diff of projected bodies, or None past the inspection limit."""
+    diff = "".join(
+        difflib.unified_diff(
+            (current + "\n").splitlines(keepends=True),
+            (proposed + "\n").splitlines(keepends=True),
+            fromfile="current",
+            tofile="proposed",
+        )
+    )
+    return diff if len(diff.encode("utf-8")) <= MAX_REVIEW_MARKDOWN_BYTES else None
+
+
 class ReviewOperations(_LocalEngineOperations):
     def _propose_append(
         self,
@@ -800,6 +813,20 @@ class ReviewOperations(_LocalEngineOperations):
                 and cast(str, proposal["status"]) == "pending"
                 and target_head_advanced(connection, binding)
             )
+            live_body: str | None = None
+            if (
+                binding is not None
+                and binding["operation"] == "update"
+                and binding.get("patch") is None
+            ):
+                try:
+                    target = _target_state(self, connection, cast(str, binding["page_id"]))
+                    assert target is not None
+                    live_body = parse_markdown(
+                        _read_page(self, cast(str, target["canonical_path"]))
+                    ).body.removesuffix("\n")
+                except ValueError:
+                    live_body = None
         finally:
             connection.close()
         proposed_bytes = cast(bytes, proposal["proposed_bytes"])
@@ -860,6 +887,17 @@ class ReviewOperations(_LocalEngineOperations):
                     tofile="proposed",
                 )
             )
+        replacement: str | None = None
+        page_diff: str | None = None
+        live_projected = False
+        if binding is not None and operation == "update" and patch is None:
+            replacement = "full_page"
+            if live_body is not None:
+                projected_live = project_public_result_text(
+                    live_body, protected_literals=references
+                )
+                live_projected = projected_live != live_body
+                page_diff = _bounded_page_diff(projected_live, markdown)
         return ReviewProposal(
             proposal_id=proposal_id,
             status=cast(str, proposal["status"]),
@@ -884,7 +922,10 @@ class ReviewOperations(_LocalEngineOperations):
                 None if binding is None else cast(str | None, binding["expected_publication_id"])
             ),
             projection_applied=(
-                markdown != raw_markdown or title != raw_title or evidence_projected
+                markdown != raw_markdown
+                or title != raw_title
+                or evidence_projected
+                or live_projected
             ),
             patch=patch,
             patch_diff=patch_diff,
@@ -894,6 +935,8 @@ class ReviewOperations(_LocalEngineOperations):
                 else None
             ),
             stale=stale,
+            replacement=replacement,
+            page_diff=page_diff,
         )
 
     def _edit_baseline_body(

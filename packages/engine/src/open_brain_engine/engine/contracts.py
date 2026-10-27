@@ -607,6 +607,8 @@ class ReviewProposal:
     patch_diff: str | None = None
     facet_binding_json: str | None = None
     stale: bool = False
+    replacement: str | None = None
+    page_diff: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

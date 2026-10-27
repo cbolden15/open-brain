@@ -1938,6 +1938,13 @@ def _run_review(
                 "The target page changed after this proposal was drafted; "
                 "it can only be rejected."
             )
+        if result.get("replacement") == "full_page":
+            print("Approving replaces the entire current page body.")
+            if result.get("page_diff") is not None:
+                print(_terminal_text("Diff against the current page:"))
+                print(_terminal_text(cast(str, result["page_diff"])))
+            else:
+                print("Diff omitted: it exceeds 64 KiB or the current page could not be read.")
         if result.get("patch") is not None:
             print(_terminal_text("Revision-bound patch:"))
             print(_terminal_text(json.dumps(result["patch"], ensure_ascii=False, sort_keys=True)))

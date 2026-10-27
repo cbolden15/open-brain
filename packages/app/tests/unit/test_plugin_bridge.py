@@ -2001,3 +2001,10 @@ def test_bridge_folds_new_review_codes_into_review_conflict() -> None:
     assert codes["replacement_contains_redaction"] == "review_conflict"
     for code in codes.values():
         assert PluginBridgeFailure(code).code == code
+
+
+def test_bridge_hides_full_page_diff_fields() -> None:
+    hidden = plugin_bridge_module._frozen_publication_result(
+        {"status": "shown", "replacement": "full_page", "page_diff": "-a\n+b\n"}
+    )
+    assert hidden == {"status": "shown"}

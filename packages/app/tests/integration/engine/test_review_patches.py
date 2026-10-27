@@ -80,6 +80,7 @@ def test_patch_is_bound_shown_as_diff_and_applied_with_idempotent_retries(tmp_pa
     shown = tasks.review.show(first[0].proposal_id)
     assert shown.patch == draft
     assert "+Slack update" in (shown.patch_diff or "")
+    assert shown.replacement is None and shown.page_diff is None
     approved = tasks.review.decide(
         first[0].proposal_id,
         DecisionOutcome.APPROVED,

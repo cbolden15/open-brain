@@ -430,3 +430,14 @@ def test_edit_with_placeholders_maps_to_replacement_contains_redaction() -> None
         service.edit_and_approve(
             {"proposal_id": PROPOSAL, "review_token": DIGEST, "markdown": "[protected]"}
         )
+
+
+def test_show_omits_replacement_keys_unless_full_page_update() -> None:
+    service, task = _service()
+    task.show.return_value = _detail()
+    assert "replacement" not in service.show({"proposal_id": PROPOSAL})
+    task.show.return_value = replace(
+        _detail(), operation="update", replacement="full_page", page_diff=None
+    )
+    shown = service.show({"proposal_id": PROPOSAL})
+    assert shown["replacement"] == "full_page" and shown["page_diff"] is None

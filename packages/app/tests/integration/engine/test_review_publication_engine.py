@@ -1171,3 +1171,54 @@ def test_create_edit_allows_only_placeholders_already_in_the_draft(tmp_path: Pat
         expected_review_digest=proposal.review_digest,
     )
     assert kept.outcome is DecisionOutcome.EDITED
+
+
+def test_full_page_update_shows_replacement_and_bounded_diff(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    first, second = _sources(engine)
+    third = _text_sources(engine, 1, prefix="diff")[0]
+    created = engine.review.propose(
+        (first,),
+        (ProposalDraft("Diffed", "Keep this line\nTool at /srv/synthetic/tool.py\n"),),
+        delivery_id="delivery.diff.create",
+    )[0]
+    assert engine.review.show(created.proposal_id).replacement is None
+    engine.review.decide(
+        created.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.diff.create.approve",
+        expected_review_digest=created.review_digest,
+    )
+    update = engine.review.propose(
+        (second,),
+        (ProposalDraft("Diffed", "Replacement only\n"),),
+        delivery_id="delivery.diff.update",
+        target_page_id=created.page_id,
+    )[0]
+    shown = engine.review.show(update.proposal_id)
+    assert shown.replacement == "full_page"
+    diff = shown.page_diff or ""
+    assert "-Keep this line" in diff and "+Replacement only" in diff
+    assert "/srv/synthetic" not in diff and "[protected]" in diff
+    assert shown.projection_applied is True
+
+    big_page = engine.review.propose(
+        (third,),
+        (ProposalDraft("Big page", "a\n" * 20_000),),
+        delivery_id="delivery.diff.big.create",
+    )[0]
+    engine.review.decide(
+        big_page.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.diff.big.approve",
+        expected_review_digest=big_page.review_digest,
+    )
+    rewrite = engine.review.propose(
+        (third,),
+        (ProposalDraft("Big page", "b\n" * 20_000),),
+        delivery_id="delivery.diff.big.update",
+        target_page_id=big_page.page_id,
+    )[0]
+    omitted = engine.review.show(rewrite.proposal_id)
+    assert omitted.replacement == "full_page"
+    assert omitted.page_diff is None
