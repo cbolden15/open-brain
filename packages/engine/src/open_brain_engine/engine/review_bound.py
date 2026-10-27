@@ -563,8 +563,8 @@ def target_head_advanced(connection: sqlite3.Connection, binding: Mapping[str, o
     if head is None:
         return False
     return (
-        head["publication_id"] != binding["expected_publication_id"]
-        or head["published_sha256"] != binding["expected_page_sha256"]
+        cast(object, head["publication_id"]) != binding["expected_publication_id"]
+        or cast(object, head["published_sha256"]) != binding["expected_page_sha256"]
     )
 
 

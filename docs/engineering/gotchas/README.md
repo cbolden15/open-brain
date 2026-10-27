@@ -4,6 +4,19 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TYPE-003: SQLite row comparisons can leak Any through boolean helpers
+
+Category: Type Safety.
+
+Symptom: comparisons of dynamically typed SQLite row values made a helper
+declared to return `bool` fail MyPy's `no-any-return` check. A redundant cast
+of an already typed MCP tool description also failed typechecking.
+
+Action: type SQLite row operands as `object` before comparing, avoid casts on
+already typed values, and run the full typecheck after changes to shared code.
+
+Discovered: 2026-10-27, review publication Phase A verification.
+
 ### OBSIDIAN-007: Bridge publication DTOs are exact-key; shared review fields must be withheld
 
 Category: Obsidian plugin / Wire compatibility.

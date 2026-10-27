@@ -187,7 +187,7 @@ def test_capabilities_are_independently_listed_and_enforced(
 def test_capture_tool_text_names_owner_only_retraction(tasks: Any) -> None:
     adapters = (_adapter(tasks), _destination_adapter(tasks, _destination_policy(tasks)))
     descriptions = {
-        tool["name"]: cast(str, tool["description"])
+        tool["name"]: tool["description"]
         for adapter in adapters
         for tool in adapter.list_tools()
     }
