@@ -4,6 +4,27 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### REVIEW-006: Rejecting a proposal was bound to the live target revision
+
+Category: Review / Publication.
+
+Symptom: a full-page update proposal whose target page advanced after drafting
+stayed `pending` forever. `review reject` and `brain_review_reject` returned
+`review_conflict`, because `ReviewOperations._decide` ran
+`validate_current_binding` for every outcome, including `REJECTED`, and that
+check compares the live page head with the binding. A fresh `review show`
+returned the same token and binding, so "inspect again" could not help.
+
+Action: rejection now skips the live source, route and target check for
+non-facet bindings; it writes no page. Approve and edit-and-approve still run
+it, and a moved page head raises `ReviewBindingConflict(binding="target")`,
+which the app reports as `review_target_stale`. Facet (binding v5) proposals
+still validate on reject because `validate_facet_current_binding` also enforces
+query and subject authority. When adding a check to `_decide`, decide per
+outcome whether it protects a write.
+
+Discovered: 2026-10-27, issue #126.
+
 ### DOCS-005: The Drive guide said an edited single file re-imports; the engine quarantines it
 
 Category: Documentation / Google Drive.

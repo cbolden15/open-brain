@@ -24,6 +24,7 @@ from .contracts import (
     PatchOperation,
     ProposalDraft,
     ProposalRecord,
+    ReviewBindingConflict,
     ReviewEvidence,
     ReviewProposal,
     _LocalEngineOperations,
@@ -928,11 +929,15 @@ class ReviewOperations(_LocalEngineOperations):
             expected_review_digest is not None
             and expected_review_digest != inspection.review_digest
         ):
-            raise ValueError("review digest conflict")
+            raise ReviewBindingConflict("review digest conflict", binding="draft")
         if (
             context is not None and reserved is None
+            and outcome is not DecisionOutcome.REJECTED
             and review_binding_base_version(context[1]) != 5
         ):
+            # Rejection writes no page, so a source, route or target that moved
+            # after drafting must not strand the proposal. Facet (v5) bindings
+            # keep their transactional check because it also enforces authority.
             validate_current_binding(self, context[1])
         conflict: tuple[str, str] | None = None
         created = False

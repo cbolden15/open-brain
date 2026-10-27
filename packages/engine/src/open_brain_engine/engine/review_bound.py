@@ -24,6 +24,7 @@ from .contracts import (
     PatchDraft,
     PatchOperation,
     ProposalDraft,
+    ReviewBindingConflict,
     project_public_result_text,
 )
 from .normalization import (
@@ -498,9 +499,10 @@ def validate_current_binding(
             if (
                 capture["space_id"] != frozen["space_id"]
                 or _latest_route_id(connection, capture_id) != frozen["route_id"]
-                or sha256(_source_record_bytes(engine, capture)).hexdigest() != frozen["sha256"]
             ):
-                raise ValueError("review source state conflict")
+                raise ReviewBindingConflict("review source state conflict", binding="route")
+            if sha256(_source_record_bytes(engine, capture)).hexdigest() != frozen["sha256"]:
+                raise ReviewBindingConflict("review source state conflict", binding="source")
         if binding["operation"] == "update":
             head = connection.execute(
                 "SELECT * FROM review_page_heads WHERE page_id = ?",
@@ -526,7 +528,7 @@ def validate_current_binding(
                 current_publication_id != binding["expected_publication_id"]
                 or current_sha256 != binding["expected_page_sha256"]
             ):
-                raise ValueError("canonical page revision conflict")
+                raise ReviewBindingConflict("canonical page revision conflict", binding="target")
         else:
             proposal = connection.execute(
                 "SELECT canonical_path FROM proposals WHERE proposal_id = ?",

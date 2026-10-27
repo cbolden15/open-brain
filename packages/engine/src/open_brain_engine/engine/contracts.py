@@ -537,6 +537,23 @@ class EnrichmentUnavailable(RuntimeError):
     """The selected enrichment provider is unavailable without changing capture state."""
 
 
+_REVIEW_BINDINGS = frozenset({"source", "route", "draft", "target"})
+
+
+class ReviewBindingConflict(ValueError):
+    """A frozen review binding no longer matches live state.
+
+    The message keeps the established conflict text; ``binding`` names the part
+    that changed: ``source``, ``route``, ``draft`` or ``target``.
+    """
+
+    def __init__(self, message: str, *, binding: str) -> None:
+        if binding not in _REVIEW_BINDINGS:
+            raise ValueError("invalid review binding")
+        self.binding = binding
+        super().__init__(message)
+
+
 @dataclass(frozen=True, slots=True)
 class ProposalRecord:
     proposal_id: str

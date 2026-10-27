@@ -17,6 +17,7 @@ from open_brain_engine.engine import (
     TextPayload,
 )
 from open_brain_engine.engine import review_bound as review_bound_module
+from open_brain_engine.engine.contracts import ReviewBindingConflict
 from open_brain_engine.engine.normalization import _new_id
 
 from open_brain.profile import compile_single_user_local
@@ -501,13 +502,14 @@ def test_bound_decision_refuses_corrupted_immutable_source_bytes(tmp_path: Path)
     source = next((root / "sources" / "captures").rglob(f"{first}.json"))
     source.write_bytes(source.read_bytes() + b" ")
 
-    with pytest.raises(ValueError, match="review source state conflict"):
+    with pytest.raises(ReviewBindingConflict, match="review source state conflict") as caught:
         engine.review.decide(
             proposal.proposal_id,
             DecisionOutcome.APPROVED,
             delivery_id="delivery.corrupt.decision",
             expected_review_digest=proposal.review_digest,
         )
+    assert caught.value.binding == "source"
 
 
 @pytest.mark.parametrize(
@@ -963,3 +965,99 @@ def test_new_bound_mutation_drains_interrupted_update_before_reservation(
     assert recovered.status == "approved"
     assert "Recovered revision" in page.read_text(encoding="utf-8")
     assert len(tuple((root / "history" / "publications").rglob("*.json"))) == 2
+
+
+def test_reject_clears_an_update_whose_target_advanced(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    first, second = _sources(engine)
+    third = _text_sources(engine, 1, prefix="stale")[0]
+    created = engine.review.propose(
+        (first,), (ProposalDraft("Stable", "Root"),), delivery_id="delivery.stale.root"
+    )[0]
+    engine.review.decide(
+        created.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.stale.root.approve",
+        expected_review_digest=created.review_digest,
+    )
+    winner, stale = (
+        engine.review.propose(
+            (source,),
+            (ProposalDraft("Stable", body),),
+            delivery_id=f"delivery.stale.{body}",
+            target_page_id=created.page_id,
+        )[0]
+        for source, body in ((second, "Winner"), (third, "Loser"))
+    )
+    engine.review.decide(
+        winner.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.stale.winner.approve",
+        expected_review_digest=winner.review_digest,
+    )
+    page = next((root / "content" / "spaces").rglob(f"{created.page_id}.md"))
+    published = page.read_bytes()
+
+    for outcome, edited in (
+        (DecisionOutcome.APPROVED, None),
+        (DecisionOutcome.EDITED, "Edited loser"),
+    ):
+        with pytest.raises(
+            ReviewBindingConflict, match="canonical page revision conflict"
+        ) as caught:
+            engine.review.decide(
+                stale.proposal_id,
+                outcome,
+                delivery_id=f"delivery.stale.loser.{outcome.value}",
+                edited_markdown=edited,
+                expected_review_digest=stale.review_digest,
+            )
+        assert caught.value.binding == "target"
+
+    rejected = engine.review.decide(
+        stale.proposal_id,
+        DecisionOutcome.REJECTED,
+        delivery_id="delivery.stale.loser.reject",
+        expected_review_digest=stale.review_digest,
+    )
+    assert rejected.outcome is DecisionOutcome.REJECTED
+    assert rejected.publication_id is None
+    assert page.read_bytes() == published
+    assert engine.review.show(stale.proposal_id).status == "rejected"
+
+
+def test_binding_conflicts_name_the_draft_and_route(tmp_path: Path) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    first, _ = _sources(engine)
+    proposal = engine.review.propose(
+        (first,), (ProposalDraft("Named", "Named binding"),), delivery_id="delivery.named"
+    )[0]
+    with pytest.raises(ReviewBindingConflict, match="review digest") as token_conflict:
+        engine.review.decide(
+            proposal.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id="delivery.named.token",
+            expected_review_digest="0" * 64,
+        )
+    assert token_conflict.value.binding == "draft"
+
+    other = engine.inbox.create_space("Elsewhere", delivery_id="delivery.named.space")
+    engine.inbox.route(first, other.space_id, delivery_id="delivery.named.route")
+    with pytest.raises(ReviewBindingConflict, match="review source state conflict") as moved:
+        engine.review.decide(
+            proposal.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id="delivery.named.approve",
+            expected_review_digest=proposal.review_digest,
+        )
+    assert moved.value.binding == "route"
+    rejected = engine.review.decide(
+        proposal.proposal_id,
+        DecisionOutcome.REJECTED,
+        delivery_id="delivery.named.reject",
+        expected_review_digest=proposal.review_digest,
+    )
+    assert rejected.outcome is DecisionOutcome.REJECTED
+    assert tuple((root / "content" / "spaces").rglob(f"{proposal.page_id}.md")) == ()
