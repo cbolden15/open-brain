@@ -349,8 +349,9 @@ class LocalMcpAdapter:
                 {
                     "name": "brain_capture",
                     "description": (
-                        "Store durable unverified text. "
-                        "Version 0.1.0 cannot selectively delete it. "
+                        "Store durable unverified text. Agents cannot remove captures; "
+                        "retraction is an owner-only CLI operation (open-brain retract, "
+                        "see docs/owner-retraction.md). "
                         "Privacy tier selection is owner-only and is refused here "
                         "with tier_not_permitted. "
                         "No publication, actions, or connector authority."
@@ -382,8 +383,9 @@ class LocalMcpAdapter:
                         "Submit one destination-bound capture under the trusted startup "
                         "policy selected at launch. The requested privacy tier must be "
                         "inside that policy's allowed capture tiers; a missing tier "
-                        "becomes unknown. Captures are durable unverified content; "
-                        "version 0.1.0 cannot selectively delete them. No publication, "
+                        "becomes unknown. Captures are durable unverified content; agents "
+                        "cannot remove them. Retraction is an owner-only CLI operation "
+                        "(open-brain retract, see docs/owner-retraction.md). No publication, "
                         "actions, or connector authority."
                     ),
                     "inputSchema": {

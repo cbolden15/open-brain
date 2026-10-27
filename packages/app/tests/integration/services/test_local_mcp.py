@@ -184,6 +184,19 @@ def test_capabilities_are_independently_listed_and_enforced(
         assert result["source_origin"] == "unknown"
 
 
+def test_capture_tool_text_names_owner_only_retraction(tasks: Any) -> None:
+    adapters = (_adapter(tasks), _destination_adapter(tasks, _destination_policy(tasks)))
+    descriptions = {
+        tool["name"]: cast(str, tool["description"])
+        for adapter in adapters
+        for tool in adapter.list_tools()
+    }
+    for name in ("brain_capture", "brain_capture_submit"):
+        text = descriptions[name]
+        assert "cannot selectively delete" not in text
+        assert "owner-only" in text and "open-brain retract" in text
+
+
 def test_scoped_capture_registry_requires_grant_safe_operation_and_injection(
     tasks: Any,
 ) -> None:
@@ -745,7 +758,7 @@ def test_help_discloses_both_choices_without_bootstrap(capsys: pytest.CaptureFix
         "provider",
         "durable",
         "0.1.0",
-        "delete",
+        "owner-only",
         "500",
         "16 MiB",
         "2,000",

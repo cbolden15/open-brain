@@ -629,6 +629,13 @@ def test_local_help_and_version_are_root_free(
     assert capsys.readouterr().out == "open-brain 0.1.0\n"
 
 
+def test_mcp_help_names_owner_only_retraction(capsys: pytest.CaptureFixture[str]) -> None:
+    assert run_cli(("mcp", "--help"), environment={}) == 0
+    output = " ".join(capsys.readouterr().out.split())
+    assert "cannot selectively delete" not in output
+    assert "owner-only" in output and "open-brain retract" in output
+
+
 def test_review_help_explains_the_complete_root_free_workflow(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
