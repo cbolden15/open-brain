@@ -1,8 +1,8 @@
 # First use
 
 For a short synthetic capture/search trial, start with the [README quickstart](../README.md#try-a-synthetic-note).
-The current source candidate uses local state schema **17**, runtime session **12**, and Portable
-metadata **12**. These coordinates do not identify the published Homebrew release and do not
+The current source candidate uses local state schema **23**, runtime session **16**, and Portable
+metadata **18**. These coordinates do not identify the published Homebrew release and do not
 establish public acceptance. Check your executable's `catalog --schema-version 2 --json` output
 against the [current compatibility matrix](core-v01-features.md#compatibility-coordinates).
 

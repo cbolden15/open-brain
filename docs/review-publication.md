@@ -83,9 +83,26 @@ Approval publishes one canonical page and makes it searchable. Rejection writes 
 publication. Edit-and-approve replaces the body supplied by the proposal while retaining the same
 validated sources and destination. These owner-invoked CLI commands do not require MCP grant flags.
 
-A stale or wrong review token returns `review_conflict`. The same error is returned if a source,
-route, or target page revision changed after inspection. Inspect the proposal and current state
-again before choosing a new action. A proposal can receive only one terminal decision.
+A stale or wrong review token returns `review_conflict`. The same code is returned when a selected
+source or its route changed after inspection. The CLI names the changed binding (`source`,
+`route`, or `draft`), and `--json` output carries it as `error.binding`. Inspect the proposal and
+current state again before choosing a new action. A proposal can receive only one terminal
+decision.
+
+### Stale update proposals
+
+An update proposal is bound to the page revision it was drafted against. If another approval
+changes that page first, `review show` and `review list` report `stale: true`. The flag is derived
+when read; nothing new is stored. Approve and edit-and-approve then return `review_target_stale`:
+the target page changed after the proposal was drafted, so the proposal can only be rejected.
+Rejection writes no page and skips the live source, route, and target checks, so a stale proposal
+can always be cleared:
+
+```sh
+open-brain review reject PROPOSAL_ID --review-token REVIEW_TOKEN
+```
+
+To carry the change forward, read the current page and propose a new update.
 
 ## Update an existing canonical note
 
@@ -117,8 +134,9 @@ open-brain review approve PROPOSAL_ID --review-token REVIEW_TOKEN \
 
 `review show` exposes the target page ID, expected revision, bounded operations, source provenance,
 and a derived human-readable diff. Approval revalidates the page revision and applies only those
-body edits through the existing conflict-preserving writer. If the page changed, approval returns
-`review_conflict`; it never replaces the whole page. `review reject` changes no canonical content.
+body edits through the existing conflict-preserving writer. If another approval changed the page,
+approval returns `review_target_stale`; a manual edit to the page returns `review_conflict`. Neither
+replaces the whole page. `review reject` changes no canonical content.
 Edit-and-approve remains a complete replacement operation for full-page proposals. An ambiguous
 string is never interpreted as an edited patch.
 
@@ -148,6 +166,21 @@ Review access uses three independent, default-off grants:
 
 Capture, search, inbox-read, and organize grants do not enable review or publication. Review grants
 also do not enable those other capabilities.
+
+### Workflows, grants, and restarts
+
+| Workflow | MCP tools | Setup flags |
+|---|---|---|
+| Find a page and its current revision ID | `brain_search_page`, or `brain_history_list` | `--allow-search`, or `--allow-history-read` |
+| Read a complete page or source | `brain_read` (needs `record_id` and a current `expected_revision_id`) | `--allow-content-read` |
+| Read retained revisions | `brain_history_list`, `brain_history_show` | `--allow-history-read` |
+| Inspect proposals | `brain_review_list`, `brain_review_show` | `--allow-review-read` |
+| Draft a note or an update | `brain_review_propose` | `--allow-review-propose` |
+| Approve, reject, or edit-and-approve | `brain_review_approve`, `brain_review_reject`, `brain_review_edit_and_approve` | `--allow-review-decide` |
+| Merge new material into an existing page | all of the read and review tools above | `--allow-search` or `--allow-history-read`, plus `--allow-content-read`, `--allow-review-read`, `--allow-review-propose`, `--allow-review-decide` |
+
+The MCP server reads its grants when the client starts it. After `agent setup ... --apply` adds a
+grant, restart the agent client (or start a new session) before the new tools appear.
 
 ```sh
 open-brain agent setup --client claude-code --scope project \

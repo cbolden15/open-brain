@@ -279,6 +279,9 @@ uv sync --frozen --group dev --group native-build
 make contributor-check
 ```
 
+A checkout does not install `open-brain` on `PATH`; run it from the repository root as
+`uv run --frozen open-brain ...`.
+
 `make contributor-check` runs `make verify` and `make native-integration-smoke`. Expect Ruff's
 `All checks passed!`, MyPy's `Success: no issues found`, a passing pytest summary (some filesystem
 checks can skip on unsupported hosts), successful wheel/source builds, native smoke JSON, and

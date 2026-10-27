@@ -148,6 +148,9 @@ uv run --frozen --python 3.14 python --version
 uv run --frozen --python 3.14 open-brain --help
 ```
 
+A source checkout does not put `open-brain` on your `PATH`. Run it through uv from the repository
+root, for example `uv run --frozen open-brain status --json`.
+
 If an older interpreter reports `SyntaxError: multiple exception types must be parenthesized`,
 check the interpreter used by that command. Python 3.14 allows `except ValueError, OSError:` and
 catches either type without rebinding their names, as specified by
