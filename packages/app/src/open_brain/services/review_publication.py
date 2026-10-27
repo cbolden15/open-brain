@@ -20,6 +20,7 @@ from open_brain_engine.engine import (
     ReviewProposal,
     ReviewTask,
 )
+from open_brain_engine.engine.contracts import ReviewBindingConflict
 from open_brain_engine.engine.facet_contracts import FacetError
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
 
@@ -57,8 +58,9 @@ _OPTIONAL = {
 class ReviewPublicationError(ValueError):
     """One bounded public failure without draft or source content."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, binding: str | None = None) -> None:
         self.code = code
+        self.binding = binding
         super().__init__(code)
 
 
@@ -346,6 +348,10 @@ def _page_result(
 def _public_error(error: ValueError) -> ReviewPublicationError:
     if isinstance(error, (FacetError, T03Error)):
         return ReviewPublicationError(error.code)
+    if isinstance(error, ReviewBindingConflict):
+        if error.binding == "target":
+            return ReviewPublicationError("review_target_stale", binding="target")
+        return ReviewPublicationError("review_conflict", binding=error.binding)
     code = {
         "conflicting delivery": "idempotency_conflict",
         "unknown proposal": "unknown_proposal",

@@ -202,6 +202,11 @@ def _frozen_publication_result(result: dict[str, object]) -> dict[str, object]:
     return visible
 
 
+# Review codes added after bridge protocol 1 froze; PluginBridgeFailure rejects
+# codes outside its allowlist (OBSIDIAN-007).
+_BRIDGE_REVIEW_CODES = {"review_target_stale": "review_conflict"}
+
+
 class PluginBridgeFailure(RuntimeError):
     """One bounded plugin-facing failure category."""
 
@@ -666,7 +671,9 @@ def dispatch_plugin_request(
                 publication_result = _frozen_publication_result(publication_result)
             return publication_result
         except ReviewPublicationError as error:
-            raise PluginBridgeFailure(error.code) from None
+            raise PluginBridgeFailure(
+                _BRIDGE_REVIEW_CODES.get(error.code, error.code)
+            ) from None
     if operation.startswith("collector."):
         return _collector_control(
             session.prepared.selection,

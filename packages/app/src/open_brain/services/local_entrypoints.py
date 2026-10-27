@@ -778,7 +778,7 @@ def _run_parsed_command(
     except SpaceInboxError as error:
         return _write_space_inbox_failure(error.code, json_output=json_output)
     except ReviewPublicationError as error:
-        return _write_review_failure(error.code, json_output=json_output)
+        return _write_review_failure(error.code, json_output=json_output, binding=error.binding)
     except FollowupServiceError as error:
         return _write_followup_failure(error.code, None, json_output=json_output)
     except BriefServiceError:
@@ -1919,9 +1919,11 @@ def _run_review(
         if not rows:
             print("No matching review proposals.")
         for row in rows:
+            marker = ", stale" if row.get("stale") else ""
             print(
                 _terminal_text(
-                    f"{row['proposal_id']}  [{row['status']}]  {row['operation']}  {row['title']}"
+                    f"{row['proposal_id']}  [{row['status']}{marker}]  "
+                    f"{row['operation']}  {row['title']}"
                 )
             )
         if result["next_offset"] is not None:
@@ -1931,6 +1933,11 @@ def _run_review(
         print(_terminal_text(f"Review token: {result['review_token']}"))
         if result.get("projection_applied"):
             print("Privacy projection replaced protected material.")
+        if result.get("stale"):
+            print(
+                "The target page changed after this proposal was drafted; "
+                "it can only be rejected."
+            )
         if result.get("patch") is not None:
             print(_terminal_text("Revision-bound patch:"))
             print(_terminal_text(json.dumps(result["patch"], ensure_ascii=False, sort_keys=True)))
@@ -1941,7 +1948,7 @@ def _run_review(
     return 0
 
 
-def _write_review_failure(code: str, *, json_output: bool) -> int:
+def _write_review_failure(code: str, *, json_output: bool, binding: str | None = None) -> int:
     if code == "invalid_arguments":
         _write_usage_failure(json_output=json_output)
         return 2
@@ -1955,11 +1962,25 @@ def _write_review_failure(code: str, *, json_output: bool) -> int:
         "source_unrouted": "Every selected capture must be routed before proposing publication.",
         "terminal_decision": "This proposal already has a terminal decision.",
         "review_conflict": "The reviewed source, route, draft, or target changed. Inspect again.",
+        "review_target_stale": (
+            "The target page changed after this proposal was drafted. The proposal can only be "
+            "rejected; propose a new update from the current page."
+        ),
         "response_too_large": "The complete projected proposal exceeds the inspection limit.",
     }
+    binding_messages = {
+        "source": "A selected source changed after inspection. Inspect again.",
+        "route": "A selected source was rerouted after inspection. Inspect again.",
+        "draft": "The review token does not match this proposal. Inspect again and use its token.",
+    }
     message = messages.get(code, "Open Brain could not complete the review command.")
+    if code == "review_conflict" and binding is not None and binding in binding_messages:
+        message = binding_messages[binding]
+    failure: dict[str, object] = {"code": code, "message": message}
+    if binding is not None:
+        failure["binding"] = binding
     if json_output:
-        _write_json({"status": "failed", "error": {"code": code, "message": message}})
+        _write_json({"status": "failed", "error": failure})
     else:
         print(message, file=sys.stderr)
     return 1

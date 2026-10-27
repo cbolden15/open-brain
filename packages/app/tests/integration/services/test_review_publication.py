@@ -16,7 +16,7 @@ from open_brain_engine.engine import (
     TextPayload,
     open_local_engine,
 )
-from open_brain_engine.engine.contracts import DecisionRecord
+from open_brain_engine.engine.contracts import DecisionRecord, ReviewBindingConflict
 
 from open_brain.profile import compile_single_user_local
 from open_brain.services.review_publication import (
@@ -332,3 +332,92 @@ def test_list_and_show_surface_derived_staleness() -> None:
     assert cast(list[dict[str, object]], listed["proposals"])[0]["stale"] is True
     task.show.return_value = replace(_detail(), stale=True)
     assert service.show({"proposal_id": PROPOSAL})["stale"] is True
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "binding"),
+    (
+        (
+            ReviewBindingConflict("canonical page revision conflict", binding="target"),
+            "review_target_stale",
+            "target",
+        ),
+        (
+            ReviewBindingConflict("review source state conflict", binding="route"),
+            "review_conflict",
+            "route",
+        ),
+        (
+            ReviewBindingConflict("review source state conflict", binding="source"),
+            "review_conflict",
+            "source",
+        ),
+        (
+            ReviewBindingConflict("review digest conflict", binding="draft"),
+            "review_conflict",
+            "draft",
+        ),
+        (ValueError("canonical page revision conflict"), "review_conflict", None),
+    ),
+)
+def test_decision_conflicts_report_the_changed_binding(
+    error: ValueError, code: str, binding: str | None
+) -> None:
+    service, task = _service()
+    task.decide.side_effect = error
+    with pytest.raises(ReviewPublicationError) as caught:
+        service.approve({"proposal_id": PROPOSAL, "review_token": DIGEST})
+    assert (caught.value.code, caught.value.binding) == (code, binding)
+
+
+def test_stale_update_is_rejectable_but_not_approvable(tmp_path: Path) -> None:
+    tasks = open_local_engine(
+        compile_single_user_local(tmp_path / "brain", starter_spaces=("Projects",))
+    )
+    space_id = tasks.spaces.spaces()[0].space_id
+    root_source, winner_source, stale_source = (
+        tasks.capture.accept(
+            TextPayload(f"Stale source {index}"),
+            delivery_id=f"review.service.stale.{index}",
+            space_id=space_id,
+        ).capture_id
+        for index in range(3)
+    )
+    service = ReviewPublicationService(tasks.review)
+    created = service.propose(
+        {"capture_ids": [root_source], "title": "Stale target", "markdown": "Root body"}
+    )
+    service.approve(
+        {
+            "proposal_id": created["proposal_id"],
+            "review_token": service.show({"proposal_id": created["proposal_id"]})["review_token"],
+        }
+    )
+    winner, stale = (
+        service.propose(
+            {
+                "capture_ids": [source],
+                "title": "Stale target",
+                "markdown": body,
+                "target_page_id": created["page_id"],
+            }
+        )
+        for source, body in ((winner_source, "Winner body"), (stale_source, "Stale body"))
+    )
+    service.approve(
+        {
+            "proposal_id": winner["proposal_id"],
+            "review_token": service.show({"proposal_id": winner["proposal_id"]})["review_token"],
+        }
+    )
+    shown = service.show({"proposal_id": stale["proposal_id"]})
+    assert shown["stale"] is True
+    with pytest.raises(ReviewPublicationError, match="^review_target_stale$"):
+        service.approve(
+            {"proposal_id": stale["proposal_id"], "review_token": shown["review_token"]}
+        )
+    rejected = service.reject(
+        {"proposal_id": stale["proposal_id"], "review_token": shown["review_token"]}
+    )
+    assert rejected["status"] == "rejected"
+    assert service.list({"status": "pending"})["proposals"] == []

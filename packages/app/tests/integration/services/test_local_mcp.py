@@ -59,6 +59,7 @@ from open_brain.services.mcp_protocol import (
     encoded_tool_response_size,
     serve_stdio_mcp,
 )
+from open_brain.services.review_publication import ReviewPublicationError
 from open_brain.services.session_authority import TrustedSessionAuthority
 from open_brain.services.session_consent import DurableProviderConsentStore
 from open_brain.services.space_inbox import SpaceInboxError, SpaceInboxService
@@ -3156,3 +3157,21 @@ def test_brief_followup_items_are_work_only_and_owner_grants_stay_clamped(tasks:
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=5)
+
+
+@pytest.mark.parametrize("code", ["review_target_stale"])
+def test_review_safe_errors_survive_mcp_transport(code: str) -> None:
+    def fail(_arguments: Mapping[str, object]) -> dict[str, object]:
+        raise ReviewPublicationError(code)
+
+    adapter = LocalMcpAdapter(review_approve=fail)
+    reply = _wire(
+        adapter,
+        INITIALIZE,
+        _call(
+            "brain_review_approve",
+            {"proposal_id": REVIEW_PROPOSAL, "review_token": REVIEW_DIGEST},
+        ),
+    )[1]
+    assert reply["result"]["isError"] is True
+    assert reply["result"]["content"] == [{"type": "text", "text": code}]

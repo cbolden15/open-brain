@@ -252,6 +252,7 @@ def _call_tool_response(
             "source_unrouted",
             "terminal_decision",
             "review_conflict",
+            "review_target_stale",
             "response_too_large",
             "session_review_read_limit",
             "session_review_proposal_limit",

@@ -2321,3 +2321,67 @@ def test_owner_consent_cli_persists_complete_lifecycle_across_restarts(
     )
     assert revoked["status"] == "revoked"
     assert revoked["authorization_generation"] == 3
+
+
+@pytest.mark.parametrize("platform_name", ["darwin", "linux"])
+def test_owner_review_cli_names_a_stale_target_and_still_rejects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], platform_name: str
+) -> None:
+    home = _private_home(tmp_path)
+    brain = home / "brain"
+    tasks = open_local_engine(compile_single_user_local(brain))
+    space = tasks.spaces.create_space("Projects", delivery_id="review.cli.stale.space")
+    root_source, winner_source, stale_source = (
+        tasks.capture.accept(
+            TextPayload(f"Stale CLI source {index}"),
+            delivery_id=f"review.cli.stale.capture.{index}",
+            space_id=space.space_id,
+        ).capture_id
+        for index in range(3)
+    )
+    created = tasks.review.propose(
+        (root_source,), (ProposalDraft("Stale CLI", "Root"),), delivery_id="review.cli.stale.root"
+    )[0]
+    tasks.review.decide(
+        created.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="review.cli.stale.root.approve",
+        expected_review_digest=created.review_digest,
+    )
+    winner, stale = (
+        tasks.review.propose(
+            (source,),
+            (ProposalDraft("Stale CLI", body),),
+            delivery_id=f"review.cli.stale.{body}",
+            target_page_id=created.page_id,
+        )[0]
+        for source, body in ((winner_source, "Winner"), (stale_source, "Loser"))
+    )
+    tasks.review.decide(
+        winner.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="review.cli.stale.winner",
+        expected_review_digest=winner.review_digest,
+    )
+
+    def cli(*arguments: str) -> int:
+        return run_cli(
+            (*arguments, "--data-dir", str(brain)),
+            environment={"HOME": str(home)},
+            platform_name=platform_name,
+            filesystem_type_probe=_filesystem,
+        )
+
+    token = cast(str, stale.review_digest)
+    assert cli("review", "approve", stale.proposal_id, "--review-token", token, "--json") == 1
+    failure = json.loads(capsys.readouterr().out)
+    assert failure["error"]["code"] == "review_target_stale"
+    assert failure["error"]["binding"] == "target"
+    assert cli("review", "approve", stale.proposal_id, "--review-token", token) == 1
+    assert "can only be rejected" in capsys.readouterr().err
+    assert cli("review", "show", stale.proposal_id) == 0
+    assert "can only be rejected" in capsys.readouterr().out
+    assert cli("review", "list", "--status", "pending") == 0
+    assert f"{stale.proposal_id} [pending, stale]" in capsys.readouterr().out
+    assert cli("review", "reject", stale.proposal_id, "--review-token", token, "--json") == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "rejected"
