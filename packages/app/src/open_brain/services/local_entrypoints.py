@@ -1654,6 +1654,12 @@ def _add_review_parsers(
                 "--replacement-body-file",
                 help="Explicit complete replacement body for a patch proposal, or -.",
             )
+        if action != "reject":
+            decision.add_argument(
+                "--allow-duplicate",
+                action="store_true",
+                help="Publish even if a page in the space has the same title or sources.",
+            )
         decision.add_argument("--idempotency-key")
 
 
@@ -1758,6 +1764,8 @@ def _review_arguments(parsed: argparse.Namespace) -> tuple[str, dict[str, object
                 arguments["replacement_body"] = _read_review_markdown(parsed.replacement_body_file)
             else:
                 arguments["markdown"] = _read_review_markdown(parsed.markdown_file)
+        if getattr(parsed, "allow_duplicate", False):
+            arguments["allow_duplicate"] = True
     key = getattr(parsed, "idempotency_key", None)
     if key is not None:
         arguments["idempotency_key"] = key
@@ -1964,6 +1972,10 @@ def _write_review_failure(code: str, *, json_output: bool, binding: str | None =
         "unknown_proposal": "Review proposal not found. List proposals again.",
         "unknown_capture": "One or more selected captures were not found.",
         "unknown_page": "The target canonical page was not found.",
+        "duplicate_page": (
+            "A canonical page with the same title or the same sources already exists in this "
+            "space. Update that page, reject this proposal, or repeat with --allow-duplicate."
+        ),
         "duplicate_source": "Each selected capture ID must be unique.",
         "mixed_source_spaces": "All selected captures must be routed to the same space.",
         "source_unrouted": "Every selected capture must be routed before proposing publication.",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
+import unicodedata
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from typing import Any, cast
@@ -566,6 +567,53 @@ def target_head_advanced(connection: sqlite3.Connection, binding: Mapping[str, o
         cast(object, head["publication_id"]) != binding["expected_publication_id"]
         or cast(object, head["published_sha256"]) != binding["expected_page_sha256"]
     )
+
+
+def title_key(title: str) -> str:
+    """Compare titles case-insensitively with whitespace runs collapsed."""
+    return " ".join(unicodedata.normalize("NFC", title).casefold().split())
+
+
+def duplicate_page_id(
+    connection: sqlite3.Connection,
+    *,
+    space_id: str,
+    page_id: str,
+    title: str,
+    capture_ids: Sequence[str],
+    sibling_page_ids: frozenset[str],
+) -> str | None:
+    """Return an existing canonical page in the space that a new page would duplicate.
+
+    A proposal whose page already exists is an update and is never a duplicate.
+    Pages from sibling drafts of the same proposal set share sources by design,
+    so only their titles are compared.
+    """
+    if (
+        connection.execute(
+            "SELECT 1 FROM search_documents WHERE result_id = ? AND record_type = 'canonical'",
+            (page_id,),
+        ).fetchone()
+        is not None
+    ):
+        return None
+    wanted_title = title_key(title)
+    wanted_sources = frozenset(capture_ids)
+    for row in connection.execute(
+        "SELECT result_id, title, provenance_json FROM search_documents "
+        "WHERE record_type = 'canonical' AND space_id = ? ORDER BY result_id",
+        (space_id,),
+    ):
+        existing = cast(str, row["result_id"])
+        if title_key(cast(str, row["title"])) == wanted_title:
+            return existing
+        if existing in sibling_page_ids:
+            continue
+        provenance = json.loads(cast(str, row["provenance_json"]))
+        sources = frozenset(provenance.get("capture_ids") or (provenance["capture_id"],))
+        if sources == wanted_sources:
+            return existing
+    return None
 
 
 def bound_edited_bytes(

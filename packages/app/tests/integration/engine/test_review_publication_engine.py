@@ -1222,3 +1222,75 @@ def test_full_page_update_shows_replacement_and_bounded_diff(tmp_path: Path) -> 
     omitted = engine.review.show(rewrite.proposal_id)
     assert omitted.replacement == "full_page"
     assert omitted.page_diff is None
+
+
+def test_create_approval_refuses_a_duplicate_title_or_source_set(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    first, second = _sources(engine)
+    third = _text_sources(engine, 1, prefix="duplicate")[0]
+    original, same_title, same_sources = (
+        engine.review.propose(
+            (source,), (ProposalDraft(title, body),), delivery_id=f"delivery.duplicate.{body}"
+        )[0]
+        for source, title, body in (
+            (first, "Weekly  Notes", "Original"),
+            (second, "weekly notes", "Same-title"),
+            (first, "Different title", "Same-sources"),
+        )
+    )
+    engine.review.decide(
+        original.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.duplicate.original.approve",
+        expected_review_digest=original.review_digest,
+    )
+
+    for proposal, outcome, edited in (
+        (same_title, DecisionOutcome.APPROVED, None),
+        (same_sources, DecisionOutcome.EDITED, "Edited same sources"),
+    ):
+        with pytest.raises(ValueError, match="duplicate canonical page"):
+            engine.review.decide(
+                proposal.proposal_id,
+                outcome,
+                delivery_id=f"delivery.duplicate.refused.{proposal.proposal_id}",
+                edited_markdown=edited,
+                expected_review_digest=proposal.review_digest,
+            )
+        assert engine.review.show(proposal.proposal_id).status == "pending"
+
+    allowed = engine.review.decide(
+        same_title.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.duplicate.allowed",
+        expected_review_digest=same_title.review_digest,
+        allow_duplicate=True,
+    )
+    assert allowed.page_id == same_title.page_id != original.page_id
+    unrelated = engine.review.propose(
+        (third,), (ProposalDraft("Unrelated", "Fresh"),), delivery_id="delivery.duplicate.fresh"
+    )[0]
+    assert engine.review.decide(
+        unrelated.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.duplicate.fresh.approve",
+        expected_review_digest=unrelated.review_digest,
+    ).publication_id is not None
+
+
+def test_sibling_drafts_from_one_source_are_not_duplicates(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    first, _ = _sources(engine)
+    siblings = engine.review.propose(
+        (first,),
+        (ProposalDraft("Alpha", "Alpha body"), ProposalDraft("Beta", "Beta body")),
+        delivery_id="delivery.siblings",
+    )
+    for index, proposal in enumerate(siblings):
+        decided = engine.review.decide(
+            proposal.proposal_id,
+            DecisionOutcome.APPROVED,
+            delivery_id=f"delivery.siblings.approve.{index}",
+            expected_review_digest=proposal.review_digest,
+        )
+        assert decided.publication_id is not None

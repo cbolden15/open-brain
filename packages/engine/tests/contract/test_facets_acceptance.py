@@ -466,7 +466,10 @@ def _propose(brain: FacetHarness, query: str, **changes: Any) -> dict[str, Any]:
     )
 
 
-def _approve(brain: FacetHarness, proposal: dict[str, Any], *, digest: str | None = None) -> str:
+def _approve(
+    brain: FacetHarness, proposal: dict[str, Any], *,
+    digest: str | None = None, allow_duplicate: bool = False,
+) -> str:
     brain.serial += 1
     decision = brain.engine.review.decide(
         proposal["proposal_id"],
@@ -474,6 +477,7 @@ def _approve(brain: FacetHarness, proposal: dict[str, Any], *, digest: str | Non
         delivery_id=f"independent-approve-{brain.serial}",
         expected_review_digest=digest
         or brain.engine.review.show(proposal["proposal_id"]).review_digest,
+        allow_duplicate=allow_duplicate,
     )
     assert decision.page_id is not None
     return decision.page_id
@@ -578,7 +582,7 @@ def test_f13_f14_shared_evidence_pages_have_independent_attachments_and_assignme
     query, value, _ = _saved_selection(brain)
     first = _propose(brain, query, title="Independent page one")
     second = _propose(brain, query, title="Independent page two")
-    pages = (_approve(brain, first), _approve(brain, second))
+    pages = (_approve(brain, first), _approve(brain, second, allow_duplicate=True))
     assert pages[0] != pages[1]
     selector = brain.call("facet.query.get", query_id=query)["item"]["selector"]
     for page in pages:

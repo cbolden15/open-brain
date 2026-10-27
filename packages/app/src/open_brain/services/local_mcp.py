@@ -632,8 +632,10 @@ class LocalMcpAdapter:
             tools.append(
                 self._review_tool(
                     "brain_review_approve",
-                    "Approve and publish the exact inspected review-token-bound draft.",
-                    decision_properties,
+                    "Approve and publish the exact inspected review-token-bound draft. A new "
+                    "note whose title or sources match a page in the same space is refused with "
+                    "duplicate_page unless allow_duplicate is true.",
+                    {**decision_properties, "allow_duplicate": {"type": "boolean"}},
                     required=["proposal_id", "review_token"],
                 )
             )
@@ -654,6 +656,7 @@ class LocalMcpAdapter:
                     "approve the exact inspected review-token-bound draft.",
                     {
                         **decision_properties,
+                        "allow_duplicate": {"type": "boolean"},
                         "markdown": {
                             "type": "string",
                             "minLength": 1,

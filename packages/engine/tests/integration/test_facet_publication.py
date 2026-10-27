@@ -705,7 +705,7 @@ def test_real_selected_successor_stales_pending_and_current_target_but_retains_o
     ).to_wire()
     summary = cast(dict[str, Any], retained["record"])
     assert first.capture_id in summary["provenance"]["capture_ids"]
-    current = brain.propose("after-successor-current-sources")
+    current = brain.propose("after-successor-current-sources", title="Current successor sources")
     inspected = brain.engine.review.show(current["proposal_id"])
     assert first.capture_id not in inspected.selected_capture_ids
     assert successor.capture_id in inspected.selected_capture_ids
@@ -886,7 +886,7 @@ def test_real_lineage_reroute_conflicts_and_successor_provenance_uses_current_ro
         brain.approve(pending)
     # A new page uses the current successor route without reviving stale target eligibility.
     current_route = route_proven_source(brain, successor.capture_id, brain.spaces[1].space_id)
-    update = brain.propose("lineage-after-reroute")
+    update = brain.propose("lineage-after-reroute", title="Current routed successor sources")
     state = facet_state(brain, update["proposal_id"], successor.capture_id)
     assert state["route_id"] == current_route
     assert state["space_id"] == brain.spaces[1].space_id

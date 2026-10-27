@@ -49,9 +49,9 @@ _OPTIONAL = {
     "propose": {"target_page_id", "idempotency_key", "title", "markdown", "patch"},
     "list": {"capture_id", "space_id", "status", "limit", "offset", "facet_query_id"},
     "show": set(),
-    "approve": {"idempotency_key"},
+    "approve": {"idempotency_key", "allow_duplicate"},
     "reject": {"idempotency_key"},
-    "edit_and_approve": {"idempotency_key", "markdown", "replacement_body"},
+    "edit_and_approve": {"idempotency_key", "markdown", "replacement_body", "allow_duplicate"},
 }
 
 
@@ -117,6 +117,9 @@ def validate_review_arguments(operation: str, arguments: Mapping[str, object]) -
                 raise ReviewPublicationError("invalid_arguments")
         elif field == "patch":
             _patch_draft(value)
+        elif field == "allow_duplicate":
+            if type(value) is not bool:
+                raise ReviewPublicationError("invalid_arguments")
         elif field == "idempotency_key" and not _valid_text(
             value, maximum_characters=MAX_REVIEW_KEY_CHARACTERS
         ):
@@ -261,6 +264,7 @@ class ReviewPublicationService:
                     arguments.get("replacement_body", arguments.get("markdown")),
                 ),
                 expected_review_digest=cast(str, arguments["review_token"]),
+                allow_duplicate=arguments.get("allow_duplicate") is True,
             )
         except ValueError as error:
             raise _public_error(error) from None
@@ -361,6 +365,7 @@ def _public_error(error: ValueError) -> ReviewPublicationError:
         "unknown capture": "unknown_capture",
         "unknown page": "unknown_page",
         "unknown target page": "unknown_page",
+        "duplicate canonical page": "duplicate_page",
         "duplicate proposal source": "duplicate_source",
         "duplicate review source": "duplicate_source",
         "mixed proposal spaces": "mixed_source_spaces",

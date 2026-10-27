@@ -441,3 +441,36 @@ def test_show_omits_replacement_keys_unless_full_page_update() -> None:
     )
     shown = service.show({"proposal_id": PROPOSAL})
     assert shown["replacement"] == "full_page" and shown["page_diff"] is None
+
+
+def test_allow_duplicate_is_a_boolean_override_on_publishing_decisions() -> None:
+    service, task = _service()
+    task.decide.return_value = DecisionRecord(
+        decision_id="decision_20770d1b-e42a-4e77-b3de-bf127b36cfe6",
+        proposal_id=PROPOSAL,
+        outcome=DecisionOutcome.APPROVED,
+        page_id=PAGE,
+        publication_id="publication_a640a04f-801b-42e4-b09f-e7f57bb7ac22",
+    )
+    service.approve({"proposal_id": PROPOSAL, "review_token": DIGEST, "allow_duplicate": True})
+    assert task.decide.call_args.kwargs["allow_duplicate"] is True
+    service.approve({"proposal_id": PROPOSAL, "review_token": DIGEST})
+    assert task.decide.call_args.kwargs["allow_duplicate"] is False
+    validate_review_arguments(
+        "edit_and_approve",
+        {
+            "proposal_id": PROPOSAL,
+            "review_token": DIGEST,
+            "markdown": "x",
+            "allow_duplicate": False,
+        },
+    )
+    for operation, arguments in (
+        ("approve", {"proposal_id": PROPOSAL, "review_token": DIGEST, "allow_duplicate": "true"}),
+        ("reject", {"proposal_id": PROPOSAL, "review_token": DIGEST, "allow_duplicate": True}),
+    ):
+        with pytest.raises(ReviewPublicationError, match="^invalid_arguments$"):
+            validate_review_arguments(operation, arguments)
+    task.decide.side_effect = ValueError("duplicate canonical page")
+    with pytest.raises(ReviewPublicationError, match="^duplicate_page$"):
+        service.approve({"proposal_id": PROPOSAL, "review_token": DIGEST})

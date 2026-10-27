@@ -2392,3 +2392,50 @@ def test_owner_review_cli_names_a_stale_target_and_still_rejects(
     assert f"{stale.proposal_id} [pending, stale]" in capsys.readouterr().out
     assert cli("review", "reject", stale.proposal_id, "--review-token", token, "--json") == 0
     assert json.loads(capsys.readouterr().out)["status"] == "rejected"
+
+
+@pytest.mark.parametrize("platform_name", ["darwin", "linux"])
+def test_owner_review_cli_refuses_duplicate_create_unless_allowed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], platform_name: str
+) -> None:
+    home = _private_home(tmp_path)
+    brain = home / "brain"
+    tasks = open_local_engine(compile_single_user_local(brain))
+    space = tasks.spaces.create_space("Projects", delivery_id="review.cli.duplicate.space")
+    first, second = (
+        tasks.capture.accept(
+            TextPayload(f"Duplicate CLI source {index}"),
+            delivery_id=f"review.cli.duplicate.capture.{index}",
+            space_id=space.space_id,
+        ).capture_id
+        for index in range(2)
+    )
+    original, repeat = (
+        tasks.review.propose(
+            (source,), (ProposalDraft("Duplicate CLI", body),), delivery_id=f"review.cli.dup.{body}"
+        )[0]
+        for source, body in ((first, "Original"), (second, "Repeat"))
+    )
+    tasks.review.decide(
+        original.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="review.cli.duplicate.original",
+        expected_review_digest=original.review_digest,
+    )
+
+    def cli(*arguments: str) -> int:
+        return run_cli(
+            (*arguments, "--data-dir", str(brain), "--json"),
+            environment={"HOME": str(home)},
+            platform_name=platform_name,
+            filesystem_type_probe=_filesystem,
+        )
+
+    token = cast(str, repeat.review_digest)
+    assert cli("review", "approve", repeat.proposal_id, "--review-token", token) == 1
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "duplicate_page"
+    assert (
+        cli("review", "approve", repeat.proposal_id, "--review-token", token, "--allow-duplicate")
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "approved"

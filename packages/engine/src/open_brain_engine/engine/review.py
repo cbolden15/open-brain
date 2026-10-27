@@ -53,6 +53,7 @@ from .review_bound import (
     _read_page,
     _target_state,
     bound_edited_bytes,
+    duplicate_page_id,
     load_bound_context,
     patch_draft_from_binding,
     propose_bound,
@@ -972,6 +973,7 @@ class ReviewOperations(_LocalEngineOperations):
         edited_markdown: str | None,
         expected_review_digest: str | None = None,
         authority: EffectiveAuthority | None = None,
+        allow_duplicate: bool = False,
     ) -> DecisionRecord:
         _portable_id(proposal_id, "proposal")
         _delivery_id(delivery_id)
@@ -1128,6 +1130,35 @@ class ReviewOperations(_LocalEngineOperations):
                     and proposal["space_id"] is None
                 ):
                     raise ValueError("page proposal requires routed capture")
+                if (
+                    outcome in (DecisionOutcome.APPROVED, DecisionOutcome.EDITED)
+                    and not allow_duplicate
+                    and cast(str, proposal["proposed_kind"]) == "page_update"
+                ):
+                    sibling_page_ids = frozenset(
+                        cast(str, item["page_id"])
+                        for item in connection.execute(
+                            "SELECT page_id FROM proposals WHERE set_delivery_id = ? "
+                            "AND proposal_id != ? AND page_id IS NOT NULL",
+                            (proposal["set_delivery_id"], proposal_id),
+                        )
+                    )
+                    if (
+                        duplicate_page_id(
+                            connection,
+                            space_id=cast(str, proposal["space_id"]),
+                            page_id=cast(str, proposal["page_id"]),
+                            title=cast(str, proposal["title"]),
+                            capture_ids=(
+                                cast(Sequence[str], context[1]["provenance"])
+                                if context is not None
+                                else (cast(str, proposal["capture_id"]),)
+                            ),
+                            sibling_page_ids=sibling_page_ids,
+                        )
+                        is not None
+                    ):
+                        raise ValueError("duplicate canonical page")
                 now = _timestamp(self._clock())
                 capture = connection.execute(
                     "SELECT * FROM captures WHERE capture_id = ?", (proposal["capture_id"],)
@@ -1525,6 +1556,7 @@ class ReviewTasks:
         delivery_id: str,
         edited_markdown: str | None = None,
         expected_review_digest: str | None = None,
+        allow_duplicate: bool = False,
     ) -> DecisionRecord:
         if self._authority is not None:
             self._authority.require("review-decide")
@@ -1537,4 +1569,5 @@ class ReviewTasks:
                 edited_markdown=edited_markdown,
                 expected_review_digest=expected_review_digest,
                 authority=self._authority,
+                allow_duplicate=allow_duplicate,
             )

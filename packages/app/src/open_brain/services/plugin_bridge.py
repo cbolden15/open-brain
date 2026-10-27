@@ -207,6 +207,7 @@ def _frozen_publication_result(result: dict[str, object]) -> dict[str, object]:
 _BRIDGE_REVIEW_CODES = {
     "review_target_stale": "review_conflict",
     "replacement_contains_redaction": "review_conflict",
+    "duplicate_page": "review_conflict",
 }
 
 

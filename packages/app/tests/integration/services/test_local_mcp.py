@@ -3172,7 +3172,9 @@ def test_brief_followup_items_are_work_only_and_owner_grants_stay_clamped(tasks:
                 process.wait(timeout=5)
 
 
-@pytest.mark.parametrize("code", ["review_target_stale", "replacement_contains_redaction"])
+@pytest.mark.parametrize(
+    "code", ["review_target_stale", "replacement_contains_redaction", "duplicate_page"]
+)
 def test_review_safe_errors_survive_mcp_transport(code: str) -> None:
     def fail(_arguments: Mapping[str, object]) -> dict[str, object]:
         raise ReviewPublicationError(code)
@@ -3188,3 +3190,19 @@ def test_review_safe_errors_survive_mcp_transport(code: str) -> None:
     )[1]
     assert reply["result"]["isError"] is True
     assert reply["result"]["content"] == [{"type": "text", "text": code}]
+
+
+def test_only_publishing_decisions_accept_allow_duplicate() -> None:
+    def operation(_arguments: Mapping[str, object]) -> dict[str, object]:
+        return {"status": "ok"}
+
+    adapter = LocalMcpAdapter(
+        review_approve=operation, review_reject=operation, review_edit_and_approve=operation
+    )
+    properties = {
+        tool["name"]: cast(dict[str, Any], tool["inputSchema"])["properties"]
+        for tool in adapter.list_tools()
+    }
+    assert properties["brain_review_approve"]["allow_duplicate"] == {"type": "boolean"}
+    assert properties["brain_review_edit_and_approve"]["allow_duplicate"] == {"type": "boolean"}
+    assert "allow_duplicate" not in properties["brain_review_reject"]

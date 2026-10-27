@@ -3258,6 +3258,7 @@ class ReviewTask(Protocol):
         delivery_id: str,
         edited_markdown: str | None = None,
         expected_review_digest: str | None = None,
+        allow_duplicate: bool = False,
     ) -> DecisionRecord: ...
 
 

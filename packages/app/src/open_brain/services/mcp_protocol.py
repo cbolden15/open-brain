@@ -254,6 +254,7 @@ def _call_tool_response(
             "review_conflict",
             "review_target_stale",
             "replacement_contains_redaction",
+            "duplicate_page",
             "response_too_large",
             "session_review_read_limit",
             "session_review_proposal_limit",

@@ -79,9 +79,17 @@ open-brain review edit-and-approve PROPOSAL_ID \
   --idempotency-key project-decisions-edit
 ```
 
-Approval publishes one canonical page and makes it searchable. Rejection writes no page or
-publication. Edit-and-approve replaces the body supplied by the proposal while retaining the same
-validated sources and destination.
+Approval publishes one canonical page and makes it searchable.
+
+Approving or editing a new note is refused with `duplicate_page` when a canonical page in the same
+space already has the same title (ignoring case and repeated whitespace) or exactly the same source
+captures. The check runs at decision time, so a draft that found no match earlier is still checked.
+Drafts proposed together from the same sources are compared by title only. To publish a deliberate
+duplicate, add `--allow-duplicate` (CLI) or `allow_duplicate: true` (MCP approve and
+edit-and-approve). The Obsidian plugin reports this refusal as `review_conflict` and has no override.
+
+Rejection writes no page or publication. Edit-and-approve replaces the body supplied by the proposal
+while retaining the same validated sources and destination.
 
 Edit-and-approve refuses with `replacement_contains_redaction` when the replacement holds more
 `[protected]`, `[redacted]`, or `[private-path]` placeholders than the stored text it replaces (the
