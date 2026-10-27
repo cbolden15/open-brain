@@ -35,7 +35,8 @@ Action: `plugin_bridge._frozen_publication_result` strips
 `_BRIDGE_HIDDEN_REVIEW_FIELDS`, and `_BRIDGE_REVIEW_CODES` folds new review
 codes into `review_conflict` before `PluginBridgeFailure`. Add each new
 agent-facing review field or code there unless the plugin parsers change in the
-same commit.
+same commit. Synthetic plugin contract producers that call the service directly
+must apply the same bridge filter before comparing frozen fixtures.
 
 Discovered: 2026-10-27, issue #126.
 

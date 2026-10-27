@@ -13,6 +13,7 @@ import pytest
 from open_brain_engine.engine.facet_validation import CONTRACT
 from open_brain_engine.portable.review_binding import validate_review_binding
 
+from open_brain.services.plugin_bridge import _frozen_publication_result
 from open_brain.services.plugin_facet_contracts import (
     OPERATIONS,
     PROTOCOL,
@@ -33,7 +34,7 @@ REQUEST_ID = "plugin_00000000-0000-4000-8000-000000000001"
 
 
 def actual_inspection(tmp_path: Path) -> dict[str, object]:
-    """Use real Stage 1 publication and its existing service inspection shape."""
+    """Use real Stage 1 publication and the frozen plugin inspection shape."""
     brain = FacetHarness(tmp_path)
     value = brain.value(brain.dimension())
     capture = brain.capture()
@@ -53,7 +54,7 @@ def actual_inspection(tmp_path: Path) -> dict[str, object]:
         {"proposal_id": proposed["proposal_id"]}
     )
     # Plugin sees JSON arrays, not dataclass tuples.
-    return cast(dict[str, object], json.loads(json.dumps(shown)))
+    return cast(dict[str, object], json.loads(json.dumps(_frozen_publication_result(shown))))
 
 
 def test_real_publication_inspection_producer(tmp_path: Path) -> None:
