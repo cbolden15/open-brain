@@ -204,7 +204,10 @@ def _frozen_publication_result(result: dict[str, object]) -> dict[str, object]:
 
 # Review codes added after bridge protocol 1 froze; PluginBridgeFailure rejects
 # codes outside its allowlist (OBSIDIAN-007).
-_BRIDGE_REVIEW_CODES = {"review_target_stale": "review_conflict"}
+_BRIDGE_REVIEW_CODES = {
+    "review_target_stale": "review_conflict",
+    "replacement_contains_redaction": "review_conflict",
+}
 
 
 class PluginBridgeFailure(RuntimeError):

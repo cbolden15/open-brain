@@ -1103,3 +1103,71 @@ def test_show_and_list_derive_stale_for_an_advanced_update_target(tmp_path: Path
     }
     assert engine.review.show(winner.proposal_id).stale is False
     assert engine.review.show(created.proposal_id).stale is False
+
+
+def test_edit_refuses_projection_placeholders_missing_from_the_live_page(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    first, second = _sources(engine)
+    created = engine.review.propose(
+        (first,),
+        (ProposalDraft("Guarded", "Code lives at /srv/synthetic/tool.py\n"),),
+        delivery_id="delivery.guard.create",
+    )[0]
+    engine.review.decide(
+        created.proposal_id,
+        DecisionOutcome.APPROVED,
+        delivery_id="delivery.guard.create.approve",
+        expected_review_digest=created.review_digest,
+    )
+    update = engine.review.propose(
+        (second,),
+        (ProposalDraft("Guarded", "Code lives at /srv/synthetic/tool.py\nMore\n"),),
+        delivery_id="delivery.guard.update",
+        target_page_id=created.page_id,
+    )[0]
+    shown = engine.review.show(update.proposal_id)
+    assert "[protected]" in shown.markdown
+
+    with pytest.raises(ValueError, match="replacement contains projection placeholder"):
+        engine.review.decide(
+            update.proposal_id,
+            DecisionOutcome.EDITED,
+            delivery_id="delivery.guard.edit.projected",
+            edited_markdown=shown.markdown + "\nMerged",
+            expected_review_digest=update.review_digest,
+        )
+    assert engine.review.show(update.proposal_id).status == "pending"
+    restored = engine.review.decide(
+        update.proposal_id,
+        DecisionOutcome.EDITED,
+        delivery_id="delivery.guard.edit.restored",
+        edited_markdown="Code lives at /srv/synthetic/tool.py\nMerged\n",
+        expected_review_digest=update.review_digest,
+    )
+    assert restored.outcome is DecisionOutcome.EDITED
+
+
+def test_create_edit_allows_only_placeholders_already_in_the_draft(tmp_path: Path) -> None:
+    engine = _engine(tmp_path / "brain")
+    first, _ = _sources(engine)
+    proposal = engine.review.propose(
+        (first,),
+        (ProposalDraft("Literal marker", "Draft keeps a literal [redacted] marker"),),
+        delivery_id="delivery.guard.literal",
+    )[0]
+    with pytest.raises(ValueError, match="replacement contains projection placeholder"):
+        engine.review.decide(
+            proposal.proposal_id,
+            DecisionOutcome.EDITED,
+            delivery_id="delivery.guard.literal.added",
+            edited_markdown="Draft keeps a literal [redacted] marker and [protected] text",
+            expected_review_digest=proposal.review_digest,
+        )
+    kept = engine.review.decide(
+        proposal.proposal_id,
+        DecisionOutcome.EDITED,
+        delivery_id="delivery.guard.literal.kept",
+        edited_markdown="Edited draft keeps a literal [redacted] marker",
+        expected_review_digest=proposal.review_digest,
+    )
+    assert kept.outcome is DecisionOutcome.EDITED

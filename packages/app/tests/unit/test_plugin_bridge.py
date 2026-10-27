@@ -1998,5 +1998,6 @@ def test_bridge_hides_review_fields_added_after_protocol_one() -> None:
 def test_bridge_folds_new_review_codes_into_review_conflict() -> None:
     codes = plugin_bridge_module._BRIDGE_REVIEW_CODES
     assert codes["review_target_stale"] == "review_conflict"
+    assert codes["replacement_contains_redaction"] == "review_conflict"
     for code in codes.values():
         assert PluginBridgeFailure(code).code == code

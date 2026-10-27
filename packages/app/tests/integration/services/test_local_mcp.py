@@ -3172,7 +3172,7 @@ def test_brief_followup_items_are_work_only_and_owner_grants_stay_clamped(tasks:
                 process.wait(timeout=5)
 
 
-@pytest.mark.parametrize("code", ["review_target_stale"])
+@pytest.mark.parametrize("code", ["review_target_stale", "replacement_contains_redaction"])
 def test_review_safe_errors_survive_mcp_transport(code: str) -> None:
     def fail(_arguments: Mapping[str, object]) -> dict[str, object]:
         raise ReviewPublicationError(code)

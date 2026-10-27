@@ -421,3 +421,12 @@ def test_stale_update_is_rejectable_but_not_approvable(tmp_path: Path) -> None:
     )
     assert rejected["status"] == "rejected"
     assert service.list({"status": "pending"})["proposals"] == []
+
+
+def test_edit_with_placeholders_maps_to_replacement_contains_redaction() -> None:
+    service, task = _service()
+    task.decide.side_effect = ValueError("replacement contains projection placeholder")
+    with pytest.raises(ReviewPublicationError, match="^replacement_contains_redaction$"):
+        service.edit_and_approve(
+            {"proposal_id": PROPOSAL, "review_token": DIGEST, "markdown": "[protected]"}
+        )

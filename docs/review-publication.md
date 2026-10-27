@@ -81,7 +81,14 @@ open-brain review edit-and-approve PROPOSAL_ID \
 
 Approval publishes one canonical page and makes it searchable. Rejection writes no page or
 publication. Edit-and-approve replaces the body supplied by the proposal while retaining the same
-validated sources and destination. These owner-invoked CLI commands do not require MCP grant flags.
+validated sources and destination.
+
+Edit-and-approve refuses with `replacement_contains_redaction` when the replacement holds more
+`[protected]`, `[redacted]`, or `[private-path]` placeholders than the stored text it replaces (the
+current page for an update, the stored draft for a new note). Those placeholders come from privacy
+projection in `review show` and `brain_read`; copying them back would overwrite real content.
+
+These owner-invoked CLI commands do not require MCP grant flags.
 
 A stale or wrong review token returns `review_conflict`. The same code is returned when a selected
 source or its route changed after inspection. The CLI names the changed binding (`source`,

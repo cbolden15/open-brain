@@ -253,6 +253,7 @@ def _call_tool_response(
             "terminal_decision",
             "review_conflict",
             "review_target_stale",
+            "replacement_contains_redaction",
             "response_too_large",
             "session_review_read_limit",
             "session_review_proposal_limit",

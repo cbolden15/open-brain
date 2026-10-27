@@ -29,6 +29,7 @@ from .contracts import (
     ReviewProposal,
     _LocalEngineOperations,
     project_public_result_text,
+    projection_markers_added,
 )
 from .mcp_eligibility import install
 from .normalization import (
@@ -895,6 +896,30 @@ class ReviewOperations(_LocalEngineOperations):
             stale=stale,
         )
 
+    def _edit_baseline_body(
+        self,
+        proposal_id: str,
+        context: tuple[dict[str, object], dict[str, object]] | None,
+    ) -> str:
+        """Return the stored body an edit replaces: the live target, else the raw draft."""
+        connection = self._store.connect()
+        try:
+            if context is not None and context[1]["operation"] == "update":
+                target = _target_state(self, connection, cast(str, context[1]["page_id"]))
+                assert target is not None
+                return parse_markdown(_read_page(self, cast(str, target["canonical_path"]))).body
+            proposal = connection.execute(
+                "SELECT proposed_kind, proposed_bytes, body FROM proposals WHERE proposal_id = ?",
+                (proposal_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        if proposal is None:
+            raise ValueError("unknown proposal")
+        if cast(str, proposal["proposed_kind"]) == "page_update":
+            return parse_markdown(cast(bytes, proposal["proposed_bytes"])).body
+        return cast(str | None, proposal["body"]) or ""
+
     def _decide(
         self,
         proposal_id: str,
@@ -947,6 +972,14 @@ class ReviewOperations(_LocalEngineOperations):
             and expected_review_digest != inspection.review_digest
         ):
             raise ReviewBindingConflict("review digest conflict", binding="draft")
+        if (
+            outcome is DecisionOutcome.EDITED
+            and reserved is None
+            and projection_markers_added(
+                self._edit_baseline_body(proposal_id, context), cast(str, edited_markdown)
+            )
+        ):
+            raise ValueError("replacement contains projection placeholder")
         if (
             context is not None and reserved is None
             and outcome is not DecisionOutcome.REJECTED

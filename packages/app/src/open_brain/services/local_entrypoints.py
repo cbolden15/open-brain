@@ -1966,6 +1966,10 @@ def _write_review_failure(code: str, *, json_output: bool, binding: str | None =
             "The target page changed after this proposal was drafted. The proposal can only be "
             "rejected; propose a new update from the current page."
         ),
+        "replacement_contains_redaction": (
+            "The replacement body contains a privacy placeholder ([protected], [redacted], or "
+            "[private-path]) that the current page does not. Restore the original text first."
+        ),
         "response_too_large": "The complete projected proposal exceeds the inspection limit.",
     }
     binding_messages = {

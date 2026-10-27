@@ -365,6 +365,7 @@ def _public_error(error: ValueError) -> ReviewPublicationError:
         "review sources and target must share a space": "mixed_source_spaces",
         "page proposal requires routed capture": "source_unrouted",
         "proposal already has a terminal decision": "terminal_decision",
+        "replacement contains projection placeholder": "replacement_contains_redaction",
         "review digest mismatch": "review_conflict",
         "review digest is required": "review_conflict",
         "review digest conflict": "review_conflict",
