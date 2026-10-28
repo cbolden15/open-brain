@@ -4,6 +4,23 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-020: Eight workers can exhaust the bounded harness scenario deadline
+
+Category: Testing / Resource contention.
+
+The compact-search full gate passed with four workers. A later eight-worker
+run timed out inside `harness_acceptance._run_scenarios`, whose nested scenario
+bundle has a 120-second deadline. The unchanged acceptance module passed all
+32 tests in isolation in 80 seconds immediately afterward.
+
+Use the verified four-worker setting for this local full gate, with temporary
+roots outside the checkout. Keep the scenario deadline intact; a load-dependent
+timeout does not justify increasing it or weakening the scenario assertions.
+If the failure also reproduces in isolation, investigate it as a functional
+failure before retrying the suite.
+
+Discovered: 2026-10-28, compact-search final verification.
+
 ### TESTING-019: Scoped MCP discovery expectations also live in collector fixtures
 
 Category: Testing / Capability discovery.
