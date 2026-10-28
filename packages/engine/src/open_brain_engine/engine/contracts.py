@@ -54,6 +54,7 @@ from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteRe
 
 if TYPE_CHECKING:
     from .capture_lifecycle import CaptureLifecycleTasks
+    from .compact_search_contracts import CompactSearchPageRequest, CompactSearchPageResponse
     from .consumer_intake import ConsumerIntakeTasks
     from .facet_contracts import FacetPublicationTasks, FacetTasks, FacetVaultTasks
     from .privacy_repairs import PrivacyRepairReceipt, PrivacyRepairRequest
@@ -3284,6 +3285,15 @@ class RetrievalTask(Protocol):
     def search_page(
         self, request: SearchPageRequest, *, authority: EffectiveAuthority
     ) -> SearchPageResponse: ...
+
+    def compact_search_page(
+        self,
+        request: CompactSearchPageRequest,
+        *,
+        authority: EffectiveAuthority,
+        maximum_response_bytes: int | None = None,
+        encoded_size: Callable[[Mapping[str, object]], int] | None = None,
+    ) -> CompactSearchPageResponse: ...
 
     def read_record(
         self, request: RecordReadRequest, *, authority: EffectiveAuthority

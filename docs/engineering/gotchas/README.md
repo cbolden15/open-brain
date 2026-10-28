@@ -4,6 +4,48 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TYPE-004: Compact adapters need typed response and nested schema boundaries
+
+Category: Type Safety.
+
+The first compact adapter typecheck rejected an untyped response's `to_wire()`
+return (`no-any-return`) and unpacking nested schema `properties` while it was
+typed only as `object` (`dict-item`). Concrete engine methods also need matching
+`RetrievalTask` protocol declarations before app call sites can typecheck.
+
+Use an explicit compact-operation protocol returning the engine response type,
+narrow the wire dictionary and nested schema properties before combining them,
+and update both the concrete task and its protocol. The shared consumers are
+the core CLI and MCP adapters; verify the full build and typecheck after changing
+these boundaries, not just the new module.
+
+Discovered: 2026-10-28, compact search implementation.
+
+### SEARCH-004: Exact compact continuation needs the final eligible-set digest
+
+Category: Retrieval / Cursor consistency.
+
+Deleting or tampering with a synthetic retained source file made its final
+projector return `not_found` while the database generations stayed unchanged.
+Counts and group membership could therefore change between compact pages even
+though the ordinary database generation binding still matched.
+
+Hash the ordered final eligible compact identities, revisions and grouping
+metadata during the already-required full scan. Store that digest privately on
+the successor cursor and compare it before returning any continuation, including
+an empty terminal response. Missing or altered non-anchor files and loss of all
+eligible files must return `cursor_stale`, without returning changed totals.
+Keep denied records out of the digest as well as out of counts.
+
+The ordinary paging generation also hashes pre-projection index rows. Reusing
+that content binding in compact mode let routing an already-inaccessible source
+invalidate a visible cursor while fresh counts stayed unchanged. Compact binds
+content currency to the final eligible relation, retaining explicit policy,
+incarnation, fencing, root and key epochs separately. Do not weaken the frozen
+full-paging contract to make this compact-only change.
+
+Discovered: 2026-10-28, synthetic source-custody mutation regression.
+
 ### REVIEW-008: Live page diffs need current canonical read eligibility
 
 Category: Review / Privacy / Build Pipeline.

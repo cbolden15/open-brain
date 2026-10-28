@@ -1,6 +1,6 @@
 # Compact search response and pagination contract
 
-Status: proposed contract, 2026-10-28. Implementation has not started.
+Status: implemented candidate, 2026-10-28. Release remains a separate stage.
 Issue: [#127](https://github.com/cbolden15/open-brain/issues/127), compact search only.
 Baseline: `main` at `d7e0bb90f511`; schema/runtime/Portable 23/16/18.
 
@@ -18,7 +18,7 @@ Add engine operation `search.compact.page`, DTO version 1, with its own closed r
 
 Core MCP `brain_search` and `brain_search_page` accept `view: "compact"` only when a compact implementation is injected and the session has the existing `search` capability. Missing `view`, or `view: "full"`, keeps each tool's current full response, defaults and bounds. Compact-only fields with a full view are invalid. Compact mode on either tool dispatches the same new operation and shares the negotiated search/read session budget; changing tool names cannot reset that budget.
 
-Expose equivalent CLI flags on `search` and `search-page`: `--compact`, `--group-by title|none`, `--count-only`, `--target-bytes`, and `--cursor`. The latter four require `--compact`; existing query/filter/mode/limit flags map to the request below. Compact mode is lexical by default on both commands. JSON uses the exact success envelope below; human output renders the same selected rows and counts with the existing terminal-control sanitization.
+Expose equivalent CLI flags on `search` and `search-page`: `--compact`, `--group-by title|none`, `--count-only`, `--target-bytes`, and `--cursor`. The new group/count/target flags require `--compact`. The new `search --cursor` also requires compact; existing `search-page --cursor` remains available for full paging. Existing query/filter/mode/limit flags map to the request below. Compact mode is lexical by default on both commands. JSON uses the exact success envelope below; human output renders the same selected rows and counts with the existing terminal-control sanitization.
 
 MCP `tools/list` advertises the compact argument branch only when callable. For explicit discovery, extend `brain_contract_describe` with the closed opt-in request `{"extensions":["compact_search_v1"]}`; this first version accepts that exact extension list only. Its separate closed response is:
 
@@ -158,7 +158,7 @@ Create one eligible result relation inside one existing engine read snapshot. Ap
 
 Compact search does not change lexical matching or the hybrid candidate/ranking algorithms. `hybrid_preferred` fallback returns `mode_used: "lexical"`, lexical count scope and `warnings: ["model_unavailable"]`. `hybrid_required` fails if the model is unavailable. No model/helper is invoked for lexical requests, including counts. There is no silent hybrid or network fallback.
 
-Hidden records must not affect returned groups, counts, ordering, page boundaries or visible-state invalidation. Count and grouping logic must use the same final visibility checks as rendering; a raw `COUNT(*)` or global title histogram followed by result filtering is forbidden. Use the existing authority-aware generation rules, rather than substituting a global content-update counter. Existing explicit policy/key/root changes still invalidate cursors as prescribed below. This is an output non-disclosure invariant, not a timing-isolation claim.
+Hidden records must not affect returned groups, counts, ordering, page boundaries or visible-state invalidation. Count and grouping logic must use the same final visibility checks as rendering; a raw `COUNT(*)` or global title histogram followed by result filtering is forbidden. Compact content invalidation uses the final eligible result digest, not a global content-update counter or the existing pre-projection index digest: even a SQL-authorized row may be withheld by the final projector. Retain explicit policy/key/root epoch changes as prescribed below. This is an output non-disclosure invariant, not a timing-isolation claim.
 
 ## Grouping and ordering
 
@@ -186,9 +186,9 @@ MCP adapters must also measure the final encoded tool response, including duplic
 
 Reuse the authenticated, root-bound `CursorStore`: handles are opaque, at most 128 characters, and each issued handle retains the existing 900-second TTL. Private state records the group anchor and the last emitted member, not a public integer offset or an indefinitely retained result snapshot.
 
-Bind a cursor to operation/DTO version, normalized query, canonicalized filters, requested and actual mode, grouping/version, ranking/version, `limit`, `target_bytes`, the full existing authority binding, and the existing visible generation/projection/root/key/embedding bindings. Query normalization means the existing outer whitespace trim, without additional case folding. Filters are validated and sorted as in current paging. Effective defaults are bound, so omitting a field and supplying its default are equivalent. Continuations must repeat the effective search parameters.
+Bind a cursor to operation/DTO version, normalized query, canonicalized filters, requested and actual mode, grouping/version, ranking/version, `limit`, `target_bytes`, the full existing authority binding, final eligible content state, and explicit incarnation/authorization/projection-policy/fencing/root/key/embedding bindings. Do not bind compact continuation to pre-projection index hashes or content-generation counters. Query normalization means the existing outer whitespace trim, without additional case folding. Filters are validated and sorted as in current paging. Effective defaults are bound, so omitting a field and supplying its default are equivalent. Continuations must repeat the effective search parameters.
 
-Resolve authority and generation on every continuation. Do not keep a SQL transaction open across calls. Successful continuation requires the original visible result set still to be current; otherwise the client restarts with a null cursor. Reusing a live cursor under unchanged conditions returns the same members, groups and counts without consuming it. A newly allocated successor handle need not be byte-identical on replay.
+Resolve authority and generation on every continuation. Also hash the ordered final eligible identities, revisions and grouping metadata during the full scan, store that digest privately on the successor, and compare it before returning any continuation. A retained file can become unreadable without changing database generations; this digest makes changed final membership stale even when all results disappear. Do not keep a SQL transaction open across calls. Successful continuation requires the original visible result set still to be current; otherwise the client restarts with a null cursor. Reusing a live cursor under unchanged conditions returns the same members, groups and counts without consuming it. A newly allocated successor handle need not be byte-identical on replay.
 
 | Condition | Closed error code and behavior |
 |---|---|
@@ -222,7 +222,7 @@ Errors retain the existing bounded `{status: "error", error: {code: ...}}` shape
 | Hostile/long titles and MCP structured/text duplication | No excerpt or private locator; actual complete response fits the selected payload and transport budgets. |
 | Legacy CLI/MCP/T03 requests and empty describe | Existing shapes, defaults, strict grammar and fixtures remain unchanged. Unsupported adapters refuse compact arguments. |
 
-Before implementation acceptance, measure exact counting and global grouping on synthetic 1,000- and 10,000-record corpora, with both mostly unique titles and one dominant title. Record first-page/count-only latency, continuation latency, peak memory and final MCP bytes, separately from existing full search. Full-set projection is more work than today's lazy lexical page; its cost is unresolved. Share the engine candidate/projection path, use bounded batches or SQLite sorting rather than an unbounded list of projected bodies, and never turn an internal scan cap into an allegedly exact total. If acceptable cost requires a new persistent index or a change to ranking/candidate semantics, revise this contract before adding either.
+The [synthetic measurements](../../engineering/compact-search-performance.md) cover exact counting and global grouping on 1,000- and 10,000-record corpora, with unique titles and one dominant title. They record first-page/count-only and continuation latency, peak memory and final MCP bytes separately from full search. Default compact MCP responses were about 6.5–8.5 KiB, with exact-count latency about 1.1 seconds for 1,000 matches and 15 seconds for 10,000 matches. Full-set projection is more work than today's lazy lexical page. The implementation shares the engine candidate/projection path and uses SQLite sorting over compact metadata rather than retaining projected bodies. Never turn an internal scan cap into an allegedly exact total. A new persistent counting index or a change to ranking/candidate semantics requires revising this contract before implementation.
 
 ## Implementation anchors
 

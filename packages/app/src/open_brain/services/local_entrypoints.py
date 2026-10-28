@@ -95,6 +95,7 @@ from open_brain.services.brief_contracts import (
     BriefError,
 )
 from open_brain.services.brief_log import BriefLogStore
+from open_brain.services.compact_search import CompactSearchAppAdapter
 from open_brain.services.consumer_import import (
     add_consumer_parsers,
     consumer_grammar_requested,
@@ -280,6 +281,14 @@ def run_cli(
         return error.code if isinstance(error.code, int) else 1
     if parsed.command is None:
         _write_usage_failure(json_output=json_output)
+        return 2
+    try:
+        _validate_compact_search_arguments(parsed)
+    except T03AppError:
+        if json_output:
+            _write_json(error_result("invalid_arguments"))
+        else:
+            print("invalid_arguments", file=sys.stderr)
         return 2
     if parsed.command == "consumer-import":
         try:
@@ -962,7 +971,17 @@ def _parser() -> argparse.ArgumentParser:
     search_parser = subparsers.add_parser("search", help="Search the local Brain directly.")
     _add_local_options(search_parser)
     search_parser.add_argument("query", help="Text to find.")
-    search_parser.add_argument("--limit", type=int, default=10, help="Return 1 to 100 results.")
+    search_parser.add_argument("--limit", type=int, default=None, help="Return 1 to 100 results.")
+    _add_compact_search_arguments(search_parser)
+    search_parser.add_argument("--cursor")
+    search_parser.add_argument("--space-id", action="append", dest="space_ids")
+    search_parser.add_argument("--payload-family", action="append", dest="payload_families")
+    search_parser.add_argument(
+        "--record-type", action="append", choices=("source", "canonical"), dest="record_types"
+    )
+    search_parser.add_argument(
+        "--mode", choices=("lexical", "hybrid_preferred", "hybrid_required"), default=None
+    )
     catalog_parser = subparsers.add_parser(
         "catalog", help="Describe public implementation and compatibility metadata."
     )
@@ -1429,6 +1448,36 @@ def _validate_workspace_recovery_arguments(parsed: argparse.Namespace) -> None:
         raise ValueError("owner decision arguments require abandonment")
 
 
+def _add_compact_search_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--compact", action="store_true", help="Return title groups without excerpts."
+    )
+    parser.add_argument("--group-by", choices=("title", "none"), default=None)
+    parser.add_argument("--count-only", action="store_true", default=None)
+    parser.add_argument("--target-bytes", type=int, default=None)
+
+
+def _validate_compact_search_arguments(parsed: argparse.Namespace) -> None:
+    if parsed.command not in {"search", "search-page"}:
+        return
+    if parsed.limit is None:
+        parsed.limit = 20 if parsed.compact else 10
+    if not parsed.compact and (
+        parsed.group_by is not None
+        or parsed.count_only is not None
+        or parsed.target_bytes is not None
+        or parsed.command == "search"
+        and (
+            parsed.cursor is not None
+            or parsed.mode is not None
+            or parsed.space_ids
+            or parsed.payload_families
+            or parsed.record_types
+        )
+    ):
+        raise T03AppError("invalid_arguments")
+
+
 def _add_t03_parsers(
     subparsers: argparse._SubParsersAction[_RedactedArgumentParser],
 ) -> None:
@@ -1447,7 +1496,8 @@ def _add_t03_parsers(
         choices=("lexical", "hybrid_preferred", "hybrid_required"),
         default="lexical",
     )
-    search_page.add_argument("--limit", type=int, default=10)
+    search_page.add_argument("--limit", type=int, default=None)
+    _add_compact_search_arguments(search_page)
     search_page.add_argument("--cursor")
 
     read = subparsers.add_parser("read", help="Read one complete projected record in chunks.")
@@ -2560,8 +2610,8 @@ def _run_agent_setup(
 def _t03_cli_request(parsed: argparse.Namespace) -> tuple[str, dict[str, object]]:
     operation: str
     arguments: dict[str, object] = {"dto_version": 1}
-    if parsed.command == "search-page":
-        operation = "search.page"
+    if parsed.command in {"search", "search-page"}:
+        operation = "search.compact.page" if parsed.compact else "search.page"
         arguments.update(
             query=parsed.query,
             filters={
@@ -2569,10 +2619,16 @@ def _t03_cli_request(parsed: argparse.Namespace) -> tuple[str, dict[str, object]
                 "payload_families": sorted(set(parsed.payload_families or [])),
                 "record_types": sorted(set(parsed.record_types or [])),
             },
-            mode=parsed.mode,
-            limit=parsed.limit,
+            mode=parsed.mode or "lexical",
+            limit=parsed.limit if parsed.limit is not None else (20 if parsed.compact else 10),
             cursor=parsed.cursor,
         )
+        if parsed.compact:
+            arguments.update(
+                group_by=parsed.group_by or "title",
+                count_only=parsed.count_only or False,
+                target_bytes=parsed.target_bytes if parsed.target_bytes is not None else 4096,
+            )
     elif parsed.command == "read":
         operation = "record.read"
         arguments.update(
@@ -2638,7 +2694,13 @@ def _run_t03_cli(
         tasks,
         owner_authority(tasks, session_id="owner-cli"),
     )
-    result = adapter.invoke(operation, arguments)
+    if operation == "search.compact.page":
+        compact = CompactSearchAppAdapter(
+            tasks.retrieval.compact_search_page, adapter.authority, adapter.budget
+        )
+        result = compact.invoke(arguments)
+    else:
+        result = adapter.invoke(operation, arguments)
     if json_output:
         _write_json(result)
     elif operation in {"record.read", "history.show"}:
@@ -2990,6 +3052,8 @@ def _run_local_command(
         return _run_source_lifecycle(parsed, tasks, json_output=json_output)
     if parsed.command == "sharing":
         return _run_sharing(parsed, tasks, json_output=json_output)
+    if parsed.command == "search" and parsed.compact:
+        return _run_t03_cli(parsed, tasks, json_output=json_output)
     if parsed.command in {
         "search-page",
         "read",
@@ -3278,6 +3342,13 @@ def _run_local_command(
             brief=(briefs["brief"] if local_callbacks and parsed.allow_brief_read else None),
             brief_ack=(briefs["ack"] if local_callbacks and parsed.allow_brief_ack else None),
             negotiated=negotiated,
+            compact_search=(
+                CompactSearchAppAdapter(
+                    tasks.retrieval.compact_search_page, session_authority, negotiated.budget
+                )
+                if parsed.allow_search and negotiated is not None
+                else None
+            ),
             facets=FacetAppAdapter(
                 facets=tasks.facets,
                 publication=tasks.facet_publication,

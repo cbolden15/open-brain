@@ -45,6 +45,7 @@ from .t03_contracts import (
 if TYPE_CHECKING:
     from .embedding_cache import ActiveGeneration, ChunkRef
     from .local import BrainEngine
+    from .retrieval import _CompiledQuery
 
 RANKING_VERSION = "fts5-match-tier-binary-v2"
 # EMBEDDING-RESOURCE section 8 (2026-10-17 amendment) and decision D5: equal-weight
@@ -533,6 +534,182 @@ def _reached(
         yield score, summary
 
 
+def ranked_candidates(
+    engine: BrainEngine,
+    connection: sqlite3.Connection,
+    compiled: _CompiledQuery,
+    filters: dict[str, list[str]],
+    authority: EffectiveAuthority,
+    semantic: _Semantic | None,
+    *,
+    last: tuple[float, str, str] | None = None,
+) -> Iterator[tuple[float, dict[str, Any]]]:
+    """Shared authorized/projected ranking in the caller's existing read snapshot."""
+    parameters: list[Any] = []
+    clauses = [
+        "mcp_record_visible(d.record_type,d.result_id)=1",
+        "(d.record_type='canonical' OR EXISTS (SELECT 1 FROM logical_sources s "
+        "WHERE s.head_capture_id=d.result_id AND s.historical_only=0 "
+        "AND s.lifecycle='active' AND s.availability='available'))",
+    ]
+    readable_tiers = tuple(tier.value for tier in PrivacyTier if authority.permits_read_tier(tier))
+    if readable_tiers:
+        clauses.append("d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")")
+        parameters.extend(readable_tiers)
+    else:
+        clauses.append("0")
+    if not authority.owner and authority.egress_mode is EgressMode.OWNER_LOCAL:
+        clauses.append("scoped_projection_visible(d.record_type,d.result_id)=1")
+    if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
+        clauses.append("d.effective_external_egress=1")
+        clauses.append("sharing_visible(d.capture_id)=1")
+        eligible, bindings = external_candidate_clause("d", authority)
+        clauses.append(eligible)
+        parameters.extend(bindings)
+        members, member_bindings = external_canonical_clause("d", authority)
+        clauses.append(members)
+        parameters.extend(member_bindings)
+    if authority.space_ids is not None:
+        values = sorted(authority.space_ids)
+        clauses.append("d.space_id IN (" + ",".join("?" for _ in values) + ")")
+        parameters.extend(values)
+    for name, column in (
+        ("space_ids", "space_id"),
+        ("payload_families", "payload_family"),
+        ("record_types", "record_type"),
+    ):
+        values = filters[name]
+        if values:
+            clauses.append(f"d.{column} IN (" + ",".join("?" for _ in values) + ")")
+            parameters.extend(values)
+    authorization = list(parameters)
+    parameters.extend(
+        (
+            compiled.title_phrase,
+            compiled.title_all,
+            compiled.phrase_any,
+            compiled.all_any,
+        )
+    )
+    tiers = f"""
+        WITH authorized AS MATERIALIZED (
+            SELECT d.*,i.fts_rowid FROM search_documents d
+            JOIN search_fts_identity i USING(result_id) WHERE {" AND ".join(clauses)}
+        ), title_phrase AS MATERIALIZED (
+            SELECT rowid AS fts_rowid FROM search_documents_fts
+            WHERE search_documents_fts MATCH ?
+        ), title_all AS MATERIALIZED (
+            SELECT rowid AS fts_rowid FROM search_documents_fts
+            WHERE search_documents_fts MATCH ?
+        ), phrase_any AS MATERIALIZED (
+            SELECT rowid AS fts_rowid FROM search_documents_fts
+            WHERE search_documents_fts MATCH ?
+        ), all_any AS MATERIALIZED (
+            SELECT rowid AS fts_rowid FROM search_documents_fts
+            WHERE search_documents_fts MATCH ?
+        )"""
+    projector = RecordProjector(engine.profile, connection, authority)
+    if semantic is None:
+        parameters.append(compiled.disjunction)
+        seek = ""
+        if last is not None:
+            seek = "WHERE (score,record_type COLLATE BINARY,result_id COLLATE BINARY) > (?,?,?)"
+            parameters.extend(last)
+        sql = f"""{tiers}, hits AS MATERIALIZED (
+                SELECT a.*,CAST(CASE
+                    WHEN tp.fts_rowid IS NOT NULL THEN 1
+                    WHEN ta.fts_rowid IS NOT NULL THEN 2
+                    WHEN pa.fts_rowid IS NOT NULL THEN 3
+                    WHEN aa.fts_rowid IS NOT NULL THEN 4
+                    ELSE 5
+                END AS REAL) AS score
+                FROM authorized a JOIN search_documents_fts ON
+                  search_documents_fts.rowid=a.fts_rowid AND
+                  search_documents_fts.result_id=a.result_id
+                LEFT JOIN title_phrase tp USING(fts_rowid)
+                LEFT JOIN title_all ta USING(fts_rowid)
+                LEFT JOIN phrase_any pa USING(fts_rowid)
+                LEFT JOIN all_any aa USING(fts_rowid)
+                WHERE search_documents_fts MATCH ?
+            )
+            SELECT * FROM hits {seek}
+            ORDER BY score ASC,record_type COLLATE BINARY,result_id COLLATE BINARY
+        """
+        ranked = _lexical_ranked(connection.execute(sql, parameters), projector)
+    else:
+        # Tier 1-4 candidates only (D5), unauthorized here and bounded by the FTS hits.
+        tier_sql = """
+            WITH title_phrase AS MATERIALIZED (
+                SELECT rowid AS fts_rowid FROM search_documents_fts
+                WHERE search_documents_fts MATCH ?
+            ), title_all AS MATERIALIZED (
+                SELECT rowid AS fts_rowid FROM search_documents_fts
+                WHERE search_documents_fts MATCH ?
+            ), phrase_any AS MATERIALIZED (
+                SELECT rowid AS fts_rowid FROM search_documents_fts
+                WHERE search_documents_fts MATCH ?
+            ), all_any AS MATERIALIZED (
+                SELECT rowid AS fts_rowid FROM search_documents_fts
+                WHERE search_documents_fts MATCH ?
+            )
+            SELECT * FROM (
+                SELECT CASE
+                    WHEN tp.fts_rowid IS NOT NULL THEN 1
+                    WHEN ta.fts_rowid IS NOT NULL THEN 2
+                    WHEN pa.fts_rowid IS NOT NULL THEN 3
+                    WHEN aa.fts_rowid IS NOT NULL THEN 4
+                END AS tier,d.record_type,d.result_id
+                FROM search_documents d JOIN search_fts_identity i USING(result_id)
+                JOIN search_documents_fts ON
+                  search_documents_fts.rowid=i.fts_rowid AND
+                  search_documents_fts.result_id=d.result_id
+                LEFT JOIN title_phrase tp ON tp.fts_rowid=i.fts_rowid
+                LEFT JOIN title_all ta ON ta.fts_rowid=i.fts_rowid
+                LEFT JOIN phrase_any pa ON pa.fts_rowid=i.fts_rowid
+                LEFT JOIN all_any aa ON aa.fts_rowid=i.fts_rowid
+            ) WHERE tier IS NOT NULL
+            ORDER BY tier,record_type COLLATE BINARY,result_id COLLATE BINARY
+        """
+        tiered = [
+            (int(row["tier"]), row["record_type"], row["result_id"])
+            for row in connection.execute(tier_sql, parameters[len(authorization) :])
+        ]
+
+        def authorize(
+            identities: list[tuple[str, str]],
+        ) -> dict[tuple[str, str], sqlite3.Row]:
+            """The unchanged authorized clauses, evaluated only over ``identities``."""
+            if not identities:
+                return {}
+            wanted = set(identities)
+            rows = connection.execute(
+                f"""SELECT d.* FROM search_documents d
+                JOIN search_fts_identity i USING(result_id)
+                JOIN search_documents_fts ON
+                  search_documents_fts.rowid=i.fts_rowid AND
+                  search_documents_fts.result_id=d.result_id
+                WHERE d.result_id IN ({",".join("?" for _ in identities)})
+                AND {" AND ".join(clauses)}""",
+                [result_id for _record_type, result_id in identities] + authorization,
+            )
+            return {
+                (row["record_type"], row["result_id"]): row
+                for row in rows
+                if (row["record_type"], row["result_id"]) in wanted
+            }
+
+        fused = _fused(tiered, authorize, projector, semantic)
+        if last is not None:
+            after = (-last[0], last[1], last[2])
+            fused = [
+                item
+                for item in fused
+                if (-item[0], item[1]["record_type"], item[1]["record_id"]) > after
+            ]
+        ranked = _reached(fused)
+    return ranked
+
+
 def search_page(
     engine: BrainEngine,
     request: SearchPageRequest,
@@ -585,170 +762,9 @@ def search_page(
             stale_bindings=stale,
         )
         last = _last_key(prior)
-        parameters: list[Any] = []
-        clauses = [
-            "mcp_record_visible(d.record_type,d.result_id)=1",
-            "(d.record_type='canonical' OR EXISTS (SELECT 1 FROM logical_sources s "
-            "WHERE s.head_capture_id=d.result_id AND s.historical_only=0 "
-            "AND s.lifecycle='active' AND s.availability='available'))",
-        ]
-        readable_tiers = tuple(
-            tier.value for tier in PrivacyTier if authority.permits_read_tier(tier)
+        ranked = ranked_candidates(
+            engine, connection, compiled, filters, authority, semantic, last=last
         )
-        if readable_tiers:
-            clauses.append("d.effective_tier IN (" + ",".join("?" for _ in readable_tiers) + ")")
-            parameters.extend(readable_tiers)
-        else:
-            clauses.append("0")
-        if not authority.owner and authority.egress_mode is EgressMode.OWNER_LOCAL:
-            clauses.append("scoped_projection_visible(d.record_type,d.result_id)=1")
-        if authority.egress_mode is EgressMode.EXTERNAL_PROVIDER:
-            clauses.append("d.effective_external_egress=1")
-            clauses.append("sharing_visible(d.capture_id)=1")
-            eligible, bindings = external_candidate_clause("d", authority)
-            clauses.append(eligible)
-            parameters.extend(bindings)
-            members, member_bindings = external_canonical_clause("d", authority)
-            clauses.append(members)
-            parameters.extend(member_bindings)
-        if authority.space_ids is not None:
-            values = sorted(authority.space_ids)
-            clauses.append("d.space_id IN (" + ",".join("?" for _ in values) + ")")
-            parameters.extend(values)
-        for name, column in (
-            ("space_ids", "space_id"),
-            ("payload_families", "payload_family"),
-            ("record_types", "record_type"),
-        ):
-            values = filters[name]
-            if values:
-                clauses.append(f"d.{column} IN (" + ",".join("?" for _ in values) + ")")
-                parameters.extend(values)
-        authorization = list(parameters)
-        parameters.extend(
-            (
-                compiled.title_phrase,
-                compiled.title_all,
-                compiled.phrase_any,
-                compiled.all_any,
-            )
-        )
-        tiers = f"""
-            WITH authorized AS MATERIALIZED (
-                SELECT d.*,i.fts_rowid FROM search_documents d
-                JOIN search_fts_identity i USING(result_id) WHERE {" AND ".join(clauses)}
-            ), title_phrase AS MATERIALIZED (
-                SELECT rowid AS fts_rowid FROM search_documents_fts
-                WHERE search_documents_fts MATCH ?
-            ), title_all AS MATERIALIZED (
-                SELECT rowid AS fts_rowid FROM search_documents_fts
-                WHERE search_documents_fts MATCH ?
-            ), phrase_any AS MATERIALIZED (
-                SELECT rowid AS fts_rowid FROM search_documents_fts
-                WHERE search_documents_fts MATCH ?
-            ), all_any AS MATERIALIZED (
-                SELECT rowid AS fts_rowid FROM search_documents_fts
-                WHERE search_documents_fts MATCH ?
-            )"""
-        projector = RecordProjector(engine.profile, connection, authority)
-        if semantic is None:
-            parameters.append(compiled.disjunction)
-            seek = ""
-            if last is not None:
-                seek = "WHERE (score,record_type COLLATE BINARY,result_id COLLATE BINARY) > (?,?,?)"
-                parameters.extend(last)
-            sql = f"""{tiers}, hits AS MATERIALIZED (
-                    SELECT a.*,CAST(CASE
-                        WHEN tp.fts_rowid IS NOT NULL THEN 1
-                        WHEN ta.fts_rowid IS NOT NULL THEN 2
-                        WHEN pa.fts_rowid IS NOT NULL THEN 3
-                        WHEN aa.fts_rowid IS NOT NULL THEN 4
-                        ELSE 5
-                    END AS REAL) AS score
-                    FROM authorized a JOIN search_documents_fts ON
-                      search_documents_fts.rowid=a.fts_rowid AND
-                      search_documents_fts.result_id=a.result_id
-                    LEFT JOIN title_phrase tp USING(fts_rowid)
-                    LEFT JOIN title_all ta USING(fts_rowid)
-                    LEFT JOIN phrase_any pa USING(fts_rowid)
-                    LEFT JOIN all_any aa USING(fts_rowid)
-                    WHERE search_documents_fts MATCH ?
-                )
-                SELECT * FROM hits {seek}
-                ORDER BY score ASC,record_type COLLATE BINARY,result_id COLLATE BINARY
-            """
-            ranked = _lexical_ranked(connection.execute(sql, parameters), projector)
-        else:
-            # Tier 1-4 candidates only (D5), unauthorized here and bounded by the FTS hits.
-            tier_sql = """
-                WITH title_phrase AS MATERIALIZED (
-                    SELECT rowid AS fts_rowid FROM search_documents_fts
-                    WHERE search_documents_fts MATCH ?
-                ), title_all AS MATERIALIZED (
-                    SELECT rowid AS fts_rowid FROM search_documents_fts
-                    WHERE search_documents_fts MATCH ?
-                ), phrase_any AS MATERIALIZED (
-                    SELECT rowid AS fts_rowid FROM search_documents_fts
-                    WHERE search_documents_fts MATCH ?
-                ), all_any AS MATERIALIZED (
-                    SELECT rowid AS fts_rowid FROM search_documents_fts
-                    WHERE search_documents_fts MATCH ?
-                )
-                SELECT * FROM (
-                    SELECT CASE
-                        WHEN tp.fts_rowid IS NOT NULL THEN 1
-                        WHEN ta.fts_rowid IS NOT NULL THEN 2
-                        WHEN pa.fts_rowid IS NOT NULL THEN 3
-                        WHEN aa.fts_rowid IS NOT NULL THEN 4
-                    END AS tier,d.record_type,d.result_id
-                    FROM search_documents d JOIN search_fts_identity i USING(result_id)
-                    JOIN search_documents_fts ON
-                      search_documents_fts.rowid=i.fts_rowid AND
-                      search_documents_fts.result_id=d.result_id
-                    LEFT JOIN title_phrase tp ON tp.fts_rowid=i.fts_rowid
-                    LEFT JOIN title_all ta ON ta.fts_rowid=i.fts_rowid
-                    LEFT JOIN phrase_any pa ON pa.fts_rowid=i.fts_rowid
-                    LEFT JOIN all_any aa ON aa.fts_rowid=i.fts_rowid
-                ) WHERE tier IS NOT NULL
-                ORDER BY tier,record_type COLLATE BINARY,result_id COLLATE BINARY
-            """
-            tiered = [
-                (int(row["tier"]), row["record_type"], row["result_id"])
-                for row in connection.execute(tier_sql, parameters[len(authorization) :])
-            ]
-
-            def authorize(
-                identities: list[tuple[str, str]],
-            ) -> dict[tuple[str, str], sqlite3.Row]:
-                """The unchanged authorized clauses, evaluated only over ``identities``."""
-                if not identities:
-                    return {}
-                wanted = set(identities)
-                rows = connection.execute(
-                    f"""SELECT d.* FROM search_documents d
-                    JOIN search_fts_identity i USING(result_id)
-                    JOIN search_documents_fts ON
-                      search_documents_fts.rowid=i.fts_rowid AND
-                      search_documents_fts.result_id=d.result_id
-                    WHERE d.result_id IN ({",".join("?" for _ in identities)})
-                    AND {" AND ".join(clauses)}""",
-                    [result_id for _record_type, result_id in identities] + authorization,
-                )
-                return {
-                    (row["record_type"], row["result_id"]): row
-                    for row in rows
-                    if (row["record_type"], row["result_id"]) in wanted
-                }
-
-            fused = _fused(tiered, authorize, projector, semantic)
-            if last is not None:
-                after = (-last[0], last[1], last[2])
-                fused = [
-                    item
-                    for item in fused
-                    if (-item[0], item[1]["record_type"], item[1]["record_id"]) > after
-                ]
-            ranked = _reached(fused)
         results: list[dict[str, Any]] = []
         next_key: list[Any] | None = None
         complete = True

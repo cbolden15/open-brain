@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.storage.filesystem import read_confined
 from open_brain_engine.storage.markdown import MarkdownFormatError, parse_markdown
 
+from .compact_search_contracts import CompactSearchPageRequest, CompactSearchPageResponse
 from .contracts import (
     PageResult,
     PublicProvenance,
@@ -572,6 +574,24 @@ class RetrievalTasks:
         from .paging import search_page
 
         return search_page(self._engine, request, authority=authority)
+
+    def compact_search_page(
+        self,
+        request: CompactSearchPageRequest,
+        *,
+        authority: EffectiveAuthority,
+        maximum_response_bytes: int | None = None,
+        encoded_size: Callable[[Mapping[str, object]], int] | None = None,
+    ) -> CompactSearchPageResponse:
+        from .compact_search import compact_search_page
+
+        return compact_search_page(
+            self._engine,
+            request,
+            authority=authority,
+            maximum_response_bytes=maximum_response_bytes,
+            encoded_size=encoded_size,
+        )
 
     def read_record(
         self, request: RecordReadRequest, *, authority: EffectiveAuthority

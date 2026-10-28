@@ -58,6 +58,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/brief_log.py",
         "services/catalog.py",
         "services/component_manifest_v2.py",
+        "services/compact_search.py",
         "services/consumer_import.py",
         "services/egress_policy_cli.py",
         "services/embedding_health.py",
