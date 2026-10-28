@@ -32,6 +32,7 @@ from .contracts import (
     project_public_result_text,
     projection_markers_added,
 )
+from .local_schema import PHASE1_STATE_SCHEMA_VERSION
 from .mcp_eligibility import install
 from .normalization import (
     _MAX_TEXT,
@@ -825,6 +826,12 @@ class ReviewOperations(_LocalEngineOperations):
                 try:
                     from .facet_publication import owner_review_authority
 
+                    # Ordinary current reads admit only the current schema.
+                    if (
+                        connection.execute("PRAGMA user_version").fetchone()[0]
+                        != PHASE1_STATE_SCHEMA_VERSION
+                    ):
+                        raise T03Error("incompatible_runtime")
                     target = _target_state(self, connection, cast(str, binding["page_id"]))
                     assert target is not None
                     # A newer target may depend on sources outside the frozen proposal.

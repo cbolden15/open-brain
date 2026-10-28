@@ -6,7 +6,7 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ### REVIEW-008: Live page diffs need current canonical read eligibility
 
-Category: Review / Privacy.
+Category: Review / Privacy / Build Pipeline.
 
 A stale proposal's frozen sources can remain readable after a competing update
 adds a source that is later retracted. Valid current page bytes alone do not
@@ -17,6 +17,11 @@ effective review authority in the same read snapshot before using its body or
 source references. Omit the diff on refusal while retaining authorized frozen
 inspection. Cover implicit MCP owner and local owner reads after real retraction,
 plus eligible current-source projection and manually edited target omission.
+
+Apply the ordinary reader's schema admission before calling its current-only
+projector. Historical schema-six workspace/import recipes have no effective
+privacy columns; omit the optional diff while keeping their frozen inspection
+usable. Include those recipes when verifying changes to shared review inspection.
 
 Discovered: 2026-10-27, combined review I1 synthetic regression.
 

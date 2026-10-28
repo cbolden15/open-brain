@@ -1326,6 +1326,46 @@ def test_stale_page_diff_projects_current_and_frozen_source_references(
     assert invalid.review_digest == loser.review_digest
 
 
+def test_full_page_diff_omits_historical_runtime_without_current_reader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from packages.app.tests.integration.engine._local_schema_fixtures import use_schema_six_runtime
+
+    use_schema_six_runtime(monkeypatch, {})
+    engine = _engine(tmp_path / "brain")
+    first, second = _text_sources(engine, 2, prefix="historical.diff")
+    created = engine.review.propose(
+        (first,), (ProposalDraft("Historical diff", "Original body"),),
+        delivery_id="delivery.historical.diff.create",
+    )[0]
+    published = engine.review.decide(
+        created.proposal_id, DecisionOutcome.APPROVED,
+        delivery_id="delivery.historical.diff.create.approve",
+        expected_review_digest=created.review_digest,
+    )
+    assert published.page_id is not None and published.publication_id is not None
+    with pytest.raises(T03Error, match="operation_pending"):
+        engine.retrieval.read_record(
+            RecordReadRequest(
+                record_id=published.page_id,
+                expected_revision_id=canonical_revision_id(published.publication_id),
+            ),
+            authority=EffectiveAuthority(
+                engine.profile.owner_actor_id, "synthetic-owner", frozenset(), None, owner=True
+            ),
+        )
+    update = engine.review.propose(
+        (second,), (ProposalDraft("Historical diff", "Pending historical draft"),),
+        delivery_id="delivery.historical.diff.update", target_page_id=published.page_id,
+    )[0]
+    shown = engine.review.show(update.proposal_id)
+    assert shown.markdown == "Pending historical draft"
+    assert shown.review_digest == update.review_digest
+    assert shown.capture_ids == update.capture_ids
+    assert shown.stale is False and shown.replacement == "full_page"
+    assert shown.page_diff is None
+
+
 @pytest.mark.parametrize("implicit_mcp", (False, True))
 def test_stale_page_diff_omits_retracted_current_source(
     tmp_path: Path, implicit_mcp: bool
