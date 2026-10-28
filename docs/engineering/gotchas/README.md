@@ -4,6 +4,22 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### REVIEW-008: Live page diffs need current canonical read eligibility
+
+Category: Review / Privacy.
+
+A stale proposal's frozen sources can remain readable after a competing update
+adds a source that is later retracted. Valid current page bytes alone do not
+authorize exposing that newer body in `page_diff`.
+
+Validate the exact current revision through `RecordProjector.canonical` with the
+effective review authority in the same read snapshot before using its body or
+source references. Omit the diff on refusal while retaining authorized frozen
+inspection. Cover implicit MCP owner and local owner reads after real retraction,
+plus eligible current-source projection and manually edited target omission.
+
+Discovered: 2026-10-27, combined review I1 synthetic regression.
+
 ### REVIEW-007: Acceptance matrix deliberately publishes two pages from one capture
 
 Category: Review / Testing.

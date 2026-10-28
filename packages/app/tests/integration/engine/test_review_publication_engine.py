@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from open_brain_engine.engine import (
@@ -19,10 +20,16 @@ from open_brain_engine.engine import (
 from open_brain_engine.engine import review_bound as review_bound_module
 from open_brain_engine.engine.contracts import ReviewBindingConflict
 from open_brain_engine.engine.normalization import _new_id
-from open_brain_engine.engine.t03_contracts import EffectiveAuthority, RecordReadRequest
+from open_brain_engine.engine.t03_contracts import (
+    EffectiveAuthority,
+    RecordReadRequest,
+    SessionOrigin,
+    T03Error,
+)
 from open_brain_engine.portable.v4 import canonical_revision_id
 
 from open_brain.profile import compile_single_user_local
+from open_brain.services.review_publication import ReviewPublicationService
 
 
 def _engine(root: Path, *, faults: set[CaptureFault] | None = None) -> BrainEngine:
@@ -1317,6 +1324,90 @@ def test_stale_page_diff_projects_current_and_frozen_source_references(
     invalid = engine.review.show(loser.proposal_id)
     assert invalid.stale is True and invalid.page_diff is None
     assert invalid.review_digest == loser.review_digest
+
+
+@pytest.mark.parametrize("implicit_mcp", (False, True))
+def test_stale_page_diff_omits_retracted_current_source(
+    tmp_path: Path, implicit_mcp: bool
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    first, second, third = _text_sources(engine, 3, prefix="retracted.diff")
+    owner = EffectiveAuthority(
+        engine.profile.owner_actor_id, "synthetic-owner", frozenset(), None, owner=True
+    )
+    authority = EffectiveAuthority(
+        engine.profile.owner_actor_id, "synthetic-mcp", frozenset(), None, owner=True,
+        session_origin=SessionOrigin.MCP_IMPLICIT,
+    ) if implicit_mcp else owner
+    service = ReviewPublicationService(
+        engine.review, authority=authority if implicit_mcp else None
+    )
+    created = engine.review.propose(
+        (first,), (ProposalDraft("Retracted diff", "Original body"),),
+        delivery_id="delivery.retracted.diff.create",
+    )[0]
+    engine.review.decide(
+        created.proposal_id, DecisionOutcome.APPROVED,
+        delivery_id="delivery.retracted.diff.create.approve",
+        expected_review_digest=created.review_digest,
+    )
+    loser = engine.review.propose(
+        (second,), (ProposalDraft("Retracted diff", "Pending draft body"),),
+        delivery_id="delivery.retracted.diff.loser", target_page_id=created.page_id,
+    )[0]
+    frozen = service.show({"proposal_id": loser.proposal_id})
+    capture_ids = frozen["capture_ids"]
+    assert isinstance(capture_ids, tuple) and third not in capture_ids
+    sentinel = "Retracted winning body sentinel"
+    winner = engine.review.propose(
+        (third,), (ProposalDraft("Retracted diff", sentinel),),
+        delivery_id="delivery.retracted.diff.winner", target_page_id=created.page_id,
+    )[0]
+    published = engine.review.decide(
+        winner.proposal_id, DecisionOutcome.APPROVED,
+        delivery_id="delivery.retracted.diff.winner.approve",
+        expected_review_digest=winner.review_digest,
+    )
+    assert published.page_id is not None and published.publication_id is not None
+    preview = engine.lifecycle.preview_retraction(capture_id=third, authority=owner)
+    receipt = engine.lifecycle.commit_retraction(
+        str(preview["preview_id"]), str(uuid4()), authority=owner
+    )
+    assert receipt["status"] == "committed"
+    with pytest.raises(T03Error, match="not_found"):
+        engine.retrieval.read_record(
+            RecordReadRequest(
+                record_id=published.page_id,
+                expected_revision_id=canonical_revision_id(published.publication_id),
+            ),
+            authority=authority,
+        )
+
+    def snapshot() -> tuple[tuple[str, ...], dict[Path, bytes]]:
+        connection = engine._store.connect()
+        try:
+            database = tuple(connection.iterdump())
+        finally:
+            connection.close()
+        return database, {
+            path: path.read_bytes() for path in root.rglob("*")
+            if path.is_file() and path.suffix in {".md", ".json"}
+        }
+
+    before = snapshot()
+    shown = service.show({"proposal_id": loser.proposal_id})
+    assert snapshot() == before
+    assert shown["proposal_status"] == "pending" and shown["stale"] is True
+    assert shown["replacement"] == "full_page"
+    assert shown["markdown"] == "Pending draft body"
+    for field in (
+        "review_token", "expected_page_sha256", "expected_publication_id",
+        "capture_ids", "selected_capture_ids", "evidence",
+    ):
+        assert shown[field] == frozen[field]
+    assert sentinel not in str(shown)
+    assert shown["page_diff"] is None
 
 
 def test_create_approval_refuses_a_duplicate_title_or_source_set(tmp_path: Path) -> None:

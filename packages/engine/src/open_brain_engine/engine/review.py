@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, cast
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes
 from open_brain_engine.portable.review_binding import review_binding_base_version
+from open_brain_engine.portable.v4 import canonical_revision_id
 from open_brain_engine.storage.filesystem import StorageError, read_confined
 from open_brain_engine.storage.markdown import parse_markdown, render_markdown
 
@@ -48,6 +49,7 @@ from .normalization import (
     _trust,
 )
 from .portability_ports import portable_write_port
+from .records import RecordProjector
 from .review_bound import (
     MAX_REVIEW_MARKDOWN_BYTES,
     _read_page,
@@ -821,8 +823,18 @@ class ReviewOperations(_LocalEngineOperations):
                 and binding.get("patch") is None
             ):
                 try:
+                    from .facet_publication import owner_review_authority
+
                     target = _target_state(self, connection, cast(str, binding["page_id"]))
                     assert target is not None
+                    # A newer target may depend on sources outside the frozen proposal.
+                    RecordProjector(
+                        self.profile, connection,
+                        owner_review_authority(self) if authority is None else authority,
+                    ).canonical(
+                        cast(str, binding["page_id"]),
+                        expected=canonical_revision_id(cast(str, target["publication_id"])),
+                    )
                     live_body = parse_markdown(
                         _read_page(self, cast(str, target["canonical_path"]))
                     ).body.removesuffix("\n")
