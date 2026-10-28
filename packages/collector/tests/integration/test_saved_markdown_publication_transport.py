@@ -233,11 +233,18 @@ def _session(case: _Case, policy: Path) -> Iterator[subprocess.Popen[str]]:
         assert {tool["name"] for tool in listing["result"]["tools"]} == {
             "brain_catalog",
             "brain_contract_describe",
+            "brain_search",
             "brain_search_page",
             "brain_read",
             "brain_history_list",
             "brain_history_show",
         }
+        compact = next(
+            tool for tool in listing["result"]["tools"] if tool["name"] == "brain_search"
+        )["inputSchema"]["oneOf"]
+        assert len(compact) == 1
+        assert compact[0]["properties"]["view"] == {"const": "compact"}
+        assert "view" in compact[0]["required"]
         yield process
     finally:
         if process.stdin is not None and not process.stdin.closed:

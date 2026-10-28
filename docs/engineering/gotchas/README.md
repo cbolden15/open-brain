@@ -4,6 +4,22 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### TESTING-019: Scoped MCP discovery expectations also live in collector fixtures
+
+Category: Testing / Capability discovery.
+
+Adding compact search to the core MCP factory exposed the compact-only
+`brain_search` alias in trusted scoped sessions. App-level discovery and legacy
+denial checks passed, but eleven collector publication/transport tests stopped
+in a shared fixture that still expected the previous exact six-tool list.
+
+When adding an advertised MCP capability, find exact `tools/list` expectations
+across every package, not only the production factory's package. Update the
+collector expectation while checking that the scoped alias advertises only its
+explicit compact branch; retain tests that refuse legacy whole-Brain callbacks.
+
+Discovered: 2026-10-28, full compact-search verification.
+
 ### TYPE-004: Compact adapters need typed response and nested schema boundaries
 
 Category: Type Safety.
