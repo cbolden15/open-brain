@@ -155,6 +155,16 @@ def test_source_cli_catalog_exposes_registered_public_onboarding(
             "schema_version": 1,
         },
         {
+            "auth_mode": "session_only",
+            "connector_name": "saved_item",
+            "content_types": ["saved_item"],
+            "display_name": "Saved Items",
+            "preview_limit": 25,
+            "public_onboarding": False,
+            "resource_types": ["local_folder"],
+            "schema_version": 1,
+        },
+        {
             "auth_mode": "device_flow",
             "connector_name": "slack",
             "content_types": ["message", "thread_reply"],

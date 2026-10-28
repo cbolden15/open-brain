@@ -26,6 +26,7 @@ __all__ = [
     "D5_NOTION_SOURCE",
     "D5_WEB_CLIP_SOURCE",
     "D5_MEETING_TRANSCRIPT_SOURCE",
+    "SAVED_ITEM_SOURCE",
     "SourceAuthMode",
     "SourceCatalog",
     "SourceConnectorDescriptor",
@@ -47,6 +48,7 @@ __all__ = [
     "slack_source_descriptor",
     "web_clip_source_descriptor",
     "meeting_transcript_source_descriptor",
+    "saved_item_source_descriptor",
 ]
 
 _CONNECTOR_NAME = re.compile(r"[a-z][a-z0-9_-]{0,63}")
@@ -70,6 +72,7 @@ D5_CONFLUENCE_SOURCE = "confluence"
 D5_NOTION_SOURCE = "notion"
 D5_WEB_CLIP_SOURCE = "web_clip"
 D5_MEETING_TRANSCRIPT_SOURCE = "meeting_transcript"
+SAVED_ITEM_SOURCE = "saved_item"
 
 
 class SourceAuthMode(StrEnum):
@@ -548,6 +551,21 @@ def meeting_transcript_source_descriptor() -> SourceConnectorDescriptor:
         auth_mode=SourceAuthMode.SESSION_ONLY,
         resource_types=("google_meet", "zoom"),
         content_types=("meeting_transcript",),
+        preview_limit=25,
+        public_onboarding=False,
+    )
+
+
+def saved_item_source_descriptor() -> SourceConnectorDescriptor:
+    """Return the selected local folder of producer-written saved items."""
+
+    return SourceConnectorDescriptor(
+        schema_version=1,
+        connector_name=SAVED_ITEM_SOURCE,
+        display_name="Saved Items",
+        auth_mode=SourceAuthMode.SESSION_ONLY,
+        resource_types=("local_folder",),
+        content_types=("saved_item",),
         preview_limit=25,
         public_onboarding=False,
     )

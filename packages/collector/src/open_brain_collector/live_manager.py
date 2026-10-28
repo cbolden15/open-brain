@@ -12,6 +12,8 @@ from typing import cast
 from open_brain_collector.capture_workflow import CaptureWorkflow, owner_authority
 from open_brain_collector.live_capture import LiveCaptureService
 from open_brain_collector.runner import CollectorProfileError, _open_existing_collector_profile
+from open_brain_collector.saved_item_folder import select_folder
+from open_brain_collector.saved_item_live import SavedItemLiveSource
 from open_brain_collector.slack_patches import SlackPatchProposer
 from open_brain_collector.slack_policy import SlackPolicyStore
 from open_brain_connectors.runtime.agent_session_hooks import (
@@ -52,6 +54,7 @@ OPERATIONS = frozenset(
         "sources.custody_retry",
         "sources.session_preview",
         "sources.session_apply",
+        "sources.saved_item_select",
         "sources.slack_policy_setup",
         "sources.slack_mapping_add",
         "sources.slack_mapping_list",
@@ -129,6 +132,10 @@ class PriorityRuntime:
             return AgentSessionLiveSource(self.root / "sessions").fetch(
                 selection, options, checkpoint
             )
+        if selection.connector_name == "saved_item":
+            return SavedItemLiveSource(self.root / "saved_items").fetch(
+                selection, options, checkpoint
+            )
         if selection.connector_name == "slack" and "tracked_thread" in options:
             client = self.client("slack")
             assert isinstance(client, SlackSourceClient)
@@ -142,6 +149,8 @@ class PriorityRuntime:
     ) -> None:
         if selection.connector_name == "agent_session":
             AgentSessionLiveSource(self.root / "sessions").acknowledge(selection, checkpoint)
+        if selection.connector_name == "saved_item":
+            SavedItemLiveSource(self.root / "saved_items").acknowledge(selection, checkpoint)
 
 
 class LiveSourceManager:
@@ -365,6 +374,16 @@ class LiveSourceManager:
                 safe_text(args["action"]),
                 interval_seconds=cast(int | None, args.get("interval_seconds")),
             )
+        if operation == "sources.saved_item_select":
+            _shape(args, {"folder_path", "privacy_tier"})
+            tier = args["privacy_tier"]
+            if not isinstance(tier, str) or tier not in {"public", "work", "personal", "secret"}:
+                raise LiveSourceError("source_invalid_arguments")
+            selection, folder = select_folder(safe_text(args["folder_path"], maximum=4096))
+            return {
+                "selection": asdict(selection),
+                "options": {"folder_path": str(folder), "privacy_tier": tier},
+            }
         if operation == "sources.session_preview":
             return self._session_preview(args)
         _shape(args, {"preview_id"})

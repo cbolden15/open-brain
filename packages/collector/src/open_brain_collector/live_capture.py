@@ -35,6 +35,7 @@ _PROVIDERS: dict[str, frozenset[str]] = {
     "google_drive": frozenset({"drive_file", "drive_folder", "drive_account"}),
     "slack": frozenset({"channel"}),
     "agent_session": frozenset({"local_project"}),
+    "saved_item": frozenset({"local_folder"}),
 }
 _MAX_COMMITTED = 2048
 

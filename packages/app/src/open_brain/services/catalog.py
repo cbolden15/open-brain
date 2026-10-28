@@ -45,6 +45,7 @@ OPTIONAL_SOURCE_DESCRIPTORS = (
     ("meeting_transcript", "meeting transcripts"),
     ("microsoft_mail", "Microsoft 365 Mail"),
     ("notion", "Notion"),
+    ("saved_item", "saved items"),
     ("slack", "Slack"),
     ("web_clip", "web clips"),
 )

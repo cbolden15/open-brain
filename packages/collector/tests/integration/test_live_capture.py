@@ -171,6 +171,7 @@ def test_selection_admits_every_drive_shape_and_rejects_foreign_resource_types(
         "google_drive": frozenset({"drive_file", "drive_folder", "drive_account"}),
         "slack": frozenset({"channel"}),
         "agent_session": frozenset({"local_project"}),
+        "saved_item": frozenset({"local_folder"}),
     } == _PROVIDERS
     service = _service(tmp_path, Runtime())
     shapes: tuple[tuple[str, str, dict[str, object]], ...] = (

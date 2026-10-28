@@ -32,6 +32,7 @@ never released. It is excluded from the workspace, Makefile and CI. Priority Gma
 selected Claude Code/Codex capture share `packages/collector/src/open_brain_collector/live_manager.py`,
 and the collector CLI exposes the source operations headlessly.
 Drive capture selects a file, a folder of Docs, or account Docs by title suffix.
+Saved item capture reads producer-written JSON records from one selected folder (`docs/integrations/saved-items.md`).
 The existing Slack implementation is deferred from the active priority milestone.
 The optional collector owns scheduling, credential references, private Unix control IPC, and service
 permissions. Source enablement and background service installation are separate opt-ins. The

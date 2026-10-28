@@ -4,6 +4,17 @@ Non-obvious behaviors, sharp edges, and lessons learned belong here.
 
 ## Registry
 
+### REVIEW-007: Acceptance matrix deliberately publishes two pages from one capture
+
+Category: Review / Testing.
+
+The installed-executable operation matrix approves and edits separate proposals
+from one capture. The second publication must explicitly opt in to duplicates;
+otherwise the duplicate guard stops the remaining mandatory checks. Pass the
+CLI opt-in as a unary flag and the MCP opt-in as a boolean.
+
+Discovered: 2026-10-27, combined review publication verification.
+
 ### TYPE-003: SQLite row comparisons can leak Any through boolean helpers
 
 Category: Type Safety.
@@ -14,6 +25,8 @@ of an already typed MCP tool description also failed typechecking.
 
 Action: type SQLite row operands as `object` before comparing, avoid casts on
 already typed values, and run the full typecheck after changes to shared code.
+Wire responses typed as `dict[str, object]` also require narrowing nested values
+before indexing them; assert the expected container and text types in tests.
 
 Discovered: 2026-10-27, review publication Phase A verification.
 
@@ -60,6 +73,53 @@ query and subject authority. When adding a check to `_decide`, decide per
 outcome whether it protects a write.
 
 Discovered: 2026-10-27, issue #126.
+
+### CAPTURE-004: The capture redaction check flags any 32-character run
+
+Category: Capture / Saved items.
+
+Symptom: the first saved item design refused any record with a redaction finding.
+`has_redaction_finding` (`open_brain_engine/capture/redaction.py`) is broader than
+secrets: any run of 32 or more letters, digits, `_` or `-` counts, as do email
+addresses, phone numbers and `token=` assignments. Measured on 2026-10-26: a
+hyphenated 70-character article slug, a 36-hex `id` query value and an `fbclid`
+value all trigger it. Refusing on it would drop ordinary article saves and most
+links shared from Facebook.
+
+Action: saved items mask the title and every text section with `redact_text` and
+keep the save. Only the URL query that survives tracking-parameter removal and the
+fragment are checked, and a hit refuses the record as `url_secret`; the URL path is
+never checked. See docs/integrations/saved-items.md. Use the finding check as a
+refusal gate only on values that should never carry long identifiers.
+
+Discovered: 2026-10-26, saved item capture spec review.
+
+### CAPTURE-005: Saved item boundaries and page ordering need explicit checks
+
+Category: Capture / Saved items.
+
+Context: URL parsing can strip controls before validation, and unencodable text
+can raise instead of returning a named refusal. Filesystem exceptions can expose
+entry names. Sorted JSON persistence also loses insertion order needed for index
+eviction. Scan limits or early byte-budget rejection can let a later duplicate
+win. Repeated long tokens in pressure fixtures can be redacted, removing the
+intended byte pressure. A test patch through another module's unexported `os`
+import also fails mypy.
+
+Action: validate URL controls and UTF-8 before parsing and return named refusal
+codes. Translate filesystem errors without raw entry names. Opt into unsorted
+persistence for insertion-order eviction while keeping the shared serializer's
+canonical default. Scan beyond output caps, resolve identity winners before
+trimming to the byte budget, bound candidate state and defer overflow identities.
+Use synthetic prose and assert encoded-size preconditions in pressure tests.
+Patch the test module's own `os` import for mypy-safe fixtures.
+Validate decoded non-URL text with strict UTF-8 encoding too: ASCII JSON can
+contain escaped lone surrogates that pass byte decoding and size checks, then
+crash custody admission. Refuse these locally as `invalid_why` or `invalid_field`.
+Use ASCII-escaped surrogate fixtures so the regression reaches the parser;
+preserve valid non-BMP characters and correctly paired escapes.
+
+Discovered: 2026-10-26, saved item implementation and verification.
 
 ### DOCS-005: The Drive guide said an edited single file re-imports; the engine quarantines it
 
@@ -113,6 +173,27 @@ the actual native archive after foreground CLI additions; `make verify` does not
 build it.
 
 Discovered: 2026-10-24, daily brief frozen-tree gate.
+
+### TESTING-018: Full verification needs external temporary roots and modern Ruby
+
+Category: Testing / Environment.
+
+Context: A repo-local `TMPDIR` makes harness acceptance refuse evidence inside
+the checkout. A repo-local pytest base also makes source-guide fixtures fail
+`unscoped_client`: their synthetic projects have a Git repository ancestor.
+On macOS, system Ruby 2.6 rejects the endless method syntax in embedding
+formula tests. An interrupted full run exposed all three; representative cases
+passed with temporary roots outside the checkout and Homebrew Ruby 4.0.7.
+
+Action: When authorized, use a unique short temporary root under `/tmp` for
+`TMPDIR` and pytest's base, and put a modern Ruby on `PATH` before `make verify`.
+Keep logs outside pytest's base and retain failure evidence. Run the complete
+gate; a partial diagnostic run does not establish a full pass.
+When a fixture mocks a global filesystem function, scope the patch to the
+assertion so pytest can restore the real function before temporary-path cleanup;
+Python 3.14 cleanup calls `os.lstat` with `dir_fd`.
+
+Discovered: 2026-10-27, saved item final gate.
 
 ### TESTING-017: The plugin process-group test times out under full `make verify` load
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
@@ -7,6 +8,7 @@ import pytest
 
 from open_brain.profile import compile_single_user_local
 from open_brain_collector.live_manager import LiveSourceManager, PriorityRuntime
+from open_brain_collector.saved_item_folder import select_folder
 from open_brain_connectors.runtime.agent_session_hooks import (
     AgentSessionHookManager,
     HookConfigError,
@@ -176,3 +178,31 @@ def test_resources_passes_drive_resource_type_and_rejects_it_for_other_providers
         manager.dispatch("sources.resources", {**base, "resource_type": ""})
     # Rejections happen before any client is built.
     assert runtime.providers == ["google_drive", "google_drive"]
+
+
+def test_saved_item_select_derives_the_selection_and_configure_accepts_it(
+    tmp_path: Path,
+) -> None:
+    manager, _project = _manager(tmp_path)
+    folder = tmp_path / "inbox"
+    folder.mkdir(mode=0o700)
+    result = manager.dispatch(
+        "sources.saved_item_select", {"folder_path": str(folder), "privacy_tier": "work"}
+    )
+    selection, resolved = select_folder(str(folder))
+    assert result == {
+        "selection": asdict(selection),
+        "options": {"folder_path": str(resolved), "privacy_tier": "work"},
+    }
+    summary = manager.dispatch("sources.configure", result)
+    assert summary["selection"] == asdict(selection) and summary["status"] == "disabled"
+    for arguments, code in (
+        ({"folder_path": str(folder), "privacy_tier": "unknown"}, "source_invalid_arguments"),
+        ({"folder_path": str(folder), "privacy_tier": []}, "source_invalid_arguments"),
+        ({"folder_path": str(folder), "privacy_tier": {}}, "source_invalid_arguments"),
+        ({"folder_path": str(folder), "privacy_tier": 1}, "source_invalid_arguments"),
+        ({"folder_path": str(folder)}, "source_invalid_arguments"),
+        ({"folder_path": str(tmp_path / "absent"), "privacy_tier": "personal"}, "folder_missing"),
+    ):
+        with pytest.raises(LiveSourceError, match=code):
+            manager.dispatch("sources.saved_item_select", arguments)

@@ -129,15 +129,16 @@ def test_ancestor_trust_admits_only_root_owned_sticky_shared_directories(
         fields[0], fields[4] = mode, owner
         return os.stat_result(fields)
 
-    monkeypatch.setattr(os, "lstat", fake_lstat)
     directory = shared / "bin"
     directory.mkdir(mode=0o700)
-    if trusted:
-        adapter._trusted_directory_chain(directory)
-    else:
-        with pytest.raises(GuideAdapterError) as error:
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "lstat", fake_lstat)
+        if trusted:
             adapter._trusted_directory_chain(directory)
-        _assert_code(error, "unsafe_path")
+        else:
+            with pytest.raises(GuideAdapterError) as error:
+                adapter._trusted_directory_chain(directory)
+            _assert_code(error, "unsafe_path")
 
 
 def test_installer_symlink_records_canonical_target_and_detects_replacement(

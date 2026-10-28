@@ -177,6 +177,7 @@ class _Acceptance:
                     }
                     if operation == "edit_and_approve":
                         arguments["markdown"] = "Edited matrix body\n\n- preserved line\n"
+                        arguments["allow_duplicate"] = True
                     before = {p: p.read_bytes() for p in _canonical_pages(self.brain)}
                     decision = self._review_call(entry, operation, arguments)
                     repeated = self._review_call(entry, operation, arguments)
@@ -226,7 +227,10 @@ class _Acceptance:
         for name, value in arguments.items():
             if name == "proposal_id":
                 continue
-            if name == "markdown":
+            if name == "allow_duplicate":
+                if value is True:
+                    argv.append("--allow-duplicate")
+            elif name == "markdown":
                 path = self.drafts / "matrix-edit.md"
                 path.write_text(str(value), encoding="utf-8")
                 argv.extend(("--markdown-file", str(path)))

@@ -350,6 +350,11 @@ def main(argv: Sequence[str]) -> int:
             )
             item.add_argument("--interval-seconds", type=int)
     commands.add_parser("session-apply").add_argument("--preview-id", required=True)
+    saved_item = commands.add_parser("saved-item-select")
+    saved_item.add_argument("--folder-path", required=True)
+    saved_item.add_argument(
+        "--privacy-tier", choices=("public", "work", "personal", "secret"), default="personal"
+    )
     request = commands.add_parser("request")
     request.add_argument("operation")
     request.add_argument("--arguments-file", required=True)

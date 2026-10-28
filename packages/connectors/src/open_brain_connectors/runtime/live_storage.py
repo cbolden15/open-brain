@@ -95,9 +95,9 @@ class PrivateJsonStore:
         except ValueError, UnicodeError, RecursionError:
             raise LiveSourceError("source_invalid_state") from None
 
-    def write(self, name: str, value: object) -> None:
+    def write(self, name: str, value: object, *, preserve_order: bool = False) -> None:
         name = self._name(name)
-        raw = bounded_json(value, _MAX_BYTES)
+        raw = bounded_json(value, _MAX_BYTES, preserve_order=preserve_order)
         with self._directory() as directory:
             temporary = f".pending-{uuid.uuid4().hex}"
             try:

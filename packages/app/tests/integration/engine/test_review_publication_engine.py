@@ -1277,7 +1277,11 @@ def test_stale_page_diff_projects_current_and_frozen_source_references(
             "synthetic-owner", "synthetic-session", frozenset(), None, owner=True
         ),
     ).to_wire()
-    assert new_reference not in current["content"]["text"]
+    content = current["content"]
+    assert isinstance(content, dict)
+    text = content["text"]
+    assert isinstance(text, str)
+    assert new_reference not in text
     assert current["projection_applied"] is True
 
     def snapshot() -> tuple[tuple[str, ...], dict[Path, bytes]]:

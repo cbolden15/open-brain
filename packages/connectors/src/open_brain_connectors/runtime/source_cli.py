@@ -63,6 +63,7 @@ from open_brain_connectors.runtime.source_registry import (
     meeting_transcript_source_descriptor,
     microsoft_mail_source_descriptor,
     notion_source_descriptor,
+    saved_item_source_descriptor,
     slack_source_descriptor,
     web_clip_source_descriptor,
 )
@@ -429,6 +430,7 @@ def _run(parsed: argparse.Namespace) -> dict[str, object]:
                 meeting_transcript_source_descriptor(),
                 microsoft_mail_source_descriptor(),
                 notion_source_descriptor(),
+                saved_item_source_descriptor(),
                 slack_source_descriptor(),
                 web_clip_source_descriptor(),
             )

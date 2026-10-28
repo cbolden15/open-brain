@@ -5,6 +5,7 @@ import pytest
 from open_brain_connectors.runtime.connectors import ConnectorContractError
 from open_brain_connectors.runtime.source_intake import SourceRecordIntake, SourceRecordKey
 from open_brain_connectors.runtime.source_registry import (
+    SAVED_ITEM_SOURCE,
     SourceAuthMode,
     SourceCatalog,
     SourceConnectorDescriptor,
@@ -24,6 +25,7 @@ from open_brain_connectors.runtime.source_registry import (
     meeting_transcript_source_descriptor,
     microsoft_mail_source_descriptor,
     notion_source_descriptor,
+    saved_item_source_descriptor,
     slack_source_descriptor,
     web_clip_source_descriptor,
 )
@@ -59,6 +61,7 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
             gmail_source_descriptor(),
             imessage_source_descriptor(),
             notion_source_descriptor(),
+            saved_item_source_descriptor(),
             slack_source_descriptor(),
             web_clip_source_descriptor(),
             meeting_transcript_source_descriptor(),
@@ -82,6 +85,7 @@ def test_source_catalog_lists_descriptors_without_import_or_capture_authority() 
     assert catalog.require("meeting_transcript").resource_types == ("google_meet", "zoom")
     assert catalog.require("microsoft_mail").resource_types == ("mail_folder",)
     assert catalog.require("notion").resource_types == ("data_source", "page")
+    assert catalog.require("saved_item").resource_types == ("local_folder",)
     assert catalog.require("slack").content_types == ("message", "thread_reply")
     assert catalog.require("web_clip").content_types == ("page", "selected_passage")
     with pytest.raises(ConnectorContractError, match="source connector is not registered"):
@@ -381,3 +385,16 @@ def _record(
         text="Synthetic preview body from the disposable D2 fixture.",
         privacy=_privacy(),
     )
+
+
+def test_saved_item_descriptor_declares_a_local_folder_without_onboarding() -> None:
+    descriptor = saved_item_source_descriptor()
+
+    assert descriptor.connector_name == SAVED_ITEM_SOURCE == "saved_item"
+    assert descriptor.display_name == "Saved Items"
+    assert descriptor.auth_mode is SourceAuthMode.SESSION_ONLY
+    assert descriptor.resource_types == ("local_folder",)
+    assert descriptor.content_types == ("saved_item",)
+    assert descriptor.preview_limit == 25
+    assert descriptor.public_onboarding is False
+    assert SourceConnectorDescriptor.from_dict(descriptor.to_dict()) == descriptor

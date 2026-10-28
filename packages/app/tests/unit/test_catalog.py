@@ -618,3 +618,18 @@ def test_bridge_registry_catalog_is_exact_and_deferred_operation_is_refused(tmp_
             base_executable=tmp_path / "missing/open-brain",
             runtime=bridge.PluginRuntimeState(None, _owner_authority()),
         )
+
+
+def test_optional_sources_list_saved_items_between_notion_and_slack() -> None:
+    sources = cast(list[dict[str, object]], _catalog()["optional_sources"])
+    names = [item["name"] for item in sources]
+    assert names.index("notion") < names.index("saved_item") < names.index("slack")
+    assert sources[names.index("saved_item")] == {
+        "acceptance": "source_only",
+        "authorization": "unassessed",
+        "implementation": "implemented",
+        "name": "saved_item",
+        "readiness": "unassessed",
+        "scope": "source_only",
+        "title": "saved items",
+    }

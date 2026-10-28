@@ -27,10 +27,14 @@ class LiveSourceError(RuntimeError):
         )
 
 
-def bounded_json(value: object, maximum: int = 131_072) -> bytes:
+def bounded_json(
+    value: object, maximum: int = 131_072, *, preserve_order: bool = False
+) -> bytes:
     """Reject non-JSON values, nonfinite numbers and oversized state."""
     try:
-        raw = json.dumps(value, allow_nan=False, sort_keys=True, separators=(",", ":")).encode()
+        raw = json.dumps(
+            value, allow_nan=False, sort_keys=not preserve_order, separators=(",", ":")
+        ).encode()
     except ValueError, TypeError, RecursionError:
         raise LiveSourceError("source_invalid_state") from None
     if len(raw) > maximum:

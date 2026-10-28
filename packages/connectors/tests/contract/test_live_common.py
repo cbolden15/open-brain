@@ -19,7 +19,11 @@ from urllib.request import urlopen
 import pytest
 
 from open_brain_connectors.runtime import live_http
-from open_brain_connectors.runtime.live_common import LiveSourceError, local_source_privacy
+from open_brain_connectors.runtime.live_common import (
+    LiveSourceError,
+    bounded_json,
+    local_source_privacy,
+)
 from open_brain_connectors.runtime.live_http import LiveHttpResponse, LiveHttpTransport
 from open_brain_connectors.runtime.live_oauth import authorize_loopback
 from open_brain_connectors.runtime.live_storage import OsCredentialStore, PrivateJsonStore
@@ -36,6 +40,19 @@ def test_private_store_roundtrip_permissions_and_nonfinite_state(tmp_path: Path)
     assert store.read("test.json") == {"schema_version": 1}
     store.delete("test.json")
     assert store.read("test.json") is None
+
+
+def test_json_order_defaults_to_sorted_and_can_preserve_insertion(tmp_path: Path) -> None:
+    value = {"z": {"b": 1, "a": 2}, "a": 3}
+    sorted_raw = b'{"a":3,"z":{"a":2,"b":1}}'
+    ordered_raw = b'{"z":{"b":1,"a":2},"a":3}'
+    assert bounded_json(value) == sorted_raw
+    assert bounded_json(value, preserve_order=True) == ordered_raw
+    store = PrivateJsonStore(tmp_path / "state")
+    store.write("default.json", value)
+    store.write("ordered.json", value, preserve_order=True)
+    assert (store.root / "default.json").read_bytes() == sorted_raw
+    assert (store.root / "ordered.json").read_bytes() == ordered_raw
 
 
 def test_private_store_rejects_symlinks_hardlinks_and_public_files(tmp_path: Path) -> None:
