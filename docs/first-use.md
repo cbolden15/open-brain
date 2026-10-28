@@ -1,10 +1,120 @@
 # First use
 
-For a short synthetic capture/search trial, start with the [README quickstart](../README.md#try-a-synthetic-note).
+Save a note and find it again. AI clients, model downloads, provider accounts, and Obsidian are
+optional. Choose the released CLI for personal use or the source checkout for development.
+
+## Personal use: install, capture, search
+
+With [Homebrew installed](install.md#requirement) on macOS Apple Silicon or Linux x86_64, run:
+
+<!-- open-brain-current-example:personal-first-memory -->
+```sh
+brew install cbolden15/tap/open-brain
+open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --json
+open-brain search 'Copper Orchard' --json
+```
+
+Capture should return a capture ID; search should return the sample text. No `init` command is
+needed. Replace the sample with your own note when ready, and use a few words from it to search.
+Capture and search make no network request after installation.
+
+These commands use your persistent Brain, which the first capture creates automatically:
+
+| Host | Default Brain root |
+|---|---|
+| macOS | `$HOME/Library/Application Support/open-brain/brain` |
+| Linux | `${XDG_DATA_HOME:-$HOME/.local/share}/open-brain/brain` |
+
+Later terminal sessions use that same Brain without an environment variable or `--data-dir` flag.
+For an isolated trial, use the [disposable demo](#try-a-disposable-brain) below.
+
+Homebrew currently installs the published `v0.1.0` release. It supports this capture/search path
+but has no `setup`, `agent setup`, or `catalog` command. A draft `v0.2.0` release is not published.
+The [installation guide](install.md) separates released resources from newer candidate packaging.
+
+## Developer use: try a checkout
+
+From the repository root, with [the contributor prerequisites](../CONTRIBUTING.md#try-the-source-checkout)
+installed, run these four commands in the same shell. They use a new disposable synthetic Brain,
+separate from the persistent Brain used by your installed CLI:
+
+<!-- open-brain-current-example:developer-first-memory -->
+```sh
+uv sync --frozen --python 3.14 --group dev --group native-build
+export DEMO_BRAIN="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/open-brain-demo.XXXXXX")" && pwd -P)/brain"
+uv run --frozen open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --data-dir "$DEMO_BRAIN" --json
+uv run --frozen open-brain search 'Copper Orchard' --data-dir "$DEMO_BRAIN" --json
+```
+
+Search should return the sample. Keep `DEMO_BRAIN` set for the optional guided trial below.
+Keep `uv run --frozen` before source commands: a checkout does not install `open-brain` on your
+shell's `PATH`. No native build is needed for this CLI trial.
+
+Before submitting changes, run the complete checks in
+[CONTRIBUTING.md](../CONTRIBUTING.md#development-checks).
+
+## Optional guided setup in the current source tree
+
+The current source tree adds an interactive first-run guide. Without `--data-dir`, source commands
+use the same persistent Brain as the installed CLI and may upgrade supported databases on writes.
+Stop older sessions before deliberately using a newer source runtime with that Brain.
+
+For a safe trial, keep `DEMO_BRAIN` from the developer commands above and run this in the same shell:
+
+```sh
+uv run --frozen open-brain setup --data-dir "$DEMO_BRAIN"
+```
+
+This command is unreleased and is not supplied by the current Homebrew formula. A matching future
+installed executable can run it as `open-brain setup` when its `--help` lists the command.
+To deliberately set up your persistent personal Brain instead, omit the `--data-dir` override.
+
+Run it in an interactive terminal. It shows the selected Brain location and asks before saving the
+Personal sample “Open Brain setup example: Copper Orchard meets on Tuesday.” The save prompt
+defaults to no. After saving, it checks that search can retrieve the sample; a queued capture or
+failed retrieval leaves setup incomplete and skips integrations.
+
+It then offers optional agent and Obsidian setup. Both integrations default to skip; capture and search grants for an agent
+are separate choices, off by default. Agent configuration uses the existing preview and asks for
+confirmation before applying it. Obsidian still requires manual vault opening and plugin activation.
+The guide is interactive only; use the individual CLI commands for scripts rather than `setup --json`.
+
+## Optional AI client or Obsidian
+
+For Claude Code or Codex, use [agent setup](agent-setup.md) with an executable that offers the
+command. Select only the grants you want. Capture permits saving memories; search permits
+retrieval. Search does not grant full content reads, history, or publication. Restart the client
+after applying its preview and complete any client-side trust approval. A connected client may
+send retrieved text to its model provider; treat results as untrusted reference data.
+
+To browse a managed Markdown vault, follow [Obsidian setup](install.md#use-the-managed-vault-in-obsidian)
+with matching plugin assets. Capturing a source does not publish a canonical Markdown note;
+the [review and publication](review-publication.md) workflow handles that separately. Obsidian and
+semantic-provider configuration are not prerequisites for saving or finding a note.
+
+## Try a disposable Brain
+
+This alternative keeps the sample separate from your usual Brain. Run all three commands in the
+same shell; `DEMO_BRAIN` must remain set when using this temporary Brain:
+
+<!-- open-brain-current-example:disposable-first-memory -->
+```sh
+export DEMO_BRAIN="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/open-brain-demo.XXXXXX")" && pwd -P)/brain"
+open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --data-dir "$DEMO_BRAIN" --json
+open-brain search 'Copper Orchard' --data-dir "$DEMO_BRAIN" --json
+```
+
+For a source checkout, prefix the last two commands with `uv run --frozen`. The temporary parent is
+resolved to its physical path because Open Brain rejects symlinked data-directory ancestors.
+To return to your persistent Brain, omit `--data-dir` from later commands. This temporary location
+is a trial, not a place to keep personal notes or configure a lasting agent connection.
+
+## Current source compatibility
+
 The current source candidate uses local state schema **23**, runtime session **16**, and Portable
 metadata **18**. These coordinates do not identify the published Homebrew release and do not
-establish public acceptance. Check your executable's `catalog --schema-version 2 --json` output
-against the [current compatibility matrix](core-v01-features.md#compatibility-coordinates).
+establish public acceptance. On candidates that offer it, compare
+`catalog --schema-version 2 --json` with the [compatibility matrix](core-v01-features.md#compatibility-coordinates).
 
 ## Historical executable journey
 

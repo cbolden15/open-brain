@@ -8,11 +8,12 @@ server, service unit, container, or privileged setup is required.
 
 This reference describes the Core v0.1 candidate. `open-brain --help` lists command families and
 `open-brain COMMAND --help` gives exact options. Product version alone does not prove the installed
-release contains them. `catalog --json` reports actual registrations and compatibility without
-opening a Brain. See the [feature/version matrix](core-v01-features.md).
+release contains them. On executables that offer it, `catalog --json` reports actual registrations
+and compatibility without opening a Brain. See the [feature/version matrix](core-v01-features.md).
 
 | Command family | Purpose / reference |
 |---|---|
+| `setup` | Interactive first capture/retrieval and optional client/vault setup; current source, unreleased; [first use](first-use.md) |
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
 | `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 18](portable-brain-v18.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
@@ -55,6 +56,12 @@ the [docs index](README.md) lists the earlier formats, including
 
 Commands that support machine output accept `--json`. The shared `--data-dir` option must be an
 absolute path. Without it, the CLI uses the platform data directory. `OPEN_BRAIN_ROOT` is ignored.
+
+`setup` requires interactive stdin and stdout. It shows the selected Brain and asks before saving
+its fixed example, then verifies retrieval. Agent grants and Obsidian staging are optional and
+default off. It refuses `--json` and redirected terminals before creating state; scripts use the
+individual headless commands. Source users run `uv run --frozen open-brain setup`, with an explicit
+temporary `--data-dir` for a disposable trial.
 
 The historical-authority implementation arrived with schema 13, runtime 8 and Portable 8.
 `historical recover --data-dir /absolute/brain --json` opens an existing

@@ -1,12 +1,13 @@
 # Install Open Brain
 
-Status: release-channel instructions with Core v0.1 candidate boundaries. Local verification does
-not publish a release. Product version `0.1.0` alone does not identify the candidate; consult the
-[feature/version matrix](core-v01-features.md) and installed help/catalog.
+The published Homebrew release is `v0.1.0`. The current source tree has additional unreleased
+features; the draft `v0.2.0` release is not published. Check installed `--help` before using a
+candidate-only command. Candidates with `catalog` also expose the [feature/version matrix](core-v01-features.md)
+coordinates through that command.
 
 ## Requirement
 
-Install Homebrew first and make sure this succeeds:
+Install [Homebrew](https://brew.sh/) first and make sure this succeeds:
 
 ```sh
 brew --version
@@ -23,23 +24,23 @@ Install Open Brain:
 brew install cbolden15/tap/open-brain
 ```
 
-Homebrew downloads the platform's base, Graphify and embedding archives from immutable GitHub Release
-URLs and verifies every SHA-256 value stored in the formula. The base is a one-folder build. The
-formula installs the app, the separately confined Graphify structural helper, the three compiled
-Obsidian plugin assets, and the embedding resource as one versioned resource set described by a
-component manifest (version 2 when the embedding resource is included).
+The [published formula](https://github.com/cbolden15/homebrew-tap/blob/main/Formula/open-brain.rb)
+downloads the platform's base and Graphify archives from immutable GitHub
+Release URLs and verifies their SHA-256 values. Its version-1 component manifest describes those
+resources; the formula installs a single base executable. It has no embedding resource and no
+`setup`, `agent setup`, or `catalog` command.
 
-The embedding resource holds a pinned local model and a small native helper with its inference
-runtime statically linked. It does nothing until you opt in with `open-brain embedding enable`; see
-[offline semantic search](semantic-search.md). It makes no network call, and searching never
-downloads a model.
+Newer candidate packaging uses a one-folder base and can include a separate embedding resource,
+with a version-2 component manifest. The resource contains a pinned local model and a native helper.
+It does nothing until explicit enablement. See [offline semantic search](semantic-search.md) only
+when your executable and installed resource support it. Searching never downloads a model.
 
 ## First use
 
-Use the [first-use guide](first-use.md) for executable synthetic examples, including Markdown
-import, explicit routing, proposal inspection and approval, the managed vault, lexical search and
-complete reads. Its [doctor examples](doctor.md) use `doctor --check NAME --json`. An older installed
-release may lack these candidate commands; do not assume installing the tap installs this tree.
+Use the [first-use guide](first-use.md) to capture and retrieve a note with either the released CLI
+or a source checkout. Its optional guided `setup` flow is current-source functionality. The
+separately labeled historical executable fixture is retained for its original artifact, not as
+the current beginner path. [Doctor examples](doctor.md) also belong to that historical fixture.
 
 The first stateful command creates one owner and one Brain automatically. Data lives at:
 
@@ -59,7 +60,9 @@ limits refuse a directory. It never bypasses the one-file safety limit.
 
 ## Use the managed vault in Obsidian
 
-Set up the managed vault and stage the packaged desktop plugin:
+Obsidian is optional. First confirm that your executable offers `workspace` and `obsidian-plugin`
+and that matching packaged plugin assets are installed. A source checkout alone does not provide a
+native installed resource set. Set up the managed vault and stage the plugin:
 
 ```sh
 open-brain workspace setup
@@ -140,16 +143,20 @@ a separate explicit action; do not delete it unless a verified export or another
 Source packages require Python 3.14. The Homebrew executables bundle their runtime, so end users
 do not need to install Python separately. Python 3.12 and 3.13 cannot run the current source tree.
 
-From a clone, let uv select the supported interpreter before running source commands:
+From the repository root, run these four commands in the same shell. Let uv select the supported
+interpreter, then capture and retrieve a note in a separate disposable Brain:
 
 ```sh
 uv sync --frozen --python 3.14 --group dev --group native-build
-uv run --frozen --python 3.14 python --version
-uv run --frozen --python 3.14 open-brain --help
+export DEMO_BRAIN="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/open-brain-demo.XXXXXX")" && pwd -P)/brain"
+uv run --frozen open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --data-dir "$DEMO_BRAIN" --json
+uv run --frozen open-brain search 'Copper Orchard' --data-dir "$DEMO_BRAIN" --json
 ```
 
 A source checkout does not put `open-brain` on your `PATH`. Run it through uv from the repository
-root, for example `uv run --frozen open-brain status --json`.
+root. Keep `DEMO_BRAIN` set for the optional unreleased interactive setup trial in the
+[first-use guide](first-use.md). Omitting `--data-dir` would use your persistent personal Brain,
+which a newer source runtime may upgrade; use that path only deliberately with older sessions stopped.
 
 If an older interpreter reports `SyntaxError: multiple exception types must be parenthesized`,
 check the interpreter used by that command. Python 3.14 allows `except ValueError, OSError:` and
