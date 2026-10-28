@@ -253,6 +253,57 @@ and the visible record type make the relationship explicit, and `LIMIT` counts r
 not unique captures. The relevance fixture includes this deliberate duplicate case so a later
 grouping change cannot happen accidentally.
 
+## Compact search
+
+Core CLI `search` and `search-page` accept `--compact` to return record references
+without excerpts. The default compact page contains at most 20 references and
+4096 canonical JSON bytes. `--limit` counts references, not title groups;
+`--target-bytes` selects a payload ceiling from 2048 to 8192 bytes.
+
+```sh
+uv run open-brain search "release planning" --compact --json
+uv run open-brain search "release planning" --compact --count-only --json
+uv run open-brain search-page "release planning" --compact --group-by none --json
+```
+
+Compact output groups equal public-projected titles within the same space,
+record type and payload family. Source and canonical records remain separate.
+Each group lists exact record/revision ID pairs, so grouping never deletes a
+record or treats equal titles as proof of duplicate content. `--group-by none`
+keeps the existing flat relevance order. Display titles are bounded to 256 UTF-8
+bytes; `title_truncated` identifies shortened labels without changing grouping.
+
+`total_matches` and `total_groups` describe the entire visible result set, not
+the current page. Count-only requests return those totals with an empty result
+list. Lexical totals cover all eligible lexical matches. Hybrid totals carry
+`count_scope: "hybrid_candidates"` and cover the existing bounded fusion set,
+at most 100 records, rather than every possible semantic match in the Brain.
+All counts apply the same current scope and projection checks as returned rows.
+An exact count can take longer than an ordinary first page because it validates
+every matching candidate.
+
+When `complete` is false, repeat the effective query, filters, mode, grouping,
+limit and byte target with `--cursor` set to `next_cursor`. A large group can
+span pages: `group_id` stays the same, `member_offset` advances, and
+`members_complete` becomes true on its last fragment. A short page can still
+have a continuation when the byte ceiling was reached. Cursors remain bound to
+the session authority and current visible state; invalid or stale continuations
+must be restarted with no cursor.
+
+Core MCP `brain_search` and `brain_search_page` expose the same operation when
+their advertised input schema includes `view: "compact"`. Pass `dto_version: 1`
+and `view: "compact"`, plus the same query and optional compact fields. Discovery
+can explicitly request `brain_contract_describe` with
+`{"extensions":["compact_search_v1"]}`. Compact calls share the existing
+negotiated search/read session budget; a body read still requires its separate
+content-read grant. Existing full responses and empty contract discovery keep
+their prior behavior. The separate harness MCP adapter and Obsidian plugin do
+not advertise compact mode.
+
+The [compact search contract](superpowers/specs/2026-10-28-compact-search-contract.md)
+defines the complete envelope, grouping, count scope and cursor rules. Compact
+search changes no durable records or compatibility coordinates.
+
 ## Semantic retrieval
 
 The lexical tiers above are the default and remain the whole of search until the owner enables

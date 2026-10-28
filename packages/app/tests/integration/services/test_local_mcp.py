@@ -2277,6 +2277,7 @@ def test_real_external_stdio_keeps_local_admin_callbacks_closed_with_all_flags(
             "brain_catalog",
             "brain_contract_describe",
             "brain_search_page",
+            "brain_search",  # Compact branch only; legacy callback remains closed.
             "brain_read",
             "brain_history_list",
             "brain_history_show",

@@ -85,7 +85,7 @@ class T03SessionBudget:
     history_bytes: int = 0
 
     def begin(self, operation: str) -> None:
-        if operation in {"search.page", "record.read"}:
+        if operation in {"search.page", "search.compact.page", "record.read"}:
             if self.content_calls >= MAX_CONTENT_CALLS:
                 raise T03AppError("operation_pending")
             self.content_calls += 1
@@ -95,7 +95,7 @@ class T03SessionBudget:
             self.history_calls += 1
 
     def commit(self, operation: str, encoded_bytes: int) -> None:
-        if operation in {"search.page", "record.read"}:
+        if operation in {"search.page", "search.compact.page", "record.read"}:
             if self.content_bytes + encoded_bytes > MAX_CONTENT_BYTES:
                 raise T03AppError("response_too_large")
             self.content_bytes += encoded_bytes
