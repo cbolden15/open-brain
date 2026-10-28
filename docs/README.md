@@ -1,7 +1,8 @@
 # Open Brain documentation
 
-Start with the [README](../README.md) for install and the MCP client examples, then
-[first use](first-use.md). The [CLI reference](cli.md) lists every command, and the
+Start with [first use](first-use.md): install for personal use or run a source checkout, capture a
+note, and retrieve it. AI clients and Obsidian are optional next steps. The [README](../README.md)
+also provides the short trial and MCP client examples. The [CLI reference](cli.md) lists every command, and the
 [feature/version matrix](core-v01-features.md) separates what is implemented from what is accepted.
 
 ## Install and operate

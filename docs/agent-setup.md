@@ -1,11 +1,15 @@
 # Configure agent memory
 
-Open Brain can configure Claude Code or Codex from the desktop or the headless CLI. Each route uses
-the same setup service. The desktop is optional, and neither route installs a background collector.
-This page describes the Core v0.1 candidate. Existing releases may lack these commands; product
-version alone does not establish availability. Check the [feature/version matrix](core-v01-features.md).
-The [first-use guide](first-use.md) executes synthetic setup preview/apply/removal and stdio discovery
-for both clients without touching real profiles. Commands below are reference templates: replace
+Open Brain can configure Claude Code or Codex through the CLI. This is optional: start with
+[capture and search](first-use.md) before connecting an AI client. No background collector is
+installed by agent setup. The former desktop companion is archived and has no current setup route.
+
+These commands describe the current source candidate; the published `v0.1.0` Homebrew release has
+no `agent setup` command. Check the selected executable's `--help` and the
+[feature/version matrix](core-v01-features.md). The unreleased interactive `open-brain setup` guide
+can also walk through this preview/apply workflow. The separately labeled historical fixture in
+the [first-use guide](first-use.md#historical-executable-journey) preserves older synthetic setup
+and discovery checks. Commands below are reference templates: replace
 uppercase IDs and absolute example paths with your own, and inspect each preview before applying.
 
 ## Headless setup
@@ -15,8 +19,7 @@ only the Open Brain fragments, without printing unrelated client settings.
 
 ```sh
 open-brain agent setup --client claude-code --scope project \
-  --project-dir /absolute/path/to/project --allow-capture --allow-search \
-  --allow-inbox-read --allow-organize --json
+  --project-dir /absolute/path/to/project --allow-capture --allow-search --json
 ```
 
 Review the preview, then repeat the same options with its `preview_id`:
@@ -24,14 +27,14 @@ Review the preview, then repeat the same options with its `preview_id`:
 ```sh
 open-brain agent setup --client claude-code --scope project \
   --project-dir /absolute/path/to/project --allow-capture --allow-search \
-  --allow-inbox-read --allow-organize \
   --apply --preview-id setup_HASH_FROM_PREVIEW --json
 ```
 
 Use `--client codex` for Codex. Use `--scope user` and omit `--project-dir` to apply across projects.
-Capture, search, content reading, history reading, inbox reading, organization, review reading, proposal creation, and review decisions
-are separate grants. Omit a flag to withhold that
-capability. `--allow-inbox-read` grants `brain_inbox_list` and `brain_space_list`.
+The two flags above explicitly grant capture and search. Omit either to withhold it; every grant is
+off by default. The CLI offers independent grants, including the read, organization,
+review, follow-up and brief grants described below. `--allow-inbox-read` grants `brain_inbox_list`
+and `brain_space_list`.
 `--allow-organize` grants `brain_space_create`, `brain_space_rename`, and `brain_inbox_route`.
 Neither grant follows automatically from capture or search. At least one grant is required when
 configuring. `--runtime /absolute/path/to/open-brain` can select an executable; otherwise setup uses
@@ -65,13 +68,17 @@ also holds `followup-read`. Neither grant follows from any other, brief MCP sess
 unless a launcher policy allows another tier, and scoped Work evidence setup refuses these flags.
 See [daily brief](daily-brief.md). Owner CLI `brief` commands need no grants.
 
+Facet access also has separate read, catalog-write, assignment and query-write grants. Consult the
+selected executable's `agent setup --help` for its available flags; these are not needed for basic
+capture and retrieval.
+
 Other owner-local commands are not agent grants and have no MCP tool: `retract`, `embedding`,
-`facet` and `consumer-import` (an agent with shell access can run the last, see
+and `consumer-import` (an agent with shell access can run the last, see
 [intake from coding agents](consumer-intake-agents.md)). Automatic harness memory uses the separate
 `harness` command; see [harness setup](harness-setup.md).
 
-For a source checkout, prefix these commands with `uv run`. Keep the checkout and its environment
-at the same location because agent configuration records an absolute executable path.
+For a source checkout, prefix these commands with `uv run --frozen`. Keep the checkout and its
+environment at the same location because agent configuration records an absolute executable path.
 
 ## Scoped Work evidence setup
 
@@ -181,9 +188,9 @@ a capture when the user asks. Routing changes assignment and search metadata. It
 the capture, change its trust, or convert it into a canonical note. Generated instructions name only
 the explicitly granted tools and limit organization to the current user request.
 
-The candidate uses private schema version 17, runtime session version 12 and Portable version 12.
+The current candidate uses private schema version 23, runtime session version 16 and Portable version 18.
 Stop older sessions before upgrading an existing Brain. Compatibility admission remains unchanged;
-W2 adds no storage fence against an older binary at the same coordinates. Use the upgraded runtime
+an older binary at the same coordinates is not fenced. Use the current runtime
 for its MCP policy boundary. After moving the app or upgrading a CLI whose versioned path changes,
 preview setup again.
 
@@ -202,10 +209,10 @@ fragment, including Codex settings that extend the server outside its marked blo
 `open-brain catalog --json` describes registered CLI/MCP/bridge implementation without opening a
 Brain. It is not a grant. Inside an already authorized MCP process, `tools/list` and
 `brain_catalog` with `{"schema_version":2}` describe that session. Starting `mcp` without a grant
-fails. The setup CLI offers nine grants; manual MCP additionally offers workspace-read and
-graph-refresh. The shared bridge accepts all nine setup grants, while the desktop setup UI exposes
-capture/search only. Obsidian has no agent-setup control. Do not infer a UI control from a bridge
-registration or a permission from package installation.
+fails. The setup CLI offers independent grants; manual MCP additionally offers workspace-read and
+graph-refresh. The current interactive setup guide offers capture/search, and the shared plugin
+setup operations expose capture/search. Obsidian has no agent-setup control. Do not infer a UI
+control from a bridge registration or a permission from package installation.
 
 Review-decide grants durable approve/reject/edit-and-approve operations after inspection. Content,
 history, inbox and review reads can expose private data to the connected client and its provider.

@@ -280,8 +280,23 @@ def run_cli(
     except SystemExit as error:
         return error.code if isinstance(error.code, int) else 1
     if parsed.command is None:
-        _write_usage_failure(json_output=json_output)
+        if json_output:
+            _write_usage_failure(json_output=True)
+        else:
+            print("Run open-brain setup for guided first use, or open-brain --help for commands.",
+                  file=sys.stderr)
         return 2
+    if parsed.command == "setup":
+        from open_brain.services.onboarding import headless_hint, interactive_terminal
+
+        if json_output or not interactive_terminal():
+            if json_output:
+                _write_usage_failure(json_output=True)
+            else:
+                print("open-brain setup requires interactive stdin and stdout. "
+                      + _terminal_text(headless_hint(getattr(parsed, "data_dir", None))),
+                      file=sys.stderr)
+            return 2
     try:
         _validate_compact_search_arguments(parsed)
     except T03AppError:
@@ -672,6 +687,16 @@ def _run_parsed_command(
                     else "local_operation_failed",
                     json_output=json_output,
                 )
+        if parsed.command == "setup":
+            from open_brain.services.onboarding import SetupIO, run_setup
+
+            return run_setup(
+                selection,
+                environment=environment,
+                io=SetupIO(sys.stdin, sys.stdout, _terminal_markdown),
+                setup_workspace=_setup_managed_workspace,
+                filesystem_type_probe=filesystem_type_probe,
+            )
         if parsed.command == "init":
             receipt = initialize_local_brain(
                 selection,
@@ -892,6 +917,13 @@ def _parser() -> argparse.ArgumentParser:
     from open_brain.services.harness_cli import add_harness_arguments
 
     add_harness_arguments(harness_parser)
+    setup_parser = subparsers.add_parser(
+        "setup", help="Guide first capture, retrieval and optional integrations in a terminal."
+    )
+    _add_local_options(setup_parser)
+    setup_parser._option_string_actions["--json"].help = (
+        "Setup is interactive; use capture/search --json for headless use."
+    )
     init_parser = subparsers.add_parser("init", help="Create or reopen one private local Brain.")
     _add_local_options(init_parser)
     restore_parser = subparsers.add_parser(
@@ -3446,6 +3478,21 @@ def _run_obsidian_plugin(
     return 0
 
 
+def _setup_managed_workspace(session: LocalBrainSession) -> ManagedWorkspaceReceipt:
+    """Share the existing owner workspace setup checks with guided first use."""
+    workspace = session.profile.root.parent / "Open Brain Vault"
+    try:
+        metadata = workspace.lstat()
+    except FileNotFoundError:
+        workspace.mkdir(mode=0o700)
+    else:
+        if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            raise ValueError("managed workspace destination is unsafe")
+    return session.tasks.managed_workspace.setup(
+        str(workspace), operation_id="operation.cli." + str(uuid.uuid4())
+    )
+
+
 def _run_workspace(
     parsed: argparse.Namespace,
     session: LocalBrainSession,
@@ -3457,19 +3504,11 @@ def _run_workspace(
     if action == "status":
         _write_managed(workspace_status_result(tasks), json_output=json_output)
         return 0
-    operation_id = "operation.cli." + str(uuid.uuid4())
     if action == "setup":
-        workspace = session.profile.root.parent / "Open Brain Vault"
-        try:
-            metadata = workspace.lstat()
-        except FileNotFoundError:
-            workspace.mkdir(mode=0o700)
-        else:
-            if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-                raise ValueError("managed workspace destination is unsafe")
-        receipt = tasks.managed_workspace.setup(str(workspace), operation_id=operation_id)
+        receipt = _setup_managed_workspace(session)
         _write_managed(_workspace_receipt(receipt), json_output=json_output)
         return 0
+    operation_id = "operation.cli." + str(uuid.uuid4())
     status = tasks.managed_workspace.status()
     if status is None:
         raise ValueError("managed workspace is not configured")

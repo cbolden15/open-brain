@@ -2,6 +2,8 @@
 
 The Open Brain core needs no configuration. The first stateful command selects the platform data directory,
 creates one owner and one Brain, opens SQLite, performs its work, and exits.
+Start with [capture and search](first-use.md). The current source tree also offers an optional
+interactive `open-brain setup` guide; the published `v0.1.0` Homebrew release does not include it.
 
 An optional absolute `--data-dir` names the Brain root for expert and test use. Relative paths are
 rejected. Without that option, the defaults are:
@@ -20,13 +22,17 @@ setting, scheduler inventory, or service unit. Optional semantic-provider setup 
 plugin-session operation described in [the install guide](install.md#use-the-managed-vault-in-obsidian).
 The optional connector distribution has its own package boundary and does not change core startup.
 
-## Desktop companion boundary
+## Optional integrations and archived desktop
 
-The D0 desktop proof selects a disposable synthetic Brain and a digest-checked packaged runtime.
-It exposes no account setup, existing-Brain selection, scheduling preference, or service registration.
-It does not change the core defaults above or the installed CLI.
+Claude Code and Codex use the [agent setup CLI](agent-setup.md) when supported by the selected
+executable. The optional [Obsidian plugin](install.md#use-the-managed-vault-in-obsidian) is a separate
+desktop-only integration; it requires explicit activation in Obsidian.
 
-Future source configuration, checkpoints, credential references, and collector controls belong to
-the companion/collector, separately from Brain content. Enabling collection and starting it at login
-are separate choices. See [ADR 0017](architecture/decisions/0017-desktop-companion-boundary.md) for
-the permission and lifetime contract; these settings are not working D0 features.
+The former Tauri desktop companion is archived under `archive/open-brain-desktop`. It was never
+released and is excluded from active builds and tests. Its D0 proof and settings are historical;
+there is no current desktop-companion setup route.
+
+Optional source configuration, checkpoints, credential references, and collection controls belong
+to the collector, separately from Brain content. Enabling collection and starting it at login are
+separate opt-ins. See [ADR 0017](architecture/decisions/0017-desktop-companion-boundary.md) for the
+permission and lifetime boundary. None of these controls is needed for local capture or search.

@@ -233,7 +233,7 @@ def test_reference_docs_bind_followup_commands_and_grants() -> None:
         ), path
     matrix = (root / "docs/core-v01-features.md").read_text(encoding="utf-8")
     assert "| Follow-ups |" in matrix
-    assert "Fourteen independent grants" in matrix
+    assert "Independent grants" in matrix
     assert "Twelve independent grants" not in matrix
     assert "Nine independent grants" not in matrix
     index = (root / "docs/README.md").read_text(encoding="utf-8")
@@ -264,7 +264,7 @@ def test_reference_docs_bind_brief_commands_and_grants() -> None:
         assert "brief-read" in text and "brief-ack" in text, path
     matrix = (root / "docs/core-v01-features.md").read_text(encoding="utf-8")
     assert "| Daily brief |" in matrix
-    assert "Fourteen independent grants" in matrix
+    assert "Independent grants" in matrix
     index = (root / "docs/README.md").read_text(encoding="utf-8")
     assert "[daily brief](daily-brief.md)" in index
     assert "Portable 18 is current (local schema 23, runtime session 16)" in index

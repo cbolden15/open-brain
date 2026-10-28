@@ -6,58 +6,45 @@ The core runs in the foreground without a daemon or provider account.
 
 ## Try a synthetic note
 
-Install with `brew install cbolden15/tap/open-brain` on macOS or Linux with Homebrew.
-Then run these three commands in the same shell. They use a new temporary Brain, separate from
-your normal notes; keep `DEMO_BRAIN` set for the optional setup preview below.
+With Homebrew on macOS Apple Silicon or Linux x86_64, install, save a sample, and find it:
 
 ```sh
-export DEMO_BRAIN="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/open-brain-demo.XXXXXX")" && pwd -P)/brain"
-open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --data-dir "$DEMO_BRAIN" --json
-open-brain search 'Copper Orchard' --data-dir "$DEMO_BRAIN" --json
+brew install cbolden15/tap/open-brain
+open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --json
+open-brain search 'Copper Orchard' --json
 ```
 
-Capture creates the Brain automatically. Search should return the synthetic note. These core
-commands need no model or network request after installation. The tap supplies the published
-release; the candidate-only features described below may require a newer executable.
+Capture creates your persistent local Brain automatically. Search should return the sample. Replace
+the text with a note of your own when ready. Capture and search need no model, account, or network
+request after installation.
 
-Agent setup requires a candidate executable with `agent setup` in `open-brain --help`; the
-`v0.1.0` release lacks it. With that candidate, preview **search-only** access for Claude Code
-in an existing project. Replace the absolute project path before running:
-
-```sh
-open-brain agent setup --client claude-code --scope project \
-  --project-dir /absolute/path/to/project --data-dir "$DEMO_BRAIN" --allow-search --json
-```
-
-This command previews configuration; it does not apply it or start a client. Use `--client codex`
-for Codex. Inspect the executable, Brain path, grants and proposed files in the preview before
-following [agent setup](docs/agent-setup.md) to apply it. Search does not grant capture, complete
-reads, retained history or publication. A connected client may send search results to its model
-provider; treat retrieved text as untrusted data. Older releases may lack `agent setup`.
-
-For current compatibility and the preserved historical workflow, read [first use](docs/first-use.md).
-The [installation guide](docs/install.md) covers supported release resources.
+The [first-use guide](docs/first-use.md) covers personal use, development from a checkout, and an
+isolated disposable demo. AI clients and Obsidian are optional next steps. The published Homebrew
+release is `v0.1.0`; it has no `setup`, `agent setup`, or `catalog` command. The interactive
+`open-brain setup` guide is available in the current source tree and is unreleased. A draft
+`v0.2.0` release is not an installable public release.
 
 ## Candidate scope
 
-This tree documents the locally verified **Core v0.1 candidate**, not a newly published release.
-The shared `0.1.0` version alone does not identify its features. Check `open-brain --help` and
-`open-brain catalog --json` on the executable you will use; an older release may lack catalog.
+This tree documents the current development candidate, not a newly published release.
+The shared `0.1.0` package version alone does not identify its features. Check `open-brain --help`
+on the executable you will use. On candidates that offer it, `open-brain catalog --json` provides
+additional compatibility and capability details.
 The [feature/version matrix](docs/core-v01-features.md) separates implementation, installed assets,
 authorization and acceptance. The candidate has no public acceptance certification.
 
-The [first-use guide](docs/first-use.md) records current compatibility and preserves an exact-artifact
-historical journey through capture, import, routing, publication, managed vault and complete reads.
+The [first-use guide](docs/first-use.md) starts with capture and retrieval, then offers optional
+integrations. It also preserves a separately labeled historical executable fixture.
 [Doctor checks](docs/doctor.md) provide bounded local diagnostics. These local checks do not close
 Linux exact-candidate, Obsidian GUI or public-promotion gates.
 Optional [offline semantic search](docs/semantic-search.md) is off by default.
 
 ## Offline semantic search
 
-Semantic search finds records by meaning as well as by words. It runs on your machine with a
-pinned embedding model that Homebrew installs as a separate embedding resource next to the base.
-Nothing is sent over the network and searching never downloads a model. It is not part of the
-network egress described below.
+Newer candidates support search by meaning as well as by words, using a separately packaged local
+embedding model. The published `v0.1.0` Homebrew formula has no embedding resource. This optional
+feature requires a matching executable and resource; it is not part of the capture/search trial.
+Nothing is sent over the network and searching never downloads a model.
 
 It stays off until you opt in. The `component-id` comes from `open-brain embedding status --json`
 after the resource is installed:
@@ -77,7 +64,7 @@ health states and limits, and the [CLI reference](docs/cli.md) for every command
 
 ## Install
 
-Homebrew is the prerequisite on macOS and Linux. Install the complete resource set with:
+Homebrew is the prerequisite on macOS and Linux. Install the published release with:
 
 ```sh
 brew install cbolden15/tap/open-brain
@@ -88,8 +75,8 @@ Use the [installation guide](docs/install.md) to distinguish released resources 
 The earlier [five-minute provider acceptance test](docs/acceptance/five-minute-install.md) remains a
 separate historical target, not the Core v0.1 first-use prerequisite.
 
-The native package also includes a desktop-only Obsidian plugin for the managed Markdown vault and
-a separately packaged structural Graphify helper. The plugin offers capture, search, source
+Native packages include a desktop-only Obsidian plugin for the managed Markdown vault and
+a separately packaged structural Graphify helper. With matching assets, the plugin offers capture, search, source
 navigation, conflict review, generated Canvas output, and semantic suggestion review. Installation,
 explicit Obsidian activation, provider setup, pause controls, and safe plugin removal are documented
 in [the installation guide](docs/install.md#use-the-managed-vault-in-obsidian).
@@ -106,11 +93,10 @@ production provider onboarding remain outside Core v0.1. See the
 [ADR 0017](docs/architecture/decisions/0017-desktop-companion-boundary.md) for the collector
 package and permission boundaries.
 
-The Core v0.1 candidate includes [paged search, complete reads and retained history](docs/records-and-history.md),
+The current candidate includes [paged search, complete reads and retained history](docs/records-and-history.md),
 including owner-CLI revision relationships and publication workflows in both clients. Its
-[Portable v5 exports](docs/portable-brain-v5.md) preserve source, decision, privacy-repair, and
-issuer-migration evidence. The [Portable v4 document](docs/portable-brain-v4.md) remains available
-for the historical format. These changes
+[Portable v18 exports](docs/portable-brain-v18.md) preserve current versioned evidence. Earlier
+Portable specifications remain available as format history. These changes
 require this candidate's surfaces; local verification does not publish a new Homebrew release.
 
 ## Use Open Brain
@@ -120,8 +106,8 @@ They derive IDs from actual responses; reference pages use uppercase placeholder
 
 The first capture creates the private data directory, owner identity, Brain identity, and SQLite
 state automatically. Existing supported local databases upgrade transactionally when opened for
-writing. This candidate uses local state schema **21**, runtime session **16**, and Portable metadata
-**16**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
+writing. This candidate uses local state schema **23**, runtime session **16**, and Portable metadata
+**18**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
 and plugin bridge protocol 1. Stop older sessions before upgrading and update clients together;
 older runtimes must refuse incompatible state. See [schema migrations](docs/schema-migrations.md) for supported
 older layouts, refusal behavior, and interrupted-transaction recovery.
@@ -151,6 +137,11 @@ Open Brain relies on operating-system account and disk protection. It does not c
 application-level encryption.
 
 ## Connect an MCP client
+
+The following tool names and capability details describe the current candidate. Check the selected
+executable's help; the published `v0.1.0` release does not provide every candidate tool. For supported
+candidate executables, [agent setup](docs/agent-setup.md) can preview these settings for Claude Code
+or Codex instead of editing a client file by hand.
 
 `open-brain mcp` serves tools over inherited stdio until the client closes it. It uses the same
 local Brain as the CLI and opens no listener, daemon, or child service. The invoking OS user and
@@ -264,23 +255,30 @@ this is separate from graph-suggestion acceptance. Stopping the stdio process cl
 
 ## Develop
 
-Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make, Node.js 24.15+ or 26+,
-npm, stable Rust, [uv](https://docs.astral.sh/uv/getting-started/installation/), and
-[Homebrew](https://brew.sh/). On macOS, install the Xcode Command Line Tools (`xcode-select --install`).
-On Linux, install Homebrew's build prerequisites (a C/C++ toolchain, curl, file, Git, and Make)
-using your distribution's package manager. Put Homebrew on `PATH` using the `brew shellenv`
-command printed by its installer. The workspace uses Python 3.14; uv downloads it if needed.
-CI uses the latest Node.js 24 release.
+For the Python CLI trial, install Git and
+[uv](https://docs.astral.sh/uv/getting-started/installation/). uv selects Python 3.14 and downloads it
+if needed. Full contributor/native checks need additional tools; their complete prerequisites are
+in [CONTRIBUTING.md](CONTRIBUTING.md#development-checks).
 
-From the repository root in a fresh clone:
+From the repository root, try capture and retrieval before running the contributor checks:
 
 ```sh
-uv sync --frozen --group dev --group native-build
-make contributor-check
+uv sync --frozen --python 3.14 --group dev --group native-build
+export DEMO_BRAIN="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/open-brain-demo.XXXXXX")" && pwd -P)/brain"
+uv run --frozen open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --data-dir "$DEMO_BRAIN" --json
+uv run --frozen open-brain search 'Copper Orchard' --data-dir "$DEMO_BRAIN" --json
 ```
 
 A checkout does not install `open-brain` on `PATH`; run it from the repository root as
-`uv run --frozen open-brain ...`.
+`uv run --frozen open-brain ...`. These four commands use a disposable Brain, separate from your
+usual notes. Keep `DEMO_BRAIN` set for optional interactive source setup in the
+[first-use guide](docs/first-use.md).
+
+Before submitting a change, run the complete checks described in [CONTRIBUTING.md](CONTRIBUTING.md):
+
+```sh
+make contributor-check
+```
 
 `make contributor-check` runs `make verify` and `make native-integration-smoke`. Expect Ruff's
 `All checks passed!`, MyPy's `Success: no issues found`, a passing pytest summary (some filesystem

@@ -3,20 +3,41 @@
 Open Brain is pre-production. Discuss substantial behavior changes before implementation so capture,
 search, storage, and Portable export remain coherent.
 
-## Development checks
+## Try the source checkout
 
-Supported contributor hosts are macOS arm64 and Linux x86_64. Install Git, GNU Make,
-[uv](https://docs.astral.sh/uv/getting-started/installation/), Node.js 24, npm, stable Rust, and
-[Homebrew](https://brew.sh/). On macOS, install the Xcode Command Line Tools (`xcode-select --install`).
-On Linux, install Homebrew's build prerequisites (a C/C++ toolchain, curl, file, Git, and Make)
-using your distribution's package manager. Put Homebrew on `PATH` using the `brew shellenv`
-command printed by its installer. The workspace uses Python 3.14; uv downloads it if needed.
-CI uses Node.js 24.
+For the Python CLI trial, install Git and
+[uv](https://docs.astral.sh/uv/getting-started/installation/). The workspace requires Python 3.14;
+the command below lets uv select and download it if needed. The full native/contributor toolchain
+belongs to the [development checks](#development-checks), not this capture/search trial.
 
-From the repository root in a fresh clone:
+From the repository root, run these four commands in the same shell to install the environment,
+save a synthetic note in a disposable Brain, and retrieve it:
 
 ```sh
-uv sync --frozen --group dev --group native-build
+uv sync --frozen --python 3.14 --group dev --group native-build
+export DEMO_BRAIN="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/open-brain-demo.XXXXXX")" && pwd -P)/brain"
+uv run --frozen open-brain capture 'Synthetic project Copper Orchard meets on Tuesday.' --data-dir "$DEMO_BRAIN" --json
+uv run --frozen open-brain search 'Copper Orchard' --data-dir "$DEMO_BRAIN" --json
+```
+
+Search should return the sample. These commands leave your persistent personal Brain alone; the
+first capture creates the disposable Brain automatically. A checkout does not put `open-brain` on
+`PATH`, so keep the `uv run --frozen` prefix. Keep `DEMO_BRAIN` set for the optional interactive
+source setup described in the [first-use guide](docs/first-use.md). That setup command is current-source
+functionality and is not in the published `v0.1.0` Homebrew release.
+
+## Development checks
+
+Supported contributor hosts are macOS arm64 and Linux x86_64. Full checks require Git, GNU Make,
+uv, Node.js 24.15+ or 26+, npm, stable Rust, and [Homebrew](https://brew.sh/). On macOS, install the
+Xcode Command Line Tools (`xcode-select --install`). On Linux, install Homebrew's build prerequisites
+(a C/C++ toolchain, curl, file, Git, and Make) using your distribution's package manager. Put Homebrew
+on `PATH` using the `brew shellenv` command printed by its installer. CI uses the latest Node.js 24.
+Rust is part of the native component toolchain, not a dependency of the Python capture/search trial.
+
+Before submitting a change, run:
+
+```sh
 make contributor-check
 ```
 

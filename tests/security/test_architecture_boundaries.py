@@ -94,6 +94,7 @@ def test_application_package_contains_only_foreground_local_surfaces() -> None:
         "services/historical_recovery.py",
         "services/mcp_protocol.py",
         "services/obsidian_plugin.py",
+        "services/onboarding.py",
         "services/plugin_bridge.py",
         "services/plugin_facet_contracts.py",
             "services/provider_credentials.py",

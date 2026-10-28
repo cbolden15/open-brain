@@ -3,6 +3,8 @@
 This is the local candidate contract. Historical releases and this candidate both use product
 version `0.1.0`; the version string does not establish feature availability or public readiness.
 Use the exact candidate commit and artifact digests, installed help and `catalog --json`.
+The published Homebrew `v0.1.0` release lacks `catalog`, `agent setup`, and the new interactive
+`setup` command. A draft `v0.2.0` release does not make this source tree publicly installed.
 The catalog's `acceptance.trusted_certifications` is empty and `product.public_acceptance` is `not_certified`.
 Local documentation checks do not promote catalog acceptance.
 
@@ -28,17 +30,18 @@ and mixed historical operations. [Portable 12](portable-brain-v12.md) retains ow
 | Surface | Candidate implementation | Acceptance / limitation |
 |---|---|---|
 | Core CLI | Local capture, Markdown import, spaces/inbox, source routing, proposals and inspected decisions | Locally verified; [first-use examples](first-use.md); no release promotion |
+| Guided first use | Interactive `setup` confirms a synthetic capture and checks retrieval, with optional agent/Obsidian setup | Current source, unreleased; terminal-only; integrations and agent grants are opt-in; [first use](first-use.md) |
 | Capture admission | Engine-enforced envelope, body, and batch bounds, per-principal rate and concurrency gates, bounded writer waiters, absolute storage watermarks, owner explicit tiers, and destination-bound submission under a trusted launcher policy | Stable refusal results leave no partial state; defaults in the [capture contract](capture-contract.md); redaction boundary classifier off by default |
 | Conversation intake | Internal ChatGPT/Claude normalized plans, owner `consumer-import` preview/body/commit/status/recover/halt, atomic conversations and Portable15 evidence; [intake](consumer-intake.md), [from coding agents](consumer-intake-agents.md) | Synthetic acceptance; both external parsers inactive, so new ChatGPT/Claude archives return `unsupported_profile`; no end-user importer claim |
 | Offline semantic search | Opt-in local model in a separate embedding resource, `embedding status/enable/disable/rebuild`, `search-page --mode`, derived vector cache, `embedding_health`; [semantic search](semantic-search.md) | Not network egress; off until enabled; lexical fallback with a `model_unavailable` warning; cache is not part of Portable export |
 | Owner retraction | `retract preview/commit/status` for a capture or trusted capture session; [owner retraction](owner-retraction.md), [impact](retraction-impact.md) | Owner-local only; no MCP, plugin or desktop command; no purge certification for backups or earlier exports |
 | Follow-ups | `followup list/show/propose/add-evidence/decide`; `brain_followup_*` under `followup-read`, `followup-propose`, `followup-decide`; [guide](followups.md) | Client-detected only; exact-quote evidence with kept history; Work-only MCP sessions by default; no ticket write or outgoing message; [Portable 18](portable-brain-v18.md) |
 | Daily brief | `brief`, `brief ack`, `brief last`; `brain_brief`, `brain_brief_ack` under `brief-read`, `brief-ack`; [guide](daily-brief.md) | On request only; rule-based ranking with no model call; follow-up items only with `followup-read`; per-key log under `.open-brain/state/briefs/` is a rebuildable view, not Portable content; collector health `not_read` in version 1 |
-| Owner-defined facets | `facet dimension/value/assignment/query/history/vault`; [design](design/owner-defined-facets-stage-one.md) | Owner CLI and Obsidian workflows; [Portable 10](portable-brain-v10.md) |
+| Owner-defined facets | `facet dimension/value/assignment/query/history/vault`; [design](design/owner-defined-facets-stage-one.md) | Owner CLI, Obsidian workflows and separately granted agent operations; [Portable 10](portable-brain-v10.md) |
 | Harness memory | Foreground `harness` bridge and optional lifecycle adapters for Codex, Claude Code and Pi; [setup](harness-setup.md), [memory](harness-memory.md) | Native acceptance in progress; synthetic events do not prove live capture or recall |
 | Retrieval | Lexical search by default, optional local hybrid mode, paged filters, complete projected reads, retained history and explicit relationships | Independent content/history grants for MCP; cursors can become stale |
 | Managed vault | `workspace setup`, `status`, `refresh`; approved canonical pages | Sibling `Open Brain Vault`; routing alone does not publish; no `vault` CLI |
-| Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Fourteen independent grants, off by default; synthetic setup proof is not live client/provider acceptance |
+| Agent memory | Claude Code and Codex preview/apply/remove through `agent setup` | Independent grants, off by default; synthetic setup proof is not live client/provider acceptance |
 | MCP | Foreground stdio; `tools/list`, `brain_catalog`, grant-filtered callable tools; optional whole-session launcher policy and durable external-provider consent | No-grant startup refused; authority is the intersection of policy, selected flags, injected implementations, and the scoped-safe matrix; live revocation terminates the process |
 | Obsidian | Packaged desktop plugin, explicit staging/activation, existing capture/routing/review/read workflow | Assets and bridge registration do not prove UI use; exact-candidate GUI gate remains open |
 | Graphify | Separately packaged structural helper | Paired resource; rebuildable graph is not source evidence |
@@ -47,7 +50,7 @@ and mixed historical operations. [Portable 12](portable-brain-v12.md) retains ow
 | Slack cited recall | Optional selected-channel intake, owner-approved Work evidence copies, scoped existing stdio search/read and exact citation plumbing | Synthetic acceptance only; [operator and pilot guide](integrations/slack-decision-recall.md); actual-client/model/injection checks `not_run`; no live Slack or public integration claim |
 | Optional collector recovery | Durable receipts/quarantine/retry implementation, T09 local evidence | Optional source functionality; not public connected-source continuity or service acceptance |
 | Optional offline outbox | Bounded durable enqueue, one-cycle owner drain with an exclusive lease and batch bounds, receipt-verified body removal, quarantine with owner retry, confirmed discard, and lineage conversion | Optional connectors distribution, not in the core artifact; text payloads only; the synthetic transport is the only automated-test transport and real transports are private deployment acceptance |
-| Desktop companion | Existing contributor build and compatibility tests retained | Separate package; no Core v0.1 desktop release |
+| Desktop companion | Archived under `archive/open-brain-desktop`; excluded from active builds and tests | Never released; no current setup route |
 
 Catalog labels such as `developer_accepted` refer to bounded recorded implementation evidence.
 `installed`, `version_compatible`, registered entry points, `authorization`, `readiness`, packaged
