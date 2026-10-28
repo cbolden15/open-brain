@@ -19,6 +19,8 @@ from open_brain_engine.engine import (
 from open_brain_engine.engine import review_bound as review_bound_module
 from open_brain_engine.engine.contracts import ReviewBindingConflict
 from open_brain_engine.engine.normalization import _new_id
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority, RecordReadRequest
+from open_brain_engine.portable.v4 import canonical_revision_id
 
 from open_brain.profile import compile_single_user_local
 
@@ -1222,6 +1224,95 @@ def test_full_page_update_shows_replacement_and_bounded_diff(tmp_path: Path) -> 
     omitted = engine.review.show(rewrite.proposal_id)
     assert omitted.replacement == "full_page"
     assert omitted.page_diff is None
+
+
+@pytest.mark.parametrize("draft_cites_winner", (False, True))
+def test_stale_page_diff_projects_current_and_frozen_source_references(
+    tmp_path: Path, draft_cites_winner: bool
+) -> None:
+    root = tmp_path / "brain"
+    engine = _engine(root)
+    first, second = _sources(engine)
+    old_reference = "https://private.example.test/a"
+    new_reference = "https://new.synthetic.example.test/private-item"
+    third = engine.capture.accept(
+        ReferencePayload(new_reference, "Winning synthetic source"),
+        delivery_id="delivery.diff.stale.source",
+        space_id=engine.inbox.spaces()[0].space_id,
+    ).capture_id
+    created = engine.review.propose(
+        (first,), (ProposalDraft("Stale diff", "Root"),),
+        delivery_id="delivery.diff.stale.create",
+    )[0]
+    engine.review.decide(
+        created.proposal_id, DecisionOutcome.APPROVED,
+        delivery_id="delivery.diff.stale.create.approve",
+        expected_review_digest=created.review_digest,
+    )
+    winner = engine.review.propose(
+        (third,), (ProposalDraft("Stale diff", f"Winning source: {new_reference}"),),
+        delivery_id="delivery.diff.stale.winner", target_page_id=created.page_id,
+    )[0]
+    draft = f"Pending source: {old_reference}"
+    if draft_cites_winner:
+        draft += f"\nFuture source: {new_reference}"
+    loser = engine.review.propose(
+        (second,), (ProposalDraft("Stale diff", draft),),
+        delivery_id="delivery.diff.stale.loser", target_page_id=created.page_id,
+    )[0]
+    frozen = engine.review.show(loser.proposal_id)
+    assert third not in frozen.capture_ids
+    published = engine.review.decide(
+        winner.proposal_id, DecisionOutcome.APPROVED,
+        delivery_id="delivery.diff.stale.winner.approve",
+        expected_review_digest=winner.review_digest,
+    )
+    assert published.page_id is not None and published.publication_id is not None
+    current = engine.retrieval.read_record(
+        RecordReadRequest(
+            record_id=published.page_id,
+            expected_revision_id=canonical_revision_id(published.publication_id),
+        ),
+        authority=EffectiveAuthority(
+            "synthetic-owner", "synthetic-session", frozenset(), None, owner=True
+        ),
+    ).to_wire()
+    assert new_reference not in current["content"]["text"]
+    assert current["projection_applied"] is True
+
+    def snapshot() -> tuple[tuple[str, ...], dict[Path, bytes]]:
+        connection = engine._store.connect()
+        try:
+            database = tuple(connection.iterdump())
+        finally:
+            connection.close()
+        return database, {
+            path: path.read_bytes() for path in root.rglob("*")
+            if path.is_file() and path.suffix in {".md", ".json"}
+        }
+
+    before = snapshot()
+    shown = engine.review.show(loser.proposal_id)
+    assert snapshot() == before
+    assert shown.status == "pending" and shown.stale is True
+    assert shown.replacement == "full_page"
+    assert shown.review_digest == frozen.review_digest == loser.review_digest
+    assert shown.expected_page_sha256 == frozen.expected_page_sha256
+    assert shown.expected_publication_id == frozen.expected_publication_id
+    assert shown.capture_ids == frozen.capture_ids
+    diff = shown.page_diff or ""
+    assert "-Winning source:" in diff and "+Pending source:" in diff
+    assert new_reference not in diff
+    assert old_reference not in diff
+    assert new_reference not in shown.markdown
+    assert old_reference not in shown.markdown
+    assert "[protected]" in diff and shown.projection_applied is True
+
+    page = root / engine._proposal_row(winner.proposal_id)["canonical_path"]
+    page.write_bytes(page.read_bytes() + b"Unmanaged synthetic edit\n")
+    invalid = engine.review.show(loser.proposal_id)
+    assert invalid.stale is True and invalid.page_diff is None
+    assert invalid.review_digest == loser.review_digest
 
 
 def test_create_approval_refuses_a_duplicate_title_or_source_set(tmp_path: Path) -> None:

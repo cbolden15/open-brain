@@ -826,6 +826,15 @@ class ReviewOperations(_LocalEngineOperations):
                     live_body = parse_markdown(
                         _read_page(self, cast(str, target["canonical_path"]))
                     ).body.removesuffix("\n")
+                    live_references = tuple(
+                        cast(str, item["source_reference"])
+                        for capture_id in cast(tuple[str, ...], target["provenance"])
+                        for item in connection.execute(
+                            "SELECT source_reference FROM captures WHERE capture_id = ?",
+                            (capture_id,),
+                        )
+                    )
+                    references = tuple(dict.fromkeys((*references, *live_references)))
                 except ValueError:
                     live_body = None
         finally:
