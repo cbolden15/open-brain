@@ -14,7 +14,9 @@ denial checks passed, but eleven collector publication/transport tests stopped
 in a shared fixture that still expected the previous exact six-tool list.
 
 When adding an advertised MCP capability, find exact `tools/list` expectations
-across every package, not only the production factory's package. Update the
+across every package and native tooling, not only the production factory's package.
+The native smoke helper `_expected_mcp_tools` pins the same list; source tests
+do not substitute for executing its real packaged MCP exchange. Update the
 collector expectation while checking that the scoped alias advertises only its
 explicit compact branch; retain tests that refuse legacy whole-Brain callbacks.
 

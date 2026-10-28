@@ -1476,6 +1476,46 @@ def _smoke_local_mcp(executable: Path, home: Path, environment: Mapping[str, str
         or cast(dict[str, object], results[0].get("provenance")).get("source_origin") != "unknown"
     ):
         raise BaseNativeError("native MCP search failed")
+    compact = exchange(
+        "--allow-search",
+        "brain_search",
+        {"dto_version": 1, "query": token, "view": "compact"},
+    )
+    compact_rows = cast(list[dict[str, object]], compact.get("results"))
+    if (
+        compact.get("view") != "compact"
+        or compact.get("total_matches") != 1
+        or compact.get("total_groups") != 1
+        or compact.get("count_scope") != "lexical_matches"
+        or compact.get("complete") is not True
+        or compact.get("next_cursor") is not None
+        or len(compact_rows) != 1
+        or "excerpt" in compact_rows[0]
+        or compact_rows[0].get("members")
+        != [{"record_id": capture["capture_id"], "revision_id": capture["capture_id"]}]
+    ):
+        raise BaseNativeError("native compact MCP search failed")
+    count_only = exchange(
+        "--allow-search",
+        "brain_search_page",
+        {"dto_version": 1, "query": token, "view": "compact", "count_only": True},
+    )
+    cli_compact = json.loads(
+        _run(
+            (os.fspath(executable), "search", token, "--compact", "--count-only", "--json"),
+            environment,
+        ).stdout
+    )
+    if (
+        count_only.get("total_matches") != 1
+        or count_only.get("total_groups") != 1
+        or count_only.get("count_only") is not True
+        or count_only.get("results") != []
+        or count_only.get("complete") is not True
+        or count_only.get("next_cursor") is not None
+        or cli_compact != count_only
+    ):
+        raise BaseNativeError("native compact count parity failed")
     paged = search
     read = exchange(
         "--allow-content-read",
@@ -1607,7 +1647,7 @@ def _expected_mcp_tools(flag: str, name: str, tools: set[str] | None) -> set[str
     expected = set(tools if tools is not None else {name})
     expected.add("brain_catalog")
     if flag == "--allow-search":
-        expected.update({"brain_contract_describe", "brain_search_page"})
+        expected.update({"brain_contract_describe", "brain_search", "brain_search_page"})
     elif flag == "--allow-organize":
         expected.update({"brain_contract_describe", "brain_source_route"})
     return expected
