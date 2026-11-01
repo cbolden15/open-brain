@@ -19,10 +19,10 @@ def test_package_metadata_has_no_secure_node_extra_or_entry_point() -> None:
     )
     engine = tomllib.loads((ROOT / "packages/engine/pyproject.toml").read_text(encoding="utf-8"))
 
-    assert app["project"]["dependencies"] == ["open-brain-engine==0.2.0"]
+    assert app["project"]["dependencies"] == ["open-brain-engine==0.2.1"]
     assert collector["project"]["dependencies"] == [
-        "open-brain-connectors==0.2.0",
-        "open-brain-engine==0.2.0",
+        "open-brain-connectors==0.2.1",
+        "open-brain-engine==0.2.1",
     ]
     assert "optional-dependencies" not in app["project"]
     assert "optional-dependencies" not in collector["project"]

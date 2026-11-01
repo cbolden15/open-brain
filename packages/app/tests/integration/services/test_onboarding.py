@@ -386,7 +386,7 @@ def _assets(directory: Path) -> Path:
                 "isDesktopOnly": True,
                 "minAppVersion": "1.12.7",
                 "name": "Open Brain",
-                "version": "0.2.0",
+                "version": "0.2.1",
             }
         )
     )
