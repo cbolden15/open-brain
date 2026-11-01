@@ -17,6 +17,7 @@ from open_brain_engine.storage.filesystem import DurabilityError
 
 from open_brain.profile import compile_single_user_local
 from open_brain.services import local_entrypoints
+from open_brain.services.local_bootstrap import open_local_brain
 from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.local_operations import current_brain_identity
 
@@ -173,11 +174,10 @@ def _schema(root: Path) -> int:
 
 def _record_engine_opens(monkeypatch: pytest.MonkeyPatch) -> list[object]:
     opened: list[object] = []
-    real_open = local_entrypoints.open_local_brain
 
     def recording_open(*args: Any, **kwargs: Any) -> Any:
         opened.append(args)
-        return real_open(*args, **kwargs)
+        return open_local_brain(*args, **kwargs)
 
     monkeypatch.setattr(local_entrypoints, "open_local_brain", recording_open)
     return opened
