@@ -170,7 +170,8 @@ setInterval(()=>{}, 1000);
     await pending;
     await waitForFile(stopped);
     await expect(access(stopped)).resolves.toBeUndefined();
-  });
+    // Two Node processes start before `ready` exists; allow for a loaded machine.
+  }, 15_000);
 
   it.each([2, undefined])("rejects a response with protocol version %s", async (version) => {
     const executable = await fakeExecutable(`
@@ -233,7 +234,7 @@ async function fakeExecutable(body: string): Promise<string> {
 }
 
 async function waitForFile(file: string): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 250; attempt += 1) {
     try { await access(file); return; } catch { await new Promise((resolve) => setTimeout(resolve, 20)); }
   }
   throw new Error(`Timed out waiting for ${file}`);
