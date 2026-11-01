@@ -230,6 +230,8 @@ _EXPORT_ID = re.compile(
 )
 _MAX_PRIVACY_REPAIR_REQUEST_BYTES = 65_536
 _MAX_STARTUP_POLICY_BYTES = 65_536
+_EXPORT_RECORDS_DEFAULT_LIMIT = 2_000
+_EXPORT_RECORDS_DEFAULT_MAX_BYTES = 16_384
 _MAX_PRIVACY_REPAIR_RECEIPT_BYTES = 1_048_576
 _MAX_SOURCE_WITHDRAW_REQUEST_BYTES = 16_384
 _PRIVACY_REPAIR_REQUEST_KEYS = frozenset(
@@ -463,6 +465,12 @@ def run_cli(
         try:
             parsed.startup_policy = _read_startup_policy(parsed.policy)
         except OSError, UnicodeError, ValueError:
+            _write_usage_failure(json_output=json_output)
+            return 2
+    if parsed.command == "export-records":
+        try:
+            parsed.export_window = _export_records_window(parsed.since, parsed.until)
+        except ValueError:
             _write_usage_failure(json_output=json_output)
             return 2
     protection_path = getattr(parsed, "receipt_protection", None)
@@ -852,6 +860,7 @@ def _run_parsed_command(
         if parsed.command in {
             "capture",
             "capture-submit",
+            "export-records",
             "search",
             "mcp",
             "space",
@@ -886,6 +895,7 @@ def _run_parsed_command(
         if parsed.command in {
             "capture",
             "capture-submit",
+            "export-records",
             "search",
             "mcp",
             "space",
@@ -967,6 +977,47 @@ def _parser() -> argparse.ArgumentParser:
         metavar="PATH",
         default=None,
         help="Absolute owner-only receipt-protection-command.v1 configuration path.",
+    )
+    export_records_parser = subparsers.add_parser(
+        "export-records",
+        help="Print head captures an external-provider policy may read, as JSON Lines.",
+    )
+    _add_local_options(export_records_parser)
+    export_records_parser.add_argument(
+        "--policy",
+        metavar="PATH",
+        required=True,
+        help="Absolute path to an external_provider launcher-policy.v1 JSON file.",
+    )
+    export_records_parser.add_argument(
+        "--consent-state",
+        metavar="PATH",
+        default=None,
+        help="Absolute path to the provider consent state the policy's consent_id names.",
+    )
+    export_records_parser.add_argument(
+        "--since",
+        metavar="YYYY-MM-DD",
+        required=True,
+        help="First UTC day to include (inclusive).",
+    )
+    export_records_parser.add_argument(
+        "--until",
+        metavar="YYYY-MM-DD",
+        default=None,
+        help="UTC day to stop before (exclusive). Defaults to now.",
+    )
+    export_records_parser.add_argument(
+        "--limit",
+        type=int,
+        default=_EXPORT_RECORDS_DEFAULT_LIMIT,
+        help="Most records to print; more qualifying records is an error, not a truncation.",
+    )
+    export_records_parser.add_argument(
+        "--max-bytes-per-record",
+        type=int,
+        default=_EXPORT_RECORDS_DEFAULT_MAX_BYTES,
+        help="Cut each record's text to this many UTF-8 bytes and mark it truncated.",
     )
     import_parser = subparsers.add_parser(
         "import",
@@ -1865,6 +1916,60 @@ def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 def _reject_json_constant(_value: str) -> NoReturn:
     raise ValueError("invalid JSON constant")
+
+
+_EXPORT_RECORDS_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def _export_records_day(value: str) -> datetime:
+    if _EXPORT_RECORDS_DATE.fullmatch(value) is None:
+        raise ValueError("expected YYYY-MM-DD")
+    return datetime.fromisoformat(value).replace(tzinfo=UTC)
+
+
+def _export_records_window(since: str, until: str | None) -> tuple[datetime, datetime]:
+    start = _export_records_day(since)
+    end = datetime.now(UTC) if until is None else _export_records_day(until)
+    if not start < end:
+        raise ValueError("since must be before until")
+    return start, end
+
+
+def _run_export_records(
+    parsed: argparse.Namespace, tasks: EngineTaskSet, *, json_output: bool
+) -> int:
+    """Print the export as JSON Lines only after every record is projected; never partially."""
+    authority = TrustedSessionAuthority(
+        tasks,
+        policy_path=Path(parsed.policy),
+        consent_state_path=None if parsed.consent_state is None else Path(parsed.consent_state),
+    ).load()
+    # The export is external egress: an owner_local policy, or a policy scoped to no space,
+    # authorizes nothing here and is refused rather than read as owner authority or an empty
+    # result.
+    if (
+        authority.egress_mode is not EgressMode.EXTERNAL_PROVIDER
+        or authority.space_ids == frozenset()
+    ):
+        raise LauncherPolicyError("invalid_policy")
+    since, until = parsed.export_window
+    try:
+        records = tasks.record_export.export(
+            authority,
+            since=since,
+            until=until,
+            limit=parsed.limit,
+            max_bytes_per_record=parsed.max_bytes_per_record,
+        )
+    except T03Error as error:
+        if json_output:
+            _write_json({"error": {"code": error.code, "message": error.code}, "status": "failed"})
+        else:
+            print(error.code, file=sys.stderr)
+        return 2 if error.code == "invalid_arguments" else 1
+    for record in records:
+        _write_json(record.to_wire())
+    return 0
 
 
 def _read_startup_policy(value: object) -> str:
@@ -3080,6 +3185,8 @@ def _run_local_command(
         return _run_privacy_repair(parsed, tasks)
     if parsed.command == "consent":
         return _run_consent(parsed, tasks, json_output=json_output)
+    if parsed.command == "export-records":
+        return _run_export_records(parsed, tasks, json_output=json_output)
     if parsed.command == "source" and parsed.source_action in {"inspect", "withdraw"}:
         return _run_source_lifecycle(parsed, tasks, json_output=json_output)
     if parsed.command == "sharing":
