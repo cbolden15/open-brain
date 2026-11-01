@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.1 (unreleased)
+
+- Fixed: a store with an Obsidian vault or a Markdown import folder could not be opened, migrated, or
+  exported once macOS gave that folder's volume a different device number, which can happen after a
+  reboot. Every command failed with "Open Brain could not complete the local command", and
+  re-importing reported `import_root_changed`. Opening the Brain now re-records the device number
+  when the recorded path still opens to the same folder (same inode), before migration. A replaced
+  folder is still refused. Affects 0.1.0 and 0.2.0; upgrading from 0.1.0 to 0.2.0 stopped after
+  schema 6.
+
+## 0.2.0 - 2026-11-01
 
 - Local state schema 23 (follow-up items), runtime session 16 and Portable 18. Opening a schema 22
   store migrates it one way; take a verified Portable export with the 0.1.x runtime first.

@@ -206,7 +206,7 @@ def _initialize_response(
         {
             "protocolVersion": protocol_version,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "open-brain", "version": "0.2.0"},
+            "serverInfo": {"name": "open-brain", "version": "0.2.1"},
         },
     )
 

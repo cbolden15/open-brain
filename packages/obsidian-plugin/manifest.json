@@ -1,7 +1,7 @@
 {
   "id": "open-brain",
   "name": "Open Brain",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minAppVersion": "1.12.7",
   "description": "Capture, search, and review your local Open Brain from its managed vault.",
   "author": "Open Brain contributors",
