@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (unreleased)
+
+- Local state schema 23 (follow-up items), runtime session 16 and Portable 18. Opening a schema 22
+  store migrates it one way; take a verified Portable export with the 0.1.x runtime first.
 
 - `open-brain export-records` prints the head captures an external-provider launcher policy and its
   consent may read, as JSON Lines. It checks tier in SQL and again per record through the record

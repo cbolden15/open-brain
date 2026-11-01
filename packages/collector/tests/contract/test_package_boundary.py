@@ -20,13 +20,13 @@ def test_collector_is_a_separate_optional_distribution() -> None:
 
     assert collector["project"]["name"] == "open-brain-collector"
     assert collector["project"]["dependencies"] == [
-        "open-brain-connectors==0.1.0",
-        "open-brain-engine==0.1.0",
+        "open-brain-connectors==0.2.0",
+        "open-brain-engine==0.2.0",
     ]
     assert collector["project"]["scripts"] == {
         "open-brain-collector": "open_brain_collector.cli:run_cli",
     }
-    assert app["project"]["dependencies"] == ["open-brain-engine==0.1.0"]
+    assert app["project"]["dependencies"] == ["open-brain-engine==0.2.0"]
     assert app["project"]["scripts"] == {
         "open-brain": "open_brain.services.local_entrypoints:run_cli",
         "open-brain-harness": "open_brain.services.harness_native_entrypoint:main",

@@ -346,9 +346,9 @@ def test_missing_and_mismatched_distribution_metadata_fail_closed() -> None:
     assert extension["registered"] is False
 
     declared_app = SimpleNamespace(
-        version="0.1.0",
+        version="0.2.0",
         entry_points=(),
-        requires=("open-brain-engine==0.1.0",),
+        requires=("open-brain-engine==0.2.0",),
     )
     wrong_engine = SimpleNamespace(version="9.9.9", entry_points=(), requires=())
 
@@ -430,7 +430,7 @@ class _BrokenMetadata:
     def version(self) -> str:
         if self.failing_property == "version":
             raise OSError("/synthetic/private/package-root/METADATA")
-        return "0.1.0"
+        return "0.2.0"
 
     @property
     def entry_points(self) -> tuple[object, ...]:
@@ -488,7 +488,7 @@ def test_unreadable_lookup_and_global_entry_points_fail_closed(
 
 
 def test_malformed_metadata_and_wrong_entry_point_target_fail_closed() -> None:
-    malformed = SimpleNamespace(version="0.1.0", entry_points="not-a-sequence", requires={})
+    malformed = SimpleNamespace(version="0.2.0", entry_points="not-a-sequence", requires={})
     payload = _catalog(distribution_lookup=lambda _name: malformed, entry_points=())
     for package in cast(list[dict[str, object]], payload["packages"]):
         assert package["entry_point_metadata_status"] == "invalid"
@@ -501,9 +501,9 @@ def test_malformed_metadata_and_wrong_entry_point_target_fail_closed() -> None:
         group="console_scripts",
     )
     correct_version_wrong_target = SimpleNamespace(
-        version="0.1.0",
+        version="0.2.0",
         entry_points=(wrong_target,),
-        requires=("open-brain-engine==0.1.0",),
+        requires=("open-brain-engine==0.2.0",),
     )
     payload = _catalog(
         distribution_lookup=lambda _name: correct_version_wrong_target,

@@ -18,7 +18,7 @@ def test_source_self_check_fails_without_touching_local_state(
         "frozen": False,
         "profile": "local",
         "status": "failed",
-        "version": "0.1.0",
+        "version": "0.2.0",
     }
 
 

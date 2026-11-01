@@ -367,11 +367,11 @@ def test_native_build_group_installs_the_base_application() -> None:
     workspace = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "open-brain==0.1.0" in workspace["dependency-groups"]["dev"]
+    assert "open-brain==0.2.0" in workspace["dependency-groups"]["dev"]
     assert all(
         "secure-node" not in dependency for dependency in workspace["dependency-groups"]["dev"]
     )
-    assert "open-brain==0.1.0" in workspace["dependency-groups"]["native-build"]
+    assert "open-brain==0.2.0" in workspace["dependency-groups"]["native-build"]
     assert workspace["tool"]["uv"]["sources"]["open-brain"] == {"workspace": True}
     # Includes the embedding resource build target.
     assert makefile.count("--no-dev --group native-build") == 5
