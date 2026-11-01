@@ -61,9 +61,7 @@ from open_brain_engine.engine.privacy_repairs import (
 )
 from open_brain_engine.engine.sharing_contracts import SharingError, SharingInspectRequest
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SessionOrigin, T03Error
-from open_brain_engine.storage.filesystem import RootConfinementError
 from open_brain_engine.storage.locks import LockBusyError
-from open_brain_engine.storage.migrations import SchemaError
 from open_brain_engine.storage.operational import (
     StorageError,
     atomic_replace,
@@ -2013,7 +2011,8 @@ def _require_expected_identity_before_open(parsed: argparse.Namespace, root: Pat
         return
     try:
         connection = connect_database_read_only(root=root, database_name=PHASE1_STATE_DATABASE)
-    except (SchemaError, RootConfinementError, OSError):
+    except (StorageError, OSError):
+        # Any failure to read the identity is a refusal; nothing has been opened yet.
         raise LauncherPolicyError("destination_mismatch") from None
     try:
         row = connection.execute("SELECT brain_id, issuer_epoch FROM brain_identity").fetchone()

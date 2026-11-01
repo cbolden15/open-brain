@@ -111,11 +111,14 @@ for `capture` and 65,536 for `search`. More, or invalid UTF-8, is a usage error 
 `capture --delivery-id ID` sets an owner-chosen idempotency key: 1 to 256 characters of
 `A-Z a-z 0-9 . _ : -`, starting with a letter or digit. IDs starting with `delivery.` are reserved
 for IDs the engine generates and are refused. A retry with the same ID and text returns the original
-capture with `duplicate: true`; the same ID with different text is refused.
+capture with `duplicate: true`; the same ID with different text is refused. Text is compared in
+the form the engine stores, after Unicode and line-ending normalization, so a resend that differs
+only in CRLF versus LF line endings is the same capture.
 `--expect-brain-id ID --expect-issuer-epoch N` on `capture` or `search` refuses a Brain whose durable
-identity differs, with error code `destination_mismatch` and exit 78. The identity is compared
-read-only before the Brain is opened, so a mismatch never migrates or writes the store, and again
-after opening. Passing only one of the two flags is a usage error (exit 2).
+identity differs, with error code `destination_mismatch` and exit 78. The identity is read through
+a read-only SQLite connection before the Brain is opened, so a mismatch, or an identity that cannot
+be read, never migrates the store or changes its data. It is checked again after opening. Passing
+only one of the two flags is a usage error (exit 2).
 
 ```json
 {

@@ -13,8 +13,10 @@ from typing import Any, cast
 import pytest
 from open_brain_engine.engine import BrainEngine, local_schema
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
+from open_brain_engine.storage.filesystem import DurabilityError
 
 from open_brain.profile import compile_single_user_local
+from open_brain.services import local_entrypoints
 from open_brain.services.local_entrypoints import run_cli
 from open_brain.services.local_operations import current_brain_identity
 
@@ -109,6 +111,21 @@ def test_capture_refuses_a_reused_delivery_id_with_different_text(
     assert code != 0, payload
 
 
+def test_replay_compares_the_text_as_stored(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The engine stores text after Unicode and line-ending normalization, and replay compares
+    # that stored form: a CRLF resend of an LF capture is the same capture, not a new one.
+    engine = _brain(tmp_path)
+    base = ("capture", "-", "--delivery-id", "owner.normalized")
+    code, first = _run(capsys, monkeypatch, engine, *base, stdin=b"Synthetic\nnote")
+    assert code == 0, first
+    code, second = _run(capsys, monkeypatch, engine, *base, stdin=b"Synthetic\r\nnote")
+    assert code == 0, second
+    assert second["capture_id"] == first["capture_id"]
+    assert second["duplicate"] is True
+
+
 @pytest.mark.parametrize("command", ["capture", "search"])
 def test_wrong_destination_is_refused_before_any_write(
     tmp_path: Path,
@@ -154,8 +171,29 @@ def _schema(root: Path) -> int:
         connection.close()
 
 
+def _record_engine_opens(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    opened: list[object] = []
+    real_open = local_entrypoints.open_local_brain
+
+    def recording_open(*args: Any, **kwargs: Any) -> Any:
+        opened.append(args)
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(local_entrypoints, "open_local_brain", recording_open)
+    return opened
+
+
+@pytest.mark.parametrize("mismatch", ["brain_id", "issuer_epoch"])
+@pytest.mark.parametrize(
+    "command",
+    [("search", "-"), ("capture", "-"), ("search", "-", "--compact", "--limit", "5")],
+)
 def test_wrong_destination_never_opens_an_unmigrated_store(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    command: tuple[str, ...],
+    mismatch: str,
 ) -> None:
     # A schema-22 store, as an older release leaves it. A plain CLI call would migrate it to 23.
     with monkeypatch.context() as legacy:
@@ -163,25 +201,58 @@ def test_wrong_destination_never_opens_an_unmigrated_store(
         legacy.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:22])
         engine = _brain(tmp_path)
         brain_id, epoch = _identity(engine)
+    if mismatch == "brain_id":
+        brain_id += "x"
+    else:
+        epoch = str(int(epoch) + 1)
     root = engine.profile.root
     assert _schema(root) == 22
     before = _state_files(root)
+    opened = _record_engine_opens(monkeypatch)
     code, payload = _run(
         capsys,
         monkeypatch,
         engine,
-        "search",
-        "-",
+        *command,
         "--expect-brain-id",
-        brain_id + "x",
+        brain_id,
         "--expect-issuer-epoch",
         epoch,
         stdin=b"Synthetic",
     )
     assert code == 78
     assert cast(dict[str, Any], payload)["error"]["code"] == "destination_mismatch"
+    assert opened == []
     assert _schema(root) == 22
     assert _state_files(root) == before
+
+
+def test_unreadable_identity_is_a_destination_mismatch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = _brain(tmp_path)
+    brain_id, epoch = _identity(engine)
+
+    def failing_read_only(**_kwargs: Any) -> Any:
+        raise DurabilityError("synthetic directory open failure")
+
+    monkeypatch.setattr(local_entrypoints, "connect_database_read_only", failing_read_only)
+    opened = _record_engine_opens(monkeypatch)
+    code, payload = _run(
+        capsys,
+        monkeypatch,
+        engine,
+        "capture",
+        "-",
+        "--expect-brain-id",
+        brain_id,
+        "--expect-issuer-epoch",
+        epoch,
+        stdin=b"Synthetic",
+    )
+    assert code == 78
+    assert cast(dict[str, Any], payload)["error"]["code"] == "destination_mismatch"
+    assert opened == []
 
 
 @pytest.mark.parametrize(
@@ -205,9 +276,22 @@ def test_malformed_owner_options_are_usage_errors(
     assert code == 2
 
 
-def test_oversized_stdin_capture_is_a_usage_error(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("command", "stdin"),
+    [
+        ("capture", b"a" * 1_048_577),
+        ("search", b"a" * 65_537),
+        ("capture", b"\xff\xfe not utf-8"),
+        ("search", b"\xff\xfe not utf-8"),
+    ],
+)
+def test_oversized_or_invalid_stdin_is_a_usage_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    stdin: bytes,
 ) -> None:
     engine = _brain(tmp_path)
-    code, _payload = _run(capsys, monkeypatch, engine, "capture", "-", stdin=b"a" * 1_048_577)
+    code, _payload = _run(capsys, monkeypatch, engine, command, "-", stdin=stdin)
     assert code == 2
