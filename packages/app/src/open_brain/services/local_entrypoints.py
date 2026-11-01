@@ -224,7 +224,7 @@ _DOCTOR_CHECKS = (
     "search-index",
 )
 _BASE_DEPENDENCY_REQUIREMENTS = {
-    "open-brain": ("open-brain-engine==0.2.1",),
+    "open-brain": ("open-brain-engine==0.2.2",),
     "open-brain-engine": ("rfc8785<0.2,>=0.1.4",),
     "rfc8785": (),
 }

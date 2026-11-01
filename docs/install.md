@@ -1,6 +1,6 @@
 # Install Open Brain
 
-The published Homebrew release is `v0.2.1`. The current source tree may have additional unreleased
+The published Homebrew release is `v0.2.2`. The current source tree may have additional unreleased
 features. Check installed `--help` before using a candidate-only command. Candidates with `catalog` also expose the [feature/version matrix](core-v01-features.md)
 coordinates through that command.
 
