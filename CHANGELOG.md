@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.2.1 (unreleased)
+## 0.2.2 (unreleased)
+
+- `open-brain capture` takes `-` to read text from stdin, `--delivery-id` for an owner-chosen
+  idempotency key (a retry with the same ID and text returns the original capture), and
+  `--expect-brain-id`/`--expect-issuer-epoch` to refuse a Brain with a different identity
+  (`destination_mismatch`, exit 78). `open-brain search` takes `-` and the same identity check.
+  A forced-command capture server can now use the CLI instead of importing Open Brain.
+
+## 0.2.1 - 2026-11-01
 
 - Fixed: a store with an Obsidian vault or a Markdown import folder could not be opened, migrated, or
   exported once macOS gave that folder's volume a different device number, which can happen after a

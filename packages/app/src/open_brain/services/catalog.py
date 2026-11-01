@@ -143,25 +143,25 @@ def build_catalog(
         for name, required, scripts, dependencies in (
             (
                 "open-brain",
-                "0.2.1",
+                "0.2.2",
                 {"open-brain": "open_brain.services.local_entrypoints:run_cli"},
-                {"open-brain-engine": "==0.2.1"},
+                {"open-brain-engine": "==0.2.2"},
             ),
-            ("open-brain-engine", "0.2.1", {}, {"rfc8785": ">=0.1.4,<0.2"}),
+            ("open-brain-engine", "0.2.2", {}, {"rfc8785": ">=0.1.4,<0.2"}),
             (
                 "open-brain-connectors",
-                "0.2.1",
+                "0.2.2",
                 {
                     "open-brain-source": "open_brain_connectors.runtime.source_cli:run_cli",
                     "open-brain-outbox": "open_brain_connectors.outbox.cli:run_cli",
                 },
-                {"open-brain-engine": "==0.2.1", "pypdf": "==6.18.1"},
+                {"open-brain-engine": "==0.2.2", "pypdf": "==6.18.1"},
             ),
             (
                 "open-brain-collector",
-                "0.2.1",
+                "0.2.2",
                 {"open-brain-collector": "open_brain_collector.cli:run_cli"},
-                {"open-brain-connectors": "==0.2.1", "open-brain-engine": "==0.2.1"},
+                {"open-brain-connectors": "==0.2.2", "open-brain-engine": "==0.2.2"},
             ),
         )
     )

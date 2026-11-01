@@ -27,7 +27,7 @@ def _assets(directory: Path, *, javascript: str = "module.exports = {};\n") -> P
                 "isDesktopOnly": True,
                 "minAppVersion": "1.12.7",
                 "name": "Open Brain",
-                "version": "0.2.1",
+                "version": "0.2.2",
             }
         ),
         encoding="utf-8",
@@ -48,7 +48,7 @@ def test_asset_discovery_binds_to_the_resolved_product_prefix(tmp_path: Path) ->
     link.symlink_to(executable)
 
     assert discover_obsidian_plugin_assets(link) == assets
-    assert load_obsidian_plugin_bundle(assets).version == "0.2.1"
+    assert load_obsidian_plugin_bundle(assets).version == "0.2.2"
 
     moved = tmp_path / "assets"
     assets.rename(moved)

@@ -14,14 +14,14 @@ and compatibility without opening a Brain. See the [feature/version matrix](core
 | Command family | Purpose / reference |
 |---|---|
 | `setup` | Interactive first capture/retrieval and optional client/vault setup; current source, unreleased; [first use](first-use.md) |
-| `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
+| `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; `capture TEXT\|-` also takes `--delivery-id` and `--expect-brain-id`/`--expect-issuer-epoch` (see below); [first-use](first-use.md), [install](install.md) |
 | `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 18](portable-brain-v18.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
 | `export-records` | JSON Lines of head captures an external-provider policy and its consent may read; [record export](export-records.md) |
 | `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
 | `consent grant/inspect/replace/revoke` | Owner-only durable external-provider consent for scoped sessions |
 | `catalog` | Versioned metadata; no grants or public certification |
-| `search`, `search-page`, `read` | Paged retrieval and complete projected text; `search-page --mode lexical\|hybrid_preferred\|hybrid_required`; [records](records-and-history.md), [semantic search](semantic-search.md) |
+| `search`, `search-page`, `read` | Paged retrieval and complete projected text; `search QUERY\|-` takes `--expect-brain-id`/`--expect-issuer-epoch` (see below); `search-page --mode lexical\|hybrid_preferred\|hybrid_required`; [records](records-and-history.md), [semantic search](semantic-search.md) |
 | `embedding status/enable/disable/rebuild` | Owner-local control of optional offline semantic search; [semantic search](semantic-search.md) |
 | `retract preview/commit/status` | Owner-only retraction of a capture or trusted capture session; [owner retraction](owner-retraction.md), [impact](retraction-impact.md) |
 | `consumer-import preview/body/commit/status/recover/halt` | Owner-local conversation intake; [consumer intake](consumer-intake.md), [from coding agents](consumer-intake-agents.md) |
@@ -105,6 +105,20 @@ trusted startup policy and requires `--policy` with an absolute `launcher-policy
 [capture contract](capture-contract.md) for the tier rules and admission limits. The optional
 `--receipt-protection PATH` adds an owner-selected independent durability gate. The path must name
 an owner-only `receipt-protection-command.v1` file.
+
+`capture` and `search` read their text from stdin when it is `-`: up to 1,048,576 bytes of UTF-8
+for `capture` and 65,536 for `search`. More, or invalid UTF-8, is a usage error (exit 2).
+`capture --delivery-id ID` sets an owner-chosen idempotency key: 1 to 256 characters of
+`A-Z a-z 0-9 . _ : -`, starting with a letter or digit. IDs starting with `delivery.` are reserved
+for IDs the engine generates and are refused. A retry with the same ID and text returns the original
+capture with `duplicate: true`; the same ID with different text is refused. Text is compared in
+the form the engine stores, after Unicode and line-ending normalization, so a resend that differs
+only in CRLF versus LF line endings is the same capture.
+`--expect-brain-id ID --expect-issuer-epoch N` on `capture` or `search` refuses a Brain whose durable
+identity differs, with error code `destination_mismatch` and exit 78. The identity is read through
+a read-only SQLite connection before the Brain is opened, so a mismatch, or an identity that cannot
+be read, never migrates the store or changes its data. It is checked again after opening. Passing
+only one of the two flags is a usage error (exit 2).
 
 ```json
 {

@@ -8,6 +8,7 @@ import os
 import re
 import select
 import signal
+import sqlite3
 import stat
 import sys
 import time
@@ -51,6 +52,7 @@ from open_brain_engine.engine import facet_contracts as fc
 from open_brain_engine.engine.consent_contracts import ConsentContractError, EgressMode
 from open_brain_engine.engine.consumer_profiles import ConsumerIntakeError
 from open_brain_engine.engine.contracts import CaptureAdmissionError, ManagedWorkspaceFailure
+from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
 from open_brain_engine.engine.owner_retraction_contracts import RetractionError
 from open_brain_engine.engine.portability import restore_portable_clean
 from open_brain_engine.engine.privacy_repairs import (
@@ -66,6 +68,7 @@ from open_brain_engine.storage.operational import (
     capture_root_identity,
     read_confined,
 )
+from open_brain_engine.storage.sqlite import connect_database_read_only
 
 from open_brain.local_data import FilesystemTypeProbe, LocalDataError, select_local_root
 from open_brain.profile import ProfileError
@@ -219,7 +222,7 @@ _DOCTOR_CHECKS = (
     "search-index",
 )
 _BASE_DEPENDENCY_REQUIREMENTS = {
-    "open-brain": ("open-brain-engine==0.2.1",),
+    "open-brain": ("open-brain-engine==0.2.2",),
     "open-brain-engine": ("rfc8785<0.2,>=0.1.4",),
     "rfc8785": (),
 }
@@ -470,6 +473,17 @@ def run_cli(
     if parsed.command == "export-records":
         try:
             parsed.export_window = _export_records_window(parsed.since, parsed.until)
+        except ValueError:
+            _write_usage_failure(json_output=json_output)
+            return 2
+    if parsed.command in {"capture", "search"}:
+        try:
+            if (parsed.expect_brain_id is None) != (parsed.expect_issuer_epoch is None):
+                raise ValueError("--expect-brain-id and --expect-issuer-epoch go together")
+            if parsed.command == "capture":
+                parsed.text = _stdin_text(parsed.text, limit=_STDIN_CAPTURE_BYTES)
+            else:
+                parsed.query = _stdin_text(parsed.query, limit=_STDIN_QUERY_BYTES)
         except ValueError:
             _write_usage_failure(json_output=json_output)
             return 2
@@ -760,6 +774,8 @@ def _run_parsed_command(
             )
             _write_managed(payload, json_output=json_output)
             return 0
+        if parsed.command in {"capture", "search"}:
+            _require_expected_identity_before_open(parsed, selection.brain_root)
         protection = parsed.receipt_protection_configuration
         brain_session = (
             open_local_brain(
@@ -947,13 +963,23 @@ def _parser() -> argparse.ArgumentParser:
         "capture", help="Capture owner-authored text directly into the local Brain."
     )
     _add_local_options(capture_parser)
-    capture_parser.add_argument("text", help="Text to capture.")
+    capture_parser.add_argument("text", help="Text to capture, or - to read UTF-8 text from stdin.")
     capture_parser.add_argument(
         "--privacy-tier",
         choices=tuple(tier.value for tier in PrivacyTier),
         default=None,
         help="Owner-only explicit privacy tier for this capture.",
     )
+    capture_parser.add_argument(
+        "--delivery-id",
+        type=_owner_delivery_id,
+        default=None,
+        help=(
+            "Owner-chosen idempotency key. A retry with the same ID and text returns the "
+            "original capture."
+        ),
+    )
+    _add_expected_identity_options(capture_parser)
     capture_submit_parser = subparsers.add_parser(
         "capture-submit",
         help="Submit one destination-bound capture under a trusted startup policy.",
@@ -1053,7 +1079,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     search_parser = subparsers.add_parser("search", help="Search the local Brain directly.")
     _add_local_options(search_parser)
-    search_parser.add_argument("query", help="Text to find.")
+    search_parser.add_argument("query", help="Text to find, or - to read UTF-8 text from stdin.")
     search_parser.add_argument("--limit", type=int, default=None, help="Return 1 to 100 results.")
     _add_compact_search_arguments(search_parser)
     search_parser.add_argument("--cursor")
@@ -1065,6 +1091,7 @@ def _parser() -> argparse.ArgumentParser:
     search_parser.add_argument(
         "--mode", choices=("lexical", "hybrid_preferred", "hybrid_required"), default=None
     )
+    _add_expected_identity_options(search_parser)
     catalog_parser = subparsers.add_parser(
         "catalog", help="Describe public implementation and compatibility metadata."
     )
@@ -1927,12 +1954,82 @@ def _export_records_day(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
+_OWNER_DELIVERY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
+_STDIN_CAPTURE_BYTES = 1_048_576
+_STDIN_QUERY_BYTES = 65_536
+
+
+def _owner_delivery_id(value: str) -> str:
+    if not _OWNER_DELIVERY_ID.match(value) or value.startswith("delivery."):
+        raise argparse.ArgumentTypeError(
+            "delivery ID must be 1-256 characters of A-Z a-z 0-9 . _ : - and must not start "
+            "with 'delivery.'"
+        )
+    return value
+
+
+def _add_expected_identity_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--expect-brain-id",
+        default=None,
+        help=(
+            "Refuse unless this Brain's durable ID equals this value "
+            "(requires --expect-issuer-epoch)."
+        ),
+    )
+    parser.add_argument(
+        "--expect-issuer-epoch",
+        type=int,
+        default=None,
+        help=(
+            "Refuse unless this Brain's issuer epoch equals this value "
+            "(requires --expect-brain-id)."
+        ),
+    )
+
+
+def _stdin_text(value: str, *, limit: int) -> str:
+    if value != "-":
+        return value
+    raw = sys.stdin.buffer.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError("stdin text is too large")
+    return raw.decode("utf-8")
+
+
 def _export_records_window(since: str, until: str | None) -> tuple[datetime, datetime]:
     start = _export_records_day(since)
     end = datetime.now(UTC) if until is None else _export_records_day(until)
     if not start < end:
         raise ValueError("since must be before until")
     return start, end
+
+
+def _require_expected_identity_before_open(parsed: argparse.Namespace, root: Path) -> None:
+    """Compare the expected identity read-only, before any open that could migrate the store."""
+    if getattr(parsed, "expect_brain_id", None) is None:
+        return
+    try:
+        connection = connect_database_read_only(root=root, database_name=PHASE1_STATE_DATABASE)
+    except (StorageError, OSError):
+        # Any failure to read the identity is a refusal; nothing has been opened yet.
+        raise LauncherPolicyError("destination_mismatch") from None
+    try:
+        row = connection.execute("SELECT brain_id, issuer_epoch FROM brain_identity").fetchone()
+    except sqlite3.Error:
+        row = None
+    finally:
+        connection.close()
+    if row is None or (row[0], row[1]) != (parsed.expect_brain_id, parsed.expect_issuer_epoch):
+        raise LauncherPolicyError("destination_mismatch")
+
+
+def _require_expected_identity(parsed: argparse.Namespace, tasks: EngineTaskSet) -> None:
+    """Re-check after open, against the trusted identity the session holds."""
+    if parsed.expect_brain_id is None:
+        return
+    if current_brain_identity(tasks) != (parsed.expect_brain_id, parsed.expect_issuer_epoch):
+        raise LauncherPolicyError("destination_mismatch")
 
 
 def _run_export_records(
@@ -3192,6 +3289,7 @@ def _run_local_command(
     if parsed.command == "sharing":
         return _run_sharing(parsed, tasks, json_output=json_output)
     if parsed.command == "search" and parsed.compact:
+        _require_expected_identity(parsed, tasks)
         return _run_t03_cli(parsed, tasks, json_output=json_output)
     if parsed.command in {
         "search-page",
@@ -3213,10 +3311,11 @@ def _run_local_command(
     if parsed.command == "obsidian-plugin":
         return _run_obsidian_plugin(parsed, session, json_output=json_output)
     if parsed.command == "capture":
+        _require_expected_identity(parsed, tasks)
         capture_receipt = capture_text(
             tasks.capture,
             cast(str, parsed.text),
-            delivery_id="delivery." + str(uuid.uuid4()),
+            delivery_id=parsed.delivery_id or "delivery." + str(uuid.uuid4()),
             privacy_tier=(
                 None if parsed.privacy_tier is None else PrivacyTier(parsed.privacy_tier)
             ),
@@ -3265,6 +3364,7 @@ def _run_local_command(
             interrupted=import_interrupted,
         )
     if parsed.command == "search":
+        _require_expected_identity(parsed, tasks)
         results = search_brain(
             tasks.retrieval,
             tasks.reconciliation,
