@@ -37,19 +37,24 @@ LIMIT_MAX = 10_000
 MAX_BYTES_PER_RECORD_MAX = 1_048_576
 TRUNCATION_MARKER = " [truncated]"
 
+# Malformed privacy JSON yields NULL here rather than aborting the whole statement; the
+# projector refuses that record on its own.
+_TIER_SQL = (
+    "CASE WHEN json_valid(p.effective_privacy_json) "
+    "THEN json_extract(p.effective_privacy_json, '$.tier') END"
+)
 # The time filter here is deliberately one day wider than the window on each side: stored
 # timestamps may carry fractional seconds, which do not order correctly against a bound as
-# text. The exact window is applied in Python after parsing.
+# text. The exact window and the final order are applied in Python after parsing.
 _CANDIDATES_SQL = (
-    "SELECT s.source_id, s.head_capture_id, c.accepted_at, "
-    "json_extract(p.effective_privacy_json, '$.tier') AS tier "
+    f"SELECT s.source_id, s.head_capture_id, c.accepted_at, {_TIER_SQL} AS tier "
     "FROM logical_sources s "
     "JOIN captures c ON c.capture_id = s.head_capture_id "
     "JOIN source_revision_privacy p ON p.capture_id = s.head_capture_id "
     "WHERE s.lifecycle = 'active' AND s.historical_only = 0 AND s.availability = 'available' "
     "AND c.accepted_at >= ? AND c.accepted_at < ? "
-    "AND json_extract(p.effective_privacy_json, '$.tier') IN ({tiers}) "
-    "ORDER BY c.accepted_at COLLATE BINARY, c.capture_id COLLATE BINARY"
+    f"AND {_TIER_SQL} IN ({{tiers}}) "
+    "ORDER BY c.capture_id COLLATE BINARY"
 )
 
 
@@ -146,8 +151,14 @@ class RecordExportTasks:
         if not tiers or authority.space_ids == frozenset():
             return ()
         sql = _CANDIDATES_SQL.format(tiers=",".join("?" * len(tiers)))
-        coarse = (_timestamp(since - timedelta(days=1)), _timestamp(until + timedelta(days=1)))
-        records: list[ExportedRecord] = []
+        try:
+            coarse = (
+                _timestamp(since - timedelta(days=1)),
+                _timestamp(until + timedelta(days=1)),
+            )
+        except OverflowError:
+            raise T03Error("invalid_arguments") from None
+        records: list[tuple[datetime, ExportedRecord]] = []
         with read_snapshot(self._engine) as connection:
             projector = RecordProjector(self._engine.profile, connection, authority)
             for row in connection.execute(sql, (*coarse, *tiers)):
@@ -156,7 +167,9 @@ class RecordExportTasks:
                     continue
                 head = row["head_capture_id"]
                 try:
-                    projected = projector.source(head)
+                    # ``read`` maps an unreadable or damaged record to ``not_found`` the same
+                    # way an MCP read does, so one bad record cannot block the rest.
+                    projected = projector.read(head)
                 except T03Error:
                     continue
                 if len(records) == limit:
@@ -164,18 +177,22 @@ class RecordExportTasks:
                 text, truncated = truncate_utf8(projected.text, max_bytes_per_record)
                 summary = projected.summary
                 records.append(
-                    ExportedRecord(
-                        capture_id=head,
-                        captured_at=_timestamp(accepted),
-                        privacy_tier=row["tier"],
-                        origin=summary["provenance"]["source_origin"],
-                        payload_family=summary["payload_family"],
-                        source_id=summary["source_id"],
-                        text=text,
-                        truncated=truncated,
+                    (
+                        accepted,
+                        ExportedRecord(
+                            capture_id=head,
+                            captured_at=_timestamp(accepted),
+                            privacy_tier=row["tier"],
+                            origin=summary["provenance"]["source_origin"],
+                            payload_family=summary["payload_family"],
+                            source_id=summary["source_id"],
+                            text=text,
+                            truncated=truncated,
+                        ),
                     )
                 )
-        return tuple(records)
+        records.sort(key=lambda item: (item[0], item[1].capture_id))
+        return tuple(record for _accepted, record in records)
 
 
 __all__ = [

@@ -23,6 +23,8 @@ from open_brain_engine.engine import (
     CaptureReceipt,
     CaptureSubmission,
     PublicJobCaptureContext,
+    SourceInspectRequest,
+    SourceWithdrawRequest,
     TextPayload,
 )
 from open_brain_engine.engine.record_export import (
@@ -292,4 +294,86 @@ def test_export_rejects_invalid_arguments(
             until=until,
             limit=limit,
             max_bytes_per_record=max_bytes,
+        )
+
+
+def _source_path(engine: BrainEngine, capture_id: str) -> Path:
+    connection = sqlite3.connect(engine.profile.root / ".open-brain/state/phase1.sqlite3")
+    try:
+        (relative,) = connection.execute(
+            "SELECT source_path FROM source_revisions WHERE capture_id=?", (capture_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+    return engine.profile.root / str(relative)
+
+
+def test_export_honours_a_non_empty_space_scope(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    _capture(engine, delivery_id="space.other", text="synthetic unassigned")
+    other = frozenset({"space_00000000-0000-4000-8000-000000000999"})
+    assert len(_export(engine, _authority(engine))) == 1
+    assert _export(engine, replace(_authority(engine), space_ids=other)) == ()
+
+
+def test_export_skips_a_withdrawn_source(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    kept = _capture(engine, delivery_id="withdraw.kept", text="synthetic kept")
+    withdrawn = _capture(engine, delivery_id="withdraw.gone", text="synthetic withdrawn")
+    owner = owner_authority(engine.tasks, session_id="owner-test")
+    connection = sqlite3.connect(engine.profile.root / ".open-brain/state/phase1.sqlite3")
+    try:
+        (source_id,) = connection.execute(
+            "SELECT source_id FROM source_revisions WHERE capture_id=?", (withdrawn,)
+        ).fetchone()
+    finally:
+        connection.close()
+    inspection = engine.sources.inspect(SourceInspectRequest(source_id=source_id), authority=owner)
+    receipt = engine.sources.withdraw(
+        SourceWithdrawRequest(
+            operation_id="withdraw.export",
+            source_id=source_id,
+            expected_head=withdrawn,
+            expected_lifecycle_version=inspection.lifecycle_version,
+            brain_id=inspection.destination_brain_id,
+            issuer_epoch=inspection.issuer_epoch,
+            reason_code="owner_choice",
+        ),
+        authority=owner,
+    )
+    assert receipt.lifecycle == "retired"
+    assert [record.capture_id for record in _export(engine, _authority(engine))] == [kept]
+
+
+def test_export_orders_by_parsed_time_across_fractional_seconds(tmp_path: Path) -> None:
+    clock = MutableClock(START)
+    engine = _engine(tmp_path, clock)
+    first = _capture(engine, delivery_id="fraction.whole", text="synthetic whole second")
+    clock.now = START + timedelta(microseconds=500_000)
+    second = _capture(engine, delivery_id="fraction.half", text="synthetic half second")
+    records = _export(engine, _authority(engine))
+    assert [record.capture_id for record in records] == [first, second]
+
+
+def test_one_damaged_record_does_not_block_the_rest(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    good = _capture(engine, delivery_id="damage.good", text="synthetic good")
+    bad = _capture(engine, delivery_id="damage.bad", text="synthetic bad")
+    path = _source_path(engine, bad)
+    copy = tmp_path / "copy.bin"
+    copy.write_bytes(path.read_bytes())
+    path.chmod(0o600)
+    path.unlink()
+    path.symlink_to(copy)  # confined reads refuse a symlinked source file
+    assert [record.capture_id for record in _export(engine, _authority(engine))] == [good]
+
+
+def test_export_rejects_a_window_at_the_edge_of_the_calendar(tmp_path: Path) -> None:
+    engine = _engine(tmp_path)
+    with pytest.raises(T03Error, match="invalid_arguments"):
+        _export(
+            engine,
+            _authority(engine),
+            since=datetime(9999, 12, 30, tzinfo=UTC),
+            until=datetime(9999, 12, 31, tzinfo=UTC),
         )

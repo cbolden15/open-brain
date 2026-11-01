@@ -25,7 +25,11 @@ open-brain export-records \
   mistaken for a complete one. Narrow the window and run it again.
 - `--max-bytes-per-record` (1 to 1,048,576, default 16,384) cuts each record's text on a UTF-8
   character boundary and appends ` [truncated]`.
-- `--json` changes only how errors are reported. Records are always JSON Lines.
+- `--json` changes only how errors are reported. Records are always JSON Lines. With `--json`, a
+  failure prints one error object on stdout, so a consumer must check the exit code before
+  treating any output as records.
+- Every candidate in the window is read and checked, including ones that end up refused, while the
+  command holds a shared read lease. Keep windows to days or weeks.
 
 ## Authority
 
@@ -42,7 +46,7 @@ These are refused with exit 78 and print no records:
 | no `--consent-state`, or no matching active consent | `consent_unavailable` |
 | another Brain | `destination_mismatch` |
 | another issuer epoch | `issuer_mismatch` |
-| an older authorization generation | `stale_policy` |
+| an older authorization generation, including a consent revoked or replaced after the policy was written | `stale_policy` |
 
 A missing `--policy` or a malformed date is a usage error (exit 2). There is no fallback to owner
 authority.
@@ -54,13 +58,15 @@ A record is exported when all of the following hold:
 1. It is the head revision of an active, available, non-historical source.
 2. It was accepted inside the window.
 3. Its stored effective tier is one of the policy's read tiers. `secret` and `unknown` never
-   qualify.
+   qualify. `personal` qualifies only when the policy's read tiers and the consent grant both
+   include it.
 4. `RecordProjector.source` accepts it under the policy's authority. This repeats the tier check
    and adds the `external_egress` decision, the space scope, lifecycle and visibility, sharing
    eligibility, and a check of the source bytes against their recorded digest.
 
 Step 3 runs in SQL and step 4 runs per record, so each check stands on its own. A record either one
-refuses is skipped silently.
+refuses is skipped silently. So is a record whose source file is missing, damaged or replaced, so
+one bad record does not block the rest of the window.
 
 `external_egress` comes from the capture's own privacy decision or from the owner egress policy
 (`egress-policy set --tier work`, for example). A work capture with neither is not exported, even
@@ -68,8 +74,9 @@ when the policy and consent allow the work tier.
 
 ## Output
 
-Records are ordered by acceptance time, then capture id. The same Brain, policy and window give the
-same bytes.
+Records are ordered by acceptance time, compared as times rather than text, then by capture id.
+With an explicit `--until`, the same Brain, policy and window give the same bytes. Without it the
+window ends when the command starts, so repeated runs can differ.
 
 ```json
 {"captured_at":"2026-10-28T14:03:11Z","id":"capture_...","privacy_tier":"work","source":{"origin":"third_party","payload_family":"text","source_id":"source_..."},"text":"...","truncated":false}

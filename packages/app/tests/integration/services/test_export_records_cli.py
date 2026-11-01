@@ -214,3 +214,53 @@ def test_export_records_fails_closed_when_the_limit_is_exceeded(
     assert code == 1
     assert json.loads(out)["error"]["code"] == "response_too_large"
     assert "synthetic limit" not in out
+
+
+def test_export_records_refuses_a_revoked_consent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    engine = _brain(tmp_path)
+    _capture(engine, delivery_id="cli.revoked", text="synthetic shared work")
+    policy, consent = _authority_files(tmp_path, engine)
+    brain_id, issuer_epoch = current_brain_identity(engine.tasks)
+    DurableProviderConsentStore(consent, brain_id=brain_id, issuer_epoch=issuer_epoch).revoke(
+        consent_id=CONSENT_ID,
+        operation_id="synthetic-newsletter-revoke",
+        decided_at="2026-10-30T12:05:00Z",
+    )
+    code, out, _err = _run(
+        capsys,
+        engine,
+        "--policy",
+        str(policy),
+        "--consent-state",
+        str(consent),
+        "--since",
+        _since(),
+        "--json",
+    )
+    assert code == 78
+    assert json.loads(out)["error"]["code"] == "stale_policy"
+    assert "synthetic shared work" not in out
+
+
+def test_export_records_treats_a_calendar_edge_window_as_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    engine = _brain(tmp_path)
+    policy, consent = _authority_files(tmp_path, engine)
+    code, out, _err = _run(
+        capsys,
+        engine,
+        "--policy",
+        str(policy),
+        "--consent-state",
+        str(consent),
+        "--since",
+        "9999-12-30",
+        "--until",
+        "9999-12-31",
+        "--json",
+    )
+    assert code == 2
+    assert json.loads(out)["error"]["code"] == "invalid_arguments"
