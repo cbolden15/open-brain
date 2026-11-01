@@ -342,7 +342,7 @@ def validate_mcp_failure_responses(responses: Sequence[object]) -> None:
         "result": {
             "protocolVersion": "2025-03-26",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "open-brain", "version": "0.1.0"},
+            "serverInfo": {"name": "open-brain", "version": "0.2.0"},
         },
     }
     expected_denial = {

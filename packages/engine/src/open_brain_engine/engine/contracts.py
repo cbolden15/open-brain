@@ -3620,6 +3620,8 @@ class EngineTaskSet:
     # Read-only capture-family freshness for the daily brief; MCP surfaces consume it through the
     # brief-read grant.
     source_freshness: Any = None
+    # Read-only external-provider record export; the CLI's export-records consumes it.
+    record_export: Any = None
 
     @property
     def spaces(self) -> InboxSpaceTask:

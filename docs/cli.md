@@ -17,6 +17,7 @@ and compatibility without opening a Brain. See the [feature/version matrix](core
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; [first-use](first-use.md), [install](install.md) |
 | `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 18](portable-brain-v18.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
+| `export-records` | JSON Lines of head captures an external-provider policy and its consent may read; [record export](export-records.md) |
 | `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
 | `consent grant/inspect/replace/revoke` | Owner-only durable external-provider consent for scoped sessions |
 | `catalog` | Versioned metadata; no grants or public certification |
@@ -255,7 +256,8 @@ references.
 ## Exit behavior
 
 Invalid usage returns 2. Temporary SQLite writer contention returns 75 for capture, capture-submit,
-search, import, or MCP work. A private-directory or operation failure returns 78 without exposing
+export-records, search, import, or MCP work. An `export-records` run with more qualifying records
+than `--limit` returns 1 with `response_too_large` and prints no records. A private-directory or operation failure returns 78 without exposing
 sensitive paths; a refused startup policy returns 78 with `destination_mismatch`, `issuer_mismatch`,
 `stale_policy`, or `consent_unavailable`. Consent-state write contention returns 75; invalid owner
 consent input returns 2; unavailable or unsafe consent state returns 78. A refused `capture-submit`

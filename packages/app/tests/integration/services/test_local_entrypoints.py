@@ -626,7 +626,7 @@ def test_local_help_and_version_are_root_free(
     ):
         assert command in help_output
     assert run_cli(("--version",), environment={}) == 0
-    assert capsys.readouterr().out == "open-brain 0.1.0\n"
+    assert capsys.readouterr().out == "open-brain 0.2.0\n"
 
 
 def test_mcp_help_names_owner_only_retraction(capsys: pytest.CaptureFixture[str]) -> None:
@@ -969,7 +969,7 @@ def test_obsidian_plugin_cli_installs_reports_and_removes_owned_assets(
                 "isDesktopOnly": True,
                 "minAppVersion": "1.12.7",
                 "name": "Open Brain",
-                "version": "0.1.0",
+                "version": "0.2.0",
             }
         ),
         encoding="utf-8",
@@ -1812,7 +1812,7 @@ def test_local_dependency_doctor_rejects_an_unconditional_secure_node_dependency
     home = _private_home(tmp_path)
 
     expected = {
-        "open-brain": ["open-brain-engine==0.1.0"],
+        "open-brain": ["open-brain-engine==0.2.0"],
         "open-brain-engine": ["rfc8785<0.2,>=0.1.4"],
         "rfc8785": [],
     }

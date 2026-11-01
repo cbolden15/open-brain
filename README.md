@@ -27,7 +27,7 @@ release is `v0.1.0`; it has no `setup`, `agent setup`, or `catalog` command. The
 ## Candidate scope
 
 This tree documents the current development candidate, not a newly published release.
-The shared `0.1.0` package version alone does not identify its features. Check `open-brain --help`
+The shared `0.2.0` package version alone does not identify its features. Check `open-brain --help`
 on the executable you will use. On candidates that offer it, `open-brain catalog --json` provides
 additional compatibility and capability details.
 The [feature/version matrix](docs/core-v01-features.md) separates implementation, installed assets,
@@ -107,7 +107,7 @@ They derive IDs from actual responses; reference pages use uppercase placeholder
 The first capture creates the private data directory, owner identity, Brain identity, and SQLite
 state automatically. Existing supported local databases upgrade transactionally when opened for
 writing. This candidate uses local state schema **23**, runtime session **16**, and Portable metadata
-**18**. These are separate from product version `0.1.0`, catalog schema 2, task contract `t03.v1`,
+**18**. These are separate from product version `0.2.0`, catalog schema 2, task contract `t03.v1`,
 and plugin bridge protocol 1. Stop older sessions before upgrading and update clients together;
 older runtimes must refuse incompatible state. See [schema migrations](docs/schema-migrations.md) for supported
 older layouts, refusal behavior, and interrupted-transaction recovery.

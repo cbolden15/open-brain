@@ -411,6 +411,9 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
         from .source_freshness import SourceFreshnessTasks
 
         self.source_freshness = SourceFreshnessTasks(self)
+        from .record_export import RecordExportTasks
+
+        self.record_export = RecordExportTasks(self)
         self.capture = CaptureTasks(self)
         self.ingestion = IngestionJournal(self)
         self.inbox = InboxSpaceTasks(self)
@@ -464,6 +467,7 @@ class BrainEngine(CaptureOperations, SpaceOperations, ReviewOperations, Retrieva
             owner_egress_policy=self.owner_egress_policy,
             followups=self.followups,
             source_freshness=self.source_freshness,
+            record_export=self.record_export,
         )
 
     @classmethod
