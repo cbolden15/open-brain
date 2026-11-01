@@ -242,10 +242,16 @@ def open_local_brain(
                 )
             # The owner product bootstrap owns the explicit chained migration;
             # hold_local_runtime_session's registry admission spans both phases.
+            from open_brain_engine.engine.root_identity_repair import (
+                repair_recorded_root_devices,
+            )
+
             if existing_only:
                 if schema.state != "current":
                     raise StateSchemaUnavailableError("existing current Brain required")
+                repair_recorded_root_devices(profile)
             else:
+                repair_recorded_root_devices(profile)
                 coordinate_local_migration(profile)
             from open_brain_engine.engine.historical_recovery import require_historical_settled
 
