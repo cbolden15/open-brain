@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.3 (unreleased)
+## 0.2.3 - 2026-11-12
 
 - Fixed: `open-brain export` failed with `local_operation_failed` (exit 78) on a Brain whose
   capture metadata came to more than 64 MiB. That is a few thousand text captures, because the
