@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.2.2 (unreleased)
+## 0.2.3 (unreleased)
+
+- Fixed: `open-brain export` failed with `local_operation_failed` (exit 78) on a Brain whose
+  capture metadata came to more than 64 MiB. That is a few thousand text captures, because the
+  archive keeps each capture's original payload and search text. The capture-metadata,
+  capture-custody and historical-authority sidecars now share a 256 MiB limit, the same on
+  export, verify and restore. The Portable format and its catalog digest are unchanged. An
+  export at or below 64 MiB per sidecar is still readable by 0.2.2; a larger one needs 0.2.3.
+- An export over the limit now fails with `portable_export_too_large` (exit 78). The message and
+  the JSON error name the sidecar, its size and the limit, and no export is written.
+- If 0.1.x can't export your Brain before the 0.2.0 schema migration, copy the whole Brain
+  directory while nothing writes to it instead. Use `sqlite3 <db> ".backup <copy>"` for
+  `.open-brain/state/phase1.sqlite3` and `.open-brain/indexes/search.sqlite3`, and an ordinary
+  copy for every other file.
+
+## 0.2.2 - 2026-11-01
 
 - `open-brain capture` takes `-` to read text from stdin, `--delivery-id` for an owner-chosen
   idempotency key (a retry with the same ID and text returns the original capture), and

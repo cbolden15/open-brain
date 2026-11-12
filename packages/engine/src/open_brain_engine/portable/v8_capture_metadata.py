@@ -12,11 +12,11 @@ from typing import Any
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.storage.markdown import parse_markdown
 
-from .v1 import PortableValidationError
+from .v1 import MAX_PORTABLE_SIDECAR_BYTES, PortableSidecarTooLarge, PortableValidationError
 from .v5 import EFFECTIVE_PRIVACY_PATH, decode_retained_privacy_value, encode_retained_privacy_value
 
 CAPTURE_METADATA_PATH = "history/capture-metadata/original-v2.json"
-MAX_CAPTURE_METADATA_BYTES = 64 * 1024 * 1024
+MAX_CAPTURE_METADATA_BYTES = MAX_PORTABLE_SIDECAR_BYTES
 CAPTURE_COLUMNS = (
     "delivery_id",
     "request_sha256",
@@ -86,7 +86,7 @@ def capture_metadata_bytes(rows: list[dict[str, Any]]) -> bytes:
         encoded.append(value)
     raw = canonical({"schema_version": 2, "captures": encoded})
     if len(raw) > MAX_CAPTURE_METADATA_BYTES:
-        raise ValueError("Portable8 capture metadata exceeds bounds")
+        raise PortableSidecarTooLarge(CAPTURE_METADATA_PATH, len(raw), MAX_CAPTURE_METADATA_BYTES)
     return raw
 
 

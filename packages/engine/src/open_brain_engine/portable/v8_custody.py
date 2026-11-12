@@ -10,12 +10,12 @@ from typing import Any
 
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 
-from .v1 import PortableValidationError
+from .v1 import MAX_PORTABLE_SIDECAR_BYTES, PortableSidecarTooLarge, PortableValidationError
 from .v5 import ISSUER_MIGRATION_PATH
 from .v8_capture_metadata import validate_capture_metadata
 
 CUSTODY_PATH = "history/capture-custody/journal-v1.json"
-MAX_CUSTODY_BYTES = 64 * 1024 * 1024
+MAX_CUSTODY_BYTES = MAX_PORTABLE_SIDECAR_BYTES
 JOURNAL_TABLES = {
     "capture_ingestion_items": (
         "journal_sequence",
@@ -45,7 +45,7 @@ _INTEGER_FIELDS = frozenset({"journal_sequence", "event_sequence", "attempt_numb
 def custody_bytes(state: dict[str, Any]) -> bytes:
     raw = canonical(state)
     if len(raw) > MAX_CUSTODY_BYTES:
-        raise ValueError("Portable8 capture custody exceeds bounds")
+        raise PortableSidecarTooLarge(CUSTODY_PATH, len(raw), MAX_CUSTODY_BYTES)
     return raw
 
 

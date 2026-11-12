@@ -20,7 +20,14 @@ from open_brain_engine.storage.filesystem import (
     open_root_descriptor,
 )
 
-from .v1 import PortableSnapshot, PortableValidationError, _portable_record, _snapshot_directory
+from .v1 import (
+    MAX_PORTABLE_SIDECAR_BYTES,
+    PortableSidecarTooLarge,
+    PortableSnapshot,
+    PortableValidationError,
+    _portable_record,
+    _snapshot_directory,
+)
 from .v4 import SOURCE_METADATA_PATH
 from .v5 import ISSUER_MIGRATION_PATH, _manifest, manifest_v5, validate_portable_file_set_v5
 from .v6 import (
@@ -58,7 +65,7 @@ PORTABLE_V8_SCHEMA_CATALOG_DIGEST = sha256(
         }
     )
 ).hexdigest()
-MAX_HISTORICAL_SIDECAR_BYTES = 64 * 1024 * 1024
+MAX_HISTORICAL_SIDECAR_BYTES = MAX_PORTABLE_SIDECAR_BYTES
 
 
 def _kinds() -> dict[
@@ -140,7 +147,9 @@ def historical_authority_bytes(
         }
     )
     if len(raw) > MAX_HISTORICAL_SIDECAR_BYTES:
-        raise ValueError("historical sidecar exceeds the Portable8 bound")
+        raise PortableSidecarTooLarge(
+            HISTORICAL_AUTHORITY_PATH, len(raw), MAX_HISTORICAL_SIDECAR_BYTES
+        )
     return raw
 
 

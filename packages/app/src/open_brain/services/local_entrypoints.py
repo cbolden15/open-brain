@@ -61,6 +61,7 @@ from open_brain_engine.engine.privacy_repairs import (
 )
 from open_brain_engine.engine.sharing_contracts import SharingError, SharingInspectRequest
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SessionOrigin, T03Error
+from open_brain_engine.portable.v1 import PortableSidecarTooLarge
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -900,6 +901,9 @@ def _run_parsed_command(
         return 130
     except MarkdownImportFailure as error:
         _write_import_failure(error, json_output=json_output)
+        return 78
+    except PortableSidecarTooLarge as error:
+        _write_portable_too_large(error, json_output=json_output)
         return 78
     except Exception as error:
         if _is_workspace_recovery(parsed):
@@ -4547,6 +4551,28 @@ def _write_operation_failure(*, json_output: bool) -> None:
         )
     else:
         print("Open Brain could not complete the local command.", file=sys.stderr)
+
+
+def _write_portable_too_large(error: PortableSidecarTooLarge, *, json_output: bool) -> None:
+    message = (
+        f"This Brain is too large for a Portable export: {error.path} would be "
+        f"{error.size} bytes, over the {error.limit}-byte limit. No export was written."
+    )
+    if json_output:
+        _write_json(
+            {
+                "error": {
+                    "code": "portable_export_too_large",
+                    "message": message,
+                    "sidecar": error.path,
+                    "size_bytes": error.size,
+                    "limit_bytes": error.limit,
+                },
+                "status": "failed",
+            }
+        )
+    else:
+        print(message, file=sys.stderr)
 
 
 __all__ = ["run_cli"]

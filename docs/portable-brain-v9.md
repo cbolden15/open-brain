@@ -10,7 +10,7 @@ runtime 8 and [Portable8](portable-brain-v8.md) retain their frozen meanings.
 Portable9 requires `history/historical-authority/reconciliation-v2.json` instead
 of the V1 history sidecar. It retains every inherited source, privacy, issuer,
 sharing, original capture metadata and journal custody witness. The closed
-history sidecar has schema version 2 and a 64 MiB bound. Empty authority is
+history sidecar has schema version 2 and a 256 MiB bound (64 MiB before 0.2.3). Empty authority is
 explicit; omission refuses validation.
 
 The sidecar keeps an ordered V1/V2 operation chain, exact typed requests and
