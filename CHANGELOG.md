@@ -8,6 +8,7 @@
   capture-custody and historical-authority sidecars now share a 256 MiB limit, the same on
   export, verify and restore. The Portable format and its catalog digest are unchanged. An
   export at or below 64 MiB per sidecar is still readable by 0.2.2; a larger one needs 0.2.3.
+  At about 16 KiB of capture metadata per text capture, 256 MiB holds roughly 16,000 captures.
 - Fixed: `open-brain export --verify` on a Brain of about 6,000 files or more wrote and verified
   the export, then reported `local_operation_failed` (exit 78), because it read the export's
   manifest back with a 1 MiB limit. The manifest now shares the 256 MiB limit.
