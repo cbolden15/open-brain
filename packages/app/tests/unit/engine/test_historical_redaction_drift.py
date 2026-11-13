@@ -117,3 +117,37 @@ def test_only_admission_applies_the_current_redaction_policy(
     with pytest.raises(SharingError, match="unsupported_capability"):
         module.verify_historical_relation_payload(baseline, copy)
     module.verify_historical_relation_payload(baseline, copy, apply_redaction_policy=False)
+
+
+@pytest.mark.parametrize("module", [admission_v1, admission_v2])
+@pytest.mark.parametrize(
+    ("break_copy", "error"),
+    [
+        (
+            lambda copy: copy.update(payload=TextPayload(TEXT + " altered").to_dict()),
+            "binding_mismatch",
+        ),
+        (
+            lambda copy: copy["privacy"].update(
+                authority={"cloud": False, "external_egress": False}
+            ),
+            "unsupported_capability",
+        ),
+    ],
+    ids=["payload-mismatch", "no-external-egress"],
+)
+def test_skipping_the_redaction_policy_keeps_every_other_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    module: Any,
+    break_copy: Any,
+    error: str,
+) -> None:
+    engine = portable5_import_engine(tmp_path, monkeypatch, text=TEXT)
+    baseline = baseline_v2(engine)
+    privacy = baseline.observed_delivery.submission.capture.privacy.to_dict()
+    privacy["authority"] = {"cloud": False, "external_egress": True}
+    copy = {"payload": TextPayload(TEXT).to_dict(), "privacy": privacy}
+    break_copy(copy)
+    with pytest.raises(SharingError, match=error):
+        module.verify_historical_relation_payload(baseline, copy, apply_redaction_policy=False)
