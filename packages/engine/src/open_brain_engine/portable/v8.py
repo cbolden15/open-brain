@@ -261,6 +261,8 @@ def validate_historical_authority(files: Mapping[str, bytes]) -> ValidatedHistor
     Full v8 archive validation must also validate every inherited sidecar. This
     validator does not infer current CAS equality, provider consent, upstream
     file presence, installed selection, independent custody or owner approval.
+    Redaction is an admission decision; archive validation checks integrity and
+    binding, not the current content policy.
     """
     from open_brain_engine.engine.historical_admission import (
         verify_historical_baseline_payload,
@@ -366,7 +368,9 @@ def validate_historical_authority(files: Mapping[str, bytes]) -> ValidatedHistor
                 request.copy_source_cas.require_active()
                 witness(request.copy_source_cas)
                 record = retained(request.retained_copy, request.copy_source_cas.source_id)
-                verify_historical_relation_payload(baselines[request.baseline_operation_id], record)
+                verify_historical_relation_payload(
+                    baselines[request.baseline_operation_id], record, apply_redaction_policy=False
+                )
         return authority
     except PortableValidationError:
         raise

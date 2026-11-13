@@ -71,7 +71,7 @@ engine. Never migrate between products by copying or reinterpreting live SQLite 
 | `release/open-brain-graphify` | Pinned, patched, separately frozen Graphify structural helper |
 
 The engine cannot import the app, connectors, archives, or workspace modules. The app depends
-exactly on `open-brain-engine==0.2.3`. The default dependency graph contains no server, service
+exactly on `open-brain-engine==0.2.4`. The default dependency graph contains no server, service
 manager, cryptography, key-custody, or container dependency. The native audit rejects those module
 families if they enter the executable. Native builds require the standard-library
 compiled Decimal implementation and omit its unused Python fallback; the build

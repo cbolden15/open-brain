@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4 - 2026-11-13
+
+- Fixed: `open-brain export` and `open-brain restore` failed with `local_operation_failed` on a
+  Brain whose historical public copies were admitted before a redaction policy change, for example
+  the 0.2.0 change that also redacts an email address ending a sentence. Archive validation checks
+  integrity and binding. Only admission applies the current redaction policy.
+
 ## 0.2.3 - 2026-11-12
 
 - Fixed: `open-brain export` failed with `local_operation_failed` (exit 78) on a Brain whose
