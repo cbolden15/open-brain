@@ -100,6 +100,7 @@ def test_export_over_a_sidecar_limit_fails_by_name_and_writes_nothing(
     assert cast(int, error["size_bytes"]) > 8
     assert path in cast(str, error["message"])
     assert not archive.exists()
+    assert not list(tmp_path.glob(f".{archive.name}.portable-stage-*"))
 
 
 def test_verified_export_record_reads_a_manifest_over_one_mib(tmp_path: Path) -> None:
