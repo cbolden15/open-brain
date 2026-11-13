@@ -1,6 +1,6 @@
 {
   "name": "open-brain-obsidian",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Desktop Obsidian interface for the local Open Brain runtime.",
   "main": "main.js",

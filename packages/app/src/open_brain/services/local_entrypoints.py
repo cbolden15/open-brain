@@ -61,6 +61,7 @@ from open_brain_engine.engine.privacy_repairs import (
 )
 from open_brain_engine.engine.sharing_contracts import SharingError, SharingInspectRequest
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SessionOrigin, T03Error
+from open_brain_engine.portable.v1 import MAX_PORTABLE_SIDECAR_BYTES, PortableSidecarTooLarge
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -222,7 +223,7 @@ _DOCTOR_CHECKS = (
     "search-index",
 )
 _BASE_DEPENDENCY_REQUIREMENTS = {
-    "open-brain": ("open-brain-engine==0.2.2",),
+    "open-brain": ("open-brain-engine==0.2.3",),
     "open-brain-engine": ("rfc8785<0.2,>=0.1.4",),
     "rfc8785": (),
 }
@@ -900,6 +901,9 @@ def _run_parsed_command(
         return 130
     except MarkdownImportFailure as error:
         _write_import_failure(error, json_output=json_output)
+        return 78
+    except PortableSidecarTooLarge as error:
+        _write_portable_too_large(error, json_output=json_output)
         return 78
     except Exception as error:
         if _is_workspace_recovery(parsed):
@@ -4297,11 +4301,13 @@ def _record_verified_export(
     export_id: str,
 ) -> None:
     destination_identity = capture_root_identity(destination)
+    # The manifest lists every archived file (about 170 bytes each), so it grows with the
+    # Brain like a whole-file sidecar; 1 MiB stopped near 6,000 files.
     manifest = read_confined(
         root=destination,
         relative="portable-manifest.json",
         expected_root_identity=destination_identity,
-        maximum_bytes=1024 * 1024,
+        maximum_bytes=MAX_PORTABLE_SIDECAR_BYTES,
     )
     if manifest is None:
         raise ValueError("Portable export manifest is unavailable")
@@ -4547,6 +4553,28 @@ def _write_operation_failure(*, json_output: bool) -> None:
         )
     else:
         print("Open Brain could not complete the local command.", file=sys.stderr)
+
+
+def _write_portable_too_large(error: PortableSidecarTooLarge, *, json_output: bool) -> None:
+    message = (
+        f"This Brain is too large for a Portable export: {error.path} would be "
+        f"{error.size} bytes, over the {error.limit}-byte limit. No export was written."
+    )
+    if json_output:
+        _write_json(
+            {
+                "error": {
+                    "code": "portable_export_too_large",
+                    "message": message,
+                    "sidecar": error.path,
+                    "size_bytes": error.size,
+                    "limit_bytes": error.limit,
+                },
+                "status": "failed",
+            }
+        )
+    else:
+        print(message, file=sys.stderr)
 
 
 __all__ = ["run_cli"]

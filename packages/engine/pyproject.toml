@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "open-brain-engine"
-version = "0.2.2"
+version = "0.2.3"
 description = "Local-first Open Brain domain engine and Portable Brain contracts."
 # Source packages and native builds share the supported Python 3.14 runtime.
 requires-python = ">=3.14,<3.15"

@@ -17,8 +17,8 @@ chain. Each operation retains its typed request, exact receipt and previous,
 proposed and transition digests. Registry snapshots reconstruct from those typed
 operations and must match the original digests. This avoids repeatedly storing
 every earlier membership while preserving the exact immutable transitions.
-The sidecar has a 64 MiB input/output limit. Exceeding it refuses; it never drops
-records or truncates a body.
+The sidecar has a 256 MiB input/output limit (64 MiB before 0.2.3). Exceeding it
+refuses with `portable_export_too_large`; it never drops records or truncates a body.
 
 Validation joins the chain to retained capture bytes, immutable privacy, request
 aliases, source membership, baseline observation and namespace, both relation
@@ -49,7 +49,8 @@ before activation; a snapshot alone is not a freshness or zero-loss proof.
 V8 also requires `history/capture-metadata/original-v2.json`. It preserves the
 original settled capture row, including delivery/request identity, supplied title,
 admission provenance, stored privacy, canonical allocation and file bytes. Its
-closed, canonical representation is bounded to 64 MiB and sorted by capture ID.
+closed, canonical representation is bounded to 256 MiB (64 MiB before 0.2.3) and
+sorted by capture ID.
 Validation requires complete capture coverage and correspondence to archived
 payloads, accepted receipts, immutable privacy evidence and record paths. Hidden
 materialization and fresh semantic audits use this evidence, not inferred owner
@@ -67,7 +68,7 @@ This metadata is not a replay grant or a fresh audit of a live upstream source.
 V8 also requires `history/capture-custody/journal-v1.json`. It preserves capture
 journal items, original envelope bytes, ordered events, discard tombstones and
 allocation sequence watermarks. The closed canonical sidecar is bounded to
-64 MiB. Validation binds custody to the archived Brain and issuer epoch, envelope
+256 MiB (64 MiB before 0.2.3). Validation binds custody to the archived Brain and issuer epoch, envelope
 digests, original receipts and settled capture identity. Clean import verifies
 the restored state without draining pending ingestion; ordinary engine opening
 then resumes recovery. Quarantined entries remain quarantined until owner retry.

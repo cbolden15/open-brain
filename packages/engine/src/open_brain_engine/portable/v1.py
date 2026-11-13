@@ -31,6 +31,21 @@ class PortableValidationError(ValueError):
     """A Portable Brain v1 export is malformed, unsafe, or incomplete."""
 
 
+# Whole-file sidecars (capture metadata, capture custody, historical authority) are
+# read into memory, so one shared bound caps them for writers and readers alike.
+MAX_PORTABLE_SIDECAR_BYTES = 256 * 1024 * 1024
+
+
+class PortableSidecarTooLarge(ValueError):
+    """An export would write a whole-file sidecar over the Portable byte bound."""
+
+    def __init__(self, path: str, size: int, limit: int) -> None:
+        super().__init__(f"Portable sidecar {path} would be {size} bytes; the limit is {limit}")
+        self.path = path
+        self.size = size
+        self.limit = limit
+
+
 @dataclass(frozen=True, slots=True)
 class PortableSnapshot:
     """Immutable, descriptor-confined Portable bytes used for validation/materialization."""
