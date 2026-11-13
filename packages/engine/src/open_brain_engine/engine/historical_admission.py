@@ -99,9 +99,16 @@ def verify_historical_relation_evidence(
 
 
 def verify_historical_relation_payload(
-    baseline: HistoricalBaselineRequest, copy: dict[str, Any]
+    baseline: HistoricalBaselineRequest,
+    copy: dict[str, Any],
+    *,
+    apply_redaction_policy: bool = True,
 ) -> None:
-    """Immutable correspondence only; never current eligibility or consent."""
+    """Immutable correspondence only; never current eligibility or consent.
+
+    ``apply_redaction_policy=False`` skips only the redaction check. The policy can
+    tighten after admission, so only admission applies it; archive validation does not.
+    """
     original = baseline.observed_delivery.submission.capture
     privacy = PrivacyDecision.from_dict(copy["privacy"])
     if (
@@ -130,7 +137,7 @@ def verify_historical_relation_payload(
         raise SharingError("binding_mismatch")
     if len(text.encode("utf-8")) > 65536:
         raise SharingError("response_too_large")
-    if has_redaction_finding(text):
+    if apply_redaction_policy and has_redaction_finding(text):
         raise SharingError("unsupported_capability")
 
 
