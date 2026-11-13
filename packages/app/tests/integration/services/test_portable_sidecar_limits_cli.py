@@ -1,6 +1,7 @@
 """Portable export of Brains past the old 64 MiB sidecar bound, and the named refusal."""
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import cast
@@ -10,7 +11,10 @@ import pytest
 from open_brain_engine.engine import BrainEngine, CaptureSubmission, FilePayload, TextPayload
 from open_brain_engine.portable import v8_capture_metadata, v8_custody, v9
 
+from open_brain.local_data import select_local_root
 from open_brain.profile import compile_single_user_local
+from open_brain.services import local_entrypoints
+from open_brain.services.local_bootstrap import open_local_brain
 from open_brain.services.local_entrypoints import run_cli
 
 OLD_BOUND = 64 * 1024 * 1024
@@ -96,3 +100,28 @@ def test_export_over_a_sidecar_limit_fails_by_name_and_writes_nothing(
     assert cast(int, error["size_bytes"]) > 8
     assert path in cast(str, error["message"])
     assert not archive.exists()
+
+
+def test_verified_export_record_reads_a_manifest_over_one_mib(tmp_path: Path) -> None:
+    # About 170 manifest bytes per file: a Brain of ~6,200 files has a manifest over 1 MiB.
+    # Building one takes minutes, so pad a real export's manifest instead; the recorder
+    # reads only its schema version and digest.
+    root = tmp_path / "brain"
+    engine = BrainEngine.open(compile_single_user_local(root))
+    engine.capture.accept(TextPayload("Synthetic manifest body"), delivery_id="limits.manifest")
+    archive = tmp_path / "export"
+    assert run_cli(("export", str(archive), "--json", "--data-dir", str(root))) == 0
+    path = archive / "portable-manifest.json"
+    manifest = json.loads(path.read_bytes())
+    manifest["synthetic_padding"] = "x" * (2 * 1024 * 1024)
+    path.chmod(0o600)
+    path.write_bytes(json.dumps(manifest).encode())
+
+    selection = select_local_root(data_dir=str(root), environment=os.environ)
+    with open_local_brain(selection) as session:
+        local_entrypoints._record_verified_export(
+            session, archive, export_id="export_" + str(uuid4())
+        )
+
+    evidence = json.loads((root / ".open-brain/state/local-export-evidence.json").read_bytes())
+    assert evidence["schema_version"] == manifest["schema_version"]

@@ -8,6 +8,9 @@
   capture-custody and historical-authority sidecars now share a 256 MiB limit, the same on
   export, verify and restore. The Portable format and its catalog digest are unchanged. An
   export at or below 64 MiB per sidecar is still readable by 0.2.2; a larger one needs 0.2.3.
+- Fixed: `open-brain export --verify` on a Brain of about 6,000 files or more wrote and verified
+  the export, then reported `local_operation_failed` (exit 78), because it read the export's
+  manifest back with a 1 MiB limit. The manifest now shares the 256 MiB limit.
 - An export over the limit now fails with `portable_export_too_large` (exit 78). The message and
   the JSON error name the sidecar, its size and the limit, and no export is written.
 - If 0.1.x can't export your Brain before the 0.2.0 schema migration, copy the whole Brain

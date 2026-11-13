@@ -61,7 +61,7 @@ from open_brain_engine.engine.privacy_repairs import (
 )
 from open_brain_engine.engine.sharing_contracts import SharingError, SharingInspectRequest
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SessionOrigin, T03Error
-from open_brain_engine.portable.v1 import PortableSidecarTooLarge
+from open_brain_engine.portable.v1 import MAX_PORTABLE_SIDECAR_BYTES, PortableSidecarTooLarge
 from open_brain_engine.storage.locks import LockBusyError
 from open_brain_engine.storage.operational import (
     StorageError,
@@ -4301,11 +4301,13 @@ def _record_verified_export(
     export_id: str,
 ) -> None:
     destination_identity = capture_root_identity(destination)
+    # The manifest lists every archived file (about 170 bytes each), so it grows with the
+    # Brain like a whole-file sidecar; 1 MiB stopped near 6,000 files.
     manifest = read_confined(
         root=destination,
         relative="portable-manifest.json",
         expected_root_identity=destination_identity,
-        maximum_bytes=1024 * 1024,
+        maximum_bytes=MAX_PORTABLE_SIDECAR_BYTES,
     )
     if manifest is None:
         raise ValueError("Portable export manifest is unavailable")
