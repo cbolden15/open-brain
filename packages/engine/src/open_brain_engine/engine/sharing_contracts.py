@@ -29,6 +29,7 @@ _CODES = frozenset(
 _PROVIDER = re.compile(r"[a-z][a-z0-9._-]{0,63}\Z")
 _OPERATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _MAX_REQUEST_BYTES = 65_536
 
 
@@ -47,7 +48,7 @@ def _text(value: object, *, pattern: re.Pattern[str] | None = None, limit: int =
         value.encode("utf-8", "strict")
     except UnicodeError:
         raise SharingError("invalid_arguments") from None
-    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+    if _CONTROL.search(value) is not None:
         raise SharingError("invalid_arguments")
     if pattern is not None and pattern.fullmatch(value) is None:
         raise SharingError("invalid_arguments")

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import fcntl
 import os
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from open_brain_engine.engine import runtime_admission
+from open_brain_engine.engine.contracts import LocalEngineContext
 from open_brain_engine.engine.runtime_admission import (
     HeldRuntimeAdmission,
     exclusive_runtime_admission,
@@ -164,3 +167,110 @@ def test_live_peer_cannot_migrate_privacy(tmp_path: Path, monkeypatch: pytest.Mo
     finally:
         for descriptor in (session, directory, first):
             os.close(descriptor)
+
+
+def _held_registry(profile: LocalEngineContext) -> tuple[int, int, int]:
+    """Return (holder, waiter, directory) descriptors with the holder owning the lock."""
+    with exclusive_runtime_admission(profile):
+        pass
+    registry_path = profile.root / ".open-brain/runtime-sessions/registry.lock"
+    holder = os.open(registry_path, os.O_RDWR)
+    waiter = os.open(registry_path, os.O_RDWR)
+    directory = os.open(registry_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return holder, waiter, directory
+
+
+def test_registry_wait_timeout_is_named_busy(tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    holder, waiter, directory = _held_registry(profile)
+    try:
+        with (
+            pytest.raises(runtime_admission.RuntimeRegistryBusy) as raised,
+            hold_runtime_registry(profile, directory, waiter, wait_seconds=0.05),
+        ):
+            pytest.fail("held registry admitted a second client")
+        assert isinstance(raised.value, T03Error)
+        assert raised.value.code == "operation_pending"
+    finally:
+        for descriptor in (directory, waiter, holder):
+            os.close(descriptor)
+
+
+def test_longer_wait_admits_after_a_holder_outlasts_the_default(tmp_path: Path) -> None:
+    # A real Brain holds the registry lock for 6 to 12 s while it opens; the default
+    # 2-second wait failed every concurrent start in 0.2.4.
+    assert runtime_admission.RUNTIME_REGISTRY_WAIT_SECONDS < 2.3
+    profile = compile_single_user_local(tmp_path / "brain")
+    holder, waiter, directory = _held_registry(profile)
+    release = threading.Timer(2.3, lambda: fcntl.flock(holder, fcntl.LOCK_UN))
+    release.start()
+    try:
+        with hold_runtime_registry(profile, directory, waiter, wait_seconds=10) as proof:
+            assert proof.live_peer_count == 0
+    finally:
+        release.join()
+        for descriptor in (directory, waiter, holder):
+            os.close(descriptor)
+
+
+@pytest.mark.parametrize("seconds", [float("nan"), float("inf"), -1.0, True, "30"])
+def test_registry_wait_must_be_finite(seconds: object, tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    holder, waiter, directory = _held_registry(profile)
+    # If validation regressed, the release lets the wait return instead of hanging.
+    release = threading.Timer(1.0, lambda: fcntl.flock(holder, fcntl.LOCK_UN))
+    release.start()
+    try:
+        with (
+            pytest.raises(ValueError, match="finite"),
+            hold_runtime_registry(profile, directory, waiter, wait_seconds=seconds),  # type: ignore[arg-type]
+        ):
+            pytest.fail("an unbounded wait was accepted")
+    finally:
+        release.cancel()
+        release.join()
+        for descriptor in (directory, waiter, holder):
+            os.close(descriptor)
+
+
+def test_registry_wait_checks_the_converted_value() -> None:
+    class Sneaky(float):
+        def __float__(self) -> float:
+            return float("nan")
+
+    with pytest.raises(ValueError, match="finite"):
+        runtime_admission.require_registry_wait(Sneaky(1.0))
+
+
+def test_registry_wait_accepts_numeric_subclasses(tmp_path: Path) -> None:
+    import enum
+
+    class Seconds(float):
+        pass
+
+    class Wait(enum.IntEnum):
+        BRIEF = 0
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    holder, waiter, directory = _held_registry(profile)
+    try:
+        for seconds in (Seconds(0.05), Wait.BRIEF, 0):
+            with (
+                pytest.raises(runtime_admission.RuntimeRegistryBusy),
+                hold_runtime_registry(profile, directory, waiter, wait_seconds=seconds),
+            ):
+                pytest.fail("held registry admitted a second client")
+    finally:
+        for descriptor in (directory, waiter, holder):
+            os.close(descriptor)
+
+
+def test_registry_busy_survives_pickle_and_copy() -> None:
+    import copy
+    import pickle
+
+    error = runtime_admission.RuntimeRegistryBusy()
+    for clone in (pickle.loads(pickle.dumps(error)), copy.copy(error)):
+        assert type(clone) is runtime_admission.RuntimeRegistryBusy
+        assert clone.code == "operation_pending"
