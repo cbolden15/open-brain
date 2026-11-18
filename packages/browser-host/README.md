@@ -102,3 +102,9 @@ status and retry with the original operation ID and destination.
 Run the synthetic outage, dropped-acknowledgement, replay and scope scenario
 with `uv run --frozen pytest -q packages/browser-host/tests/test_remote.py`.
 It uses two disposable Brain roots and a process-pipe adapter.
+
+For the actual Chrome popup on the same two-root fixture, run
+`python3.14 tools/open_brain_dev/browser_remote_acceptance.py --chrome "$CHROME"`
+from the repository root with Playwright installed. It verifies the configured
+destination while disconnected, a lost reply, restart, and the canonical
+capture count. Two-machine SSH qualification is pending.

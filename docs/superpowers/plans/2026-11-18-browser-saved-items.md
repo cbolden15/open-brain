@@ -66,10 +66,12 @@ The local page handoff passed twice on macOS. Task 5 owns the annotation-specifi
 
 ### 4. Prove the optional remote path
 
-- [ ] Add `packages/browser-host/tests/test_remote.py` and a `remote` scenario in the acceptance harness. Freeze the same request/reply contract. Pin unknown host identity, wrong Brain binding, refused connection, timeout before write, lost terminal reply and reconnect. Both before and after retry, assert the laptop Brain has zero records for the synthetic input.
+- [x] Add `packages/browser-host/tests/test_remote.py` and a `remote` scenario in the acceptance harness. Freeze the same request/reply contract. Pin unknown host identity, wrong Brain binding, refused connection, timeout before write, lost terminal reply and reconnect. Both before and after retry, assert the laptop Brain has zero records for the synthetic input.
 - [ ] Run `uv run --frozen pytest -q packages/browser-host/tests/test_remote.py`. Implement `host/remote.py` against a fixed, owner-configured destination and restricted remote handler. Use the SSH candidate only after verifying its availability and host identity checks on the target pair. Start the process with a fixed argument vector; operation contents travel on stdin. Enforce policy on the canonical host. Use a versioned, length-bounded remote protocol with fixed byte order, explicit format marker and strict response identity. Reject extra stdout, bad framing, host identity change and truncated replies. Separate a bounded SSH connect timeout from the handler deadline; a timeout after admission means unknown outcome until status reconciliation. Keep diagnostics on stderr free of page content. Show the configured destination on failure and keep any pending operation bound to it.
 - [ ] On an explicitly authorized disposable two-host setup, save to the remote Brain from real Chrome, interrupt the reply, reconnect and replay the original ID. Verify exact count and destination on both machines. Check the same scoped miss, unauthorized write, and changed-grant cases as local. Record the two independent host identities as synthetic labels.
-- [ ] Commit the transport and results. With only a loopback fixture or unavailable second host, retain remote status as unqualified, with local qualification independent.
+- [x] Commit the transport and results. With only a loopback fixture or unavailable second host, retain remote status as unqualified, with local qualification independent.
+
+The macOS Chrome fixture passed with one canonical capture, zero laptop captures, and reconciliation of the original operation after browser restart. Run `python3.14 tools/open_brain_dev/browser_remote_acceptance.py --chrome "$CHROME"`. It replaces SSH with local process pipes. The separate-machine and SSH qualification remains pending until the owner supplies a test host.
 
 ### 5. Persist, search and restore multiple highlights
 
