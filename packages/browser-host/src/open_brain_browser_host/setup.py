@@ -19,7 +19,16 @@ from open_brain.services.local_bootstrap import initialize_local_brain
 from open_brain.services.t03_adapters import owner_authority_for_principal
 from open_brain_connectors.runtime.saved_item import SavedItemRefusal, identity_url, item_key
 
-from .policy import Policy, Refused, binding_value, extension_origin, install, load, save
+from .policy import (
+    Policy,
+    Refused,
+    binding_value,
+    extension_origin,
+    install,
+    lock_setup,
+    read,
+    save,
+)
 
 OWNER_COMMANDS = frozenset({"setup", "sources", "revoke", "install"})
 
@@ -73,7 +82,19 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _configure(args: argparse.Namespace) -> dict[str, object]:
+def _revoke(policy: Policy) -> None:
+    profile = open_existing_single_user_local(policy.brain_root)
+    try:
+        binding = BrowserPages(profile).binding(policy.token)
+    except PermissionError as error:
+        if str(error) != "browser_unbound":
+            raise
+        return
+    policy.require(binding)
+    _owner(profile).revoke(policy.token)
+
+
+def _configure(args: argparse.Namespace, directory: int) -> dict[str, object]:
     extension_origin(args.extension_id)
     if args.recover_url and not args.source:
         raise ValueError("--recover-url requires --source")
@@ -88,6 +109,11 @@ def _configure(args: argparse.Namespace) -> dict[str, object]:
         None not in spaces or set(args.tier) != {"public", "work", "personal"}
     ):
         raise ValueError("--complete-domain requires --unassigned and all three tiers")
+    try:
+        previous = read(directory)
+    except FileNotFoundError:
+        previous = None
+
     selection = select_local_root(data_dir=args.data_dir, environment=os.environ)
     if args.initialize_brain:
         initialize_local_brain(selection)
@@ -109,7 +135,12 @@ def _configure(args: argparse.Namespace) -> dict[str, object]:
     try:
         binding = BrowserPages(profile).binding(token)
         policy = Policy(args.extension_id, profile.root, token, binding_value(binding))
-        save(policy)
+        # Publish only after the old authority is withdrawn. If this process dies
+        # first, the existing policy contains a revoked token and the new token
+        # has not been published.
+        if previous is not None:
+            _revoke(previous)
+        save(directory, policy)
     except Exception:
         owner.revoke(token)
         raise
@@ -121,24 +152,26 @@ def main(argv: Sequence[str]) -> int:
     args = parser.parse_args(argv)
     try:
         result: dict[str, object]
-        if args.command == "setup":
-            result = _configure(args)
-        elif args.command == "sources":
+        if args.command == "sources":
             selection = select_local_root(data_dir=args.data_dir, environment=os.environ)
             owner = _owner(open_existing_single_user_local(selection.brain_root))
             result = {"sources": [source.values() for source in owner.sources(offset=args.offset)]}
         else:
-            policy = load()
-            profile = open_existing_single_user_local(policy.brain_root)
-            if args.command == "revoke":
-                _owner(profile).revoke(policy.token)
-                result = {"state": "revoked"}
-            else:
-                policy.require(BrowserPages(profile).binding(policy.token))
-                manifest = install(
-                    policy, Path(sys.argv[0]), user_data_dir=args.chrome_user_data_dir
-                )
-                result = {"manifest": str(manifest)}
+            with lock_setup(create=args.command == "setup") as directory:
+                if args.command == "setup":
+                    result = _configure(args, directory)
+                else:
+                    policy = read(directory)
+                    if args.command == "revoke":
+                        _revoke(policy)
+                        result = {"state": "revoked"}
+                    else:
+                        profile = open_existing_single_user_local(policy.brain_root)
+                        policy.require(BrowserPages(profile).binding(policy.token))
+                        manifest = install(
+                            policy, Path(sys.argv[0]), user_data_dir=args.chrome_user_data_dir
+                        )
+                        result = {"manifest": str(manifest)}
     except Refused, OSError, RuntimeError, SavedItemRefusal, ValueError:
         print("Browser setup refused. Check the local Brain, source and grant.", file=sys.stderr)
         return 2

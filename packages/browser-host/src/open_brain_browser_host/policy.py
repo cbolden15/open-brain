@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
@@ -17,6 +18,7 @@ from typing import cast
 from open_brain_engine.engine.browser_pages import BrowserBinding
 
 HOST_NAME = "com.open_brain.saved_items"
+_POLICY_DIRECTORY = (".open-brain-browser",)
 _POLICY_NAME = "policy.json"
 _POLICY_LIMIT = 16 * 1024
 _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -183,20 +185,31 @@ def _replace(parent: int, name: str, payload: bytes) -> None:
             os.unlink(temporary, dir_fd=parent)
 
 
+@contextmanager
+def lock_setup(*, create: bool) -> Iterator[int]:
+    """Serialize owner changes using the same verified directory for reads and writes."""
+    with _home_directory(_POLICY_DIRECTORY, create=create, private=True) as directory:
+        fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield directory
+
+
+def read(directory: int) -> Policy:
+    return Policy.parse(_read_private(directory, _POLICY_NAME))
+
+
 def load() -> Policy:
     try:
-        with _home_directory((".open-brain-browser",), create=False, private=True) as fd:
-            return Policy.parse(_read_private(fd, _POLICY_NAME))
+        with _home_directory(_POLICY_DIRECTORY, create=False, private=True) as directory:
+            return read(directory)
     except OSError, ValueError, RecursionError:
         raise Refused("browser_unbound") from None
 
 
-def save(policy: Policy) -> None:
+def save(directory: int, policy: Policy) -> None:
     payload = policy.encode()
     if len(payload) > _POLICY_LIMIT:
         raise ValueError("oversized policy")
-    with _home_directory((".open-brain-browser",), create=True, private=True) as fd:
-        _replace(fd, _POLICY_NAME, payload)
+    _replace(directory, _POLICY_NAME, payload)
 
 
 def _chrome_directory() -> tuple[str, ...]:

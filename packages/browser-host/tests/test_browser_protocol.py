@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import struct
@@ -328,3 +329,141 @@ def test_save_uses_validated_passage_and_rejects_changed_replay(
     assert [hit["capture_id"] for hit in hits] == [receipt["capture_id"]]
     assert args["passage"] in hits[0]["excerpt"].replace("[dragonfly]", "dragonfly")
     assert b"synthetic-marker" not in search.stdout
+
+
+def test_narrowing_installation_revokes_old_grant_only(
+    installation: tuple[Path, Path],
+) -> None:
+    home, root = installation
+    policy = home / ".open-brain-browser" / "policy.json"
+    previous = policy.read_bytes()
+    _, connection, resource = json.loads(previous)["binding"]["source"]
+    independent = home.parent / "independent-home"
+    independent.mkdir(mode=0o700)
+    _setup(
+        independent,
+        root,
+        "--source",
+        connection,
+        resource,
+        "--complete-domain",
+        "--tier",
+        "public",
+        "--tier",
+        "work",
+    )
+    independent_save = _request(
+        independent, "page.save", {"url": URL, "reason": REASON}, str(uuid4())
+    )
+    assert cast(dict[str, object], independent_save["result"])["state"] == "accepted"
+
+    _call(
+        home,
+        [
+            "setup",
+            "--extension-id",
+            "a" * 32,
+            "--data-dir",
+            str(root),
+            "--operation",
+            "lookup",
+            "--tier",
+            "public",
+            "--unassigned",
+            "--source",
+            connection,
+            resource,
+        ],
+    )
+    assert _request(home, "page.lookup", {"url": URL}) == {"result": {"state": "absent"}}
+    policy.write_bytes(previous)
+    assert _request(home, "page.lookup", {"url": URL}) == {"error": {"code": "browser_unbound"}}
+    independent_lookup = _request(independent, "page.lookup", {"url": URL})
+    assert cast(dict[str, object], independent_lookup["result"])["state"] == "saved"
+
+
+def test_interrupted_reconfiguration_leaves_old_policy_unbound(
+    installation: tuple[Path, Path],
+) -> None:
+    home, root = installation
+    policy = home / ".open-brain-browser" / "policy.json"
+    previous = policy.read_bytes()
+    binding = json.loads(previous)["binding"]
+    _, connection, resource = binding["source"]
+    operation = str(uuid4())
+    saved = _request(home, "page.save", {"url": URL, "reason": REASON}, operation)
+    assert cast(dict[str, object], saved["result"])["state"] == "accepted"
+    arguments = [
+        "setup",
+        "--extension-id",
+        "a" * 32,
+        "--data-dir",
+        str(root),
+        "--operation",
+        "lookup",
+        "--operation",
+        "status",
+        "--tier",
+        "personal",
+        "--unassigned",
+        "--source",
+        connection,
+        resource,
+        "--workflow-principal",
+        binding["workflow_principal"],
+    ]
+    _, env = _host(home)
+    crash_before_policy_replacement = """import os
+import sys
+from open_brain_browser_host import setup
+
+def crash(directory, policy):
+    os._exit(97)
+
+setup.save = crash
+raise SystemExit(setup.main(sys.argv[1:]))
+"""
+    child = subprocess.run(
+        [sys.executable, "-c", crash_before_policy_replacement, *arguments],
+        env=env,
+        capture_output=True,
+        timeout=20,
+    )
+    assert child.returncode == 97, child.stderr
+    assert policy.read_bytes() == previous
+    assert _request(home, "page.lookup", {"url": URL}) == {"error": {"code": "browser_unbound"}}
+    _call(home, arguments)
+    assert _request(home, "operation.status", {}, operation) == saved
+
+
+def test_owner_mutations_serialize_per_installation(installation: tuple[Path, Path]) -> None:
+    home, root = installation
+    executable, env = _host(home)
+    directory = os.open(home / ".open-brain-browser", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        for arguments in (
+            ["revoke"],
+            [
+                "setup",
+                "--extension-id",
+                "a" * 32,
+                "--data-dir",
+                str(root),
+                "--operation",
+                "lookup",
+                "--tier",
+                "public",
+                "--unassigned",
+                "--new-source",
+            ],
+        ):
+            child = subprocess.run(
+                [*executable, *arguments], env=env, capture_output=True, timeout=5
+            )
+            assert child.returncode == 2
+        assert _request(home, "page.lookup", {"url": URL}) == {"result": {"state": "absent"}}
+    finally:
+        os.close(directory)
+    _call(home, ["revoke"])
+    assert _request(home, "page.lookup", {"url": URL}) == {"error": {"code": "browser_unbound"}}
