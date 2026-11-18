@@ -151,7 +151,8 @@ def test_v18_saved_item_recovery_evidence(tmp_path: Path) -> None:
     import sqlite3
     from zipfile import ZipFile
 
-    from open_brain.services.local_entrypoints import owner_authority_for_principal, run_cli
+    from open_brain.services.local_entrypoints import run_cli
+    from open_brain.services.t03_adapters import owner_authority_for_principal
     from open_brain_connectors.runtime.saved_item import identity_url, item_key
     from open_brain_connectors.runtime.source_intake import SourceRecordKey
 
@@ -232,7 +233,8 @@ def test_saved_page_identity_round_trip(tmp_path: Path) -> None:
     from open_brain_engine.engine.browser_pages import BrowserOwnerSetup, BrowserPages
     from open_brain_engine.engine.saved_item_identity import SavedItemSource
 
-    from open_brain.services.local_entrypoints import owner_authority_for_principal, run_cli
+    from open_brain.services.local_entrypoints import run_cli
+    from open_brain.services.t03_adapters import owner_authority_for_principal
     from open_brain_connectors.runtime.saved_item import identity_url, item_key
 
     producer = tmp_path / "producer"
