@@ -21,6 +21,12 @@ failure before retrying the suite.
 
 Discovered: 2026-10-28, compact-search final verification.
 
+The saved-items rollout reproduced this with ten workers. The Google Calendar
+drip-feed test reached its 600 ms deadline before the child sent its first
+request. Both calendar transport cases passed in isolation. On the same commit,
+`PYTEST_XDIST_AUTO_NUM_WORKERS=4 make verify` passed all 10,102 Python tests
+that ran and all 704 Obsidian tests.
+
 ### TESTING-019: Scoped MCP discovery expectations also live in collector fixtures
 
 Category: Testing / Capability discovery.
