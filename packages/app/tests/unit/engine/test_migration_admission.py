@@ -218,12 +218,40 @@ def test_longer_wait_admits_after_a_holder_outlasts_the_default(tmp_path: Path) 
 def test_registry_wait_must_be_finite(seconds: object, tmp_path: Path) -> None:
     profile = compile_single_user_local(tmp_path / "brain")
     holder, waiter, directory = _held_registry(profile)
+    # If validation regressed, the release lets the wait return instead of hanging.
+    release = threading.Timer(1.0, lambda: fcntl.flock(holder, fcntl.LOCK_UN))
+    release.start()
     try:
         with (
             pytest.raises(ValueError, match="finite"),
             hold_runtime_registry(profile, directory, waiter, wait_seconds=seconds),  # type: ignore[arg-type]
         ):
             pytest.fail("an unbounded wait was accepted")
+    finally:
+        release.cancel()
+        release.join()
+        for descriptor in (directory, waiter, holder):
+            os.close(descriptor)
+
+
+def test_registry_wait_accepts_numeric_subclasses(tmp_path: Path) -> None:
+    import enum
+
+    class Seconds(float):
+        pass
+
+    class Wait(enum.IntEnum):
+        BRIEF = 0
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    holder, waiter, directory = _held_registry(profile)
+    try:
+        for seconds in (Seconds(0.05), Wait.BRIEF, 0):
+            with (
+                pytest.raises(runtime_admission.RuntimeRegistryBusy),
+                hold_runtime_registry(profile, directory, waiter, wait_seconds=seconds),
+            ):
+                pytest.fail("held registry admitted a second client")
     finally:
         for descriptor in (directory, waiter, holder):
             os.close(descriptor)

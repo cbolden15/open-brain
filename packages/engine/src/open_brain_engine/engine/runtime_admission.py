@@ -44,9 +44,13 @@ class RuntimeRegistryBusy(T03Error):
 
 def require_registry_wait(seconds: float) -> float:
     """Refuse a wait that is negative, NaN or infinite, which would never expire."""
-    if type(seconds) not in (int, float) or not 0 <= seconds < math.inf:
+    if (
+        isinstance(seconds, bool)
+        or not isinstance(seconds, (int, float))
+        or not 0 <= seconds < math.inf
+    ):
         raise ValueError("registry wait must be a finite number of seconds")
-    return seconds
+    return float(seconds)
 
 
 def _private_file(directory: int, name: str, *, create: bool = False) -> int:

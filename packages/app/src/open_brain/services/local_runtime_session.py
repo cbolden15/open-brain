@@ -29,6 +29,7 @@ from open_brain_engine.storage.filesystem import (
     _open_root,
     _write_all,
 )
+from open_brain_engine.storage.locks import LockBusyError
 
 _RUNTIME_DIRECTORY = "runtime-sessions"
 _REGISTRY_LOCK = "registry.lock"
@@ -89,6 +90,7 @@ def hold_local_runtime_session(
     session_name = f"session-{uuid.uuid4().hex}.lock"
     session_created = False
     body_entered = False
+    body_completed = False
     registry_locked = False
     admission_stack = ExitStack()
     try:
@@ -154,6 +156,7 @@ def hold_local_runtime_session(
             registry_locked = False
         body_entered = True
         yield runtime_session
+        body_completed = True
     except LocalRuntimeCompatibilityError:
         if session_created and directory_fd >= 0:
             try:
@@ -173,30 +176,33 @@ def hold_local_runtime_session(
         raise LocalRuntimeSessionError("runtime session registry operation failed") from None
     finally:
         try:
-            if registry_fd >= 0 and session_created and body_entered:
-                if held_admission is not None:
-                    assert admission_profile is not None
-                    held_admission.validate(admission_profile)
-                if not registry_locked:
-                    try:
+            try:
+                if registry_fd >= 0 and session_created and body_entered:
+                    if held_admission is not None:
+                        assert admission_profile is not None
+                        held_admission.validate(admission_profile)
+                    if not registry_locked:
                         _acquire_registry_lock(registry_fd, registry_wait_seconds)
-                    except LocalRuntimeBusyError:
-                        # The body already ran and may have committed: never report it
-                        # as busy (retryable), or a retry could repeat the write.
-                        raise LocalRuntimeSessionError(
-                            "runtime session registry is busy at close"
-                        ) from None
-                    registry_locked = True
-                metadata = os.stat(session_name, dir_fd=directory_fd, follow_symlinks=False)
-                held = os.fstat(session_fd)
-                if (metadata.st_dev, metadata.st_ino) != (held.st_dev, held.st_ino):
-                    raise LocalRuntimeSessionError("runtime session marker was replaced")
-                live_peers, stale_sessions = _scan_sessions(directory_fd)
-                if stale_sessions or live_peers == 1:
-                    recover_abandoned_sessions()
-                    _remove_stale_sessions(directory_fd, stale_sessions)
-                os.unlink(session_name, dir_fd=directory_fd)
-                os.fsync(directory_fd)
+                        registry_locked = True
+                    metadata = os.stat(session_name, dir_fd=directory_fd, follow_symlinks=False)
+                    held = os.fstat(session_fd)
+                    if (metadata.st_dev, metadata.st_ino) != (held.st_dev, held.st_ino):
+                        raise LocalRuntimeSessionError("runtime session marker was replaced")
+                    live_peers, stale_sessions = _scan_sessions(directory_fd)
+                    if stale_sessions or live_peers == 1:
+                        recover_abandoned_sessions()
+                        _remove_stale_sessions(directory_fd, stale_sessions)
+                    os.unlink(session_name, dir_fd=directory_fd)
+                    os.fsync(directory_fd)
+            except (LocalRuntimeBusyError, LockBusyError):
+                # Another client held the registry or a writer lease at close. The body
+                # already ran: after success it may have committed, so never report a
+                # retryable busy; after a failure keep the body's own error. The marker
+                # stays for the next opener's abandoned-session recovery.
+                if body_completed:
+                    raise LocalRuntimeSessionError(
+                        "runtime session registry is busy at close"
+                    ) from None
         finally:
             admission_stack.close()
             if registry_locked and held_admission is None:
@@ -211,6 +217,7 @@ def hold_local_runtime_session(
             for descriptor in (owned_registry, directory_fd, state_fd, root_fd):
                 if descriptor >= 0:
                     os.close(descriptor)
+
 
 
 def _registry_initialized(directory_fd: int) -> bool:

@@ -593,13 +593,15 @@ def test_cli_waits_out_another_clients_registry_admission(
     registry = root / ".open-brain/runtime-sessions/registry.lock"
     with registry.open("r+b") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        release = threading.Timer(2.5, lambda: fcntl.flock(held, fcntl.LOCK_UN))
+        # 4 s leaves well over 2 s of contention even if the command starts late.
+        release = threading.Timer(4.0, lambda: fcntl.flock(held, fcntl.LOCK_UN))
         release.start()
         try:
             assert run_cli(("status", "--json", "--data-dir", str(root))) == 0
         finally:
             release.join()
     assert "error" not in json.loads(capsys.readouterr().out)
+    assert entrypoints._CLI_REGISTRY_WAIT_SECONDS >= 30
 
 
 def test_privacy_repair_cli_conflict_and_supersession_have_zero_partial_writes(

@@ -38,6 +38,7 @@ def _assert_same(actual: object, expected: object) -> None:
     if isinstance(expected, dict):
         assert isinstance(actual, dict)
         assert list(actual) == list(expected)
+        assert [type(key) for key in actual] == [type(key) for key in expected]
         for key in expected:
             _assert_same(actual[key], expected[key])
     elif isinstance(expected, list):
@@ -167,3 +168,40 @@ def test_portable_normalizer_keeps_the_reference_recursion_depth() -> None:
     for _ in range(600):
         value = Box([value])
     _assert_same(_normalize_portable_json(value), _reference_normalize(value))
+
+
+def _outcome(normalize: object, value: object) -> str:
+    try:
+        normalize(value)  # type: ignore[operator]
+    except RecursionError:
+        return "recursion"
+    except ValueError as error:
+        return str(error)
+    return "ok"
+
+
+@pytest.mark.parametrize("innermost", [[], {1: 0}])
+def test_portable_normalizer_has_the_reference_recursion_boundary(innermost: object) -> None:
+    import inspect
+    import sys
+
+    from open_brain_engine.core.ids import _normalize_portable_json
+
+    def nested(depth: int) -> object:
+        value: object = innermost
+        for _ in range(depth):
+            value = [value]
+        return value
+
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(len(inspect.stack(0)) + 120)
+    try:
+        outcomes = [
+            (_outcome(_normalize_portable_json, nested(depth)),
+             _outcome(_reference_normalize, nested(depth)))
+            for depth in range(60, 140)
+        ]
+    finally:
+        sys.setrecursionlimit(limit)
+    assert all(new == old for new, old in outcomes), outcomes
+    assert {old for _, old in outcomes} >= {"recursion"}

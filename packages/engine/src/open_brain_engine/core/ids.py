@@ -5,7 +5,7 @@ import json
 import re
 import unicodedata
 from hashlib import sha256
-from typing import NewType, cast
+from typing import NewType
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 CaptureId = NewType("CaptureId", str)
@@ -161,47 +161,39 @@ def _normalize_portable_json(value: object) -> object:
     """
     kind = type(value)
     if kind is str:
-        return _nfc(cast(str, value))
+        return _nfc(value)  # type: ignore[arg-type]
     if kind is int or kind is bool or value is None:
         return value
-    if kind is list or kind is tuple:
-        sequence = True
-    elif kind is dict:
-        sequence = False
-    else:
+    if kind is not list and kind is not tuple and kind is not dict:
         if isinstance(value, float):
             raise ValueError("Portable canonical JSON rejects floats")
         if isinstance(value, str):
             return unicodedata.normalize("NFC", value)
-        if isinstance(value, list | tuple):
-            sequence = True
-        elif isinstance(value, dict):
-            sequence = False
-        else:
-            return value
-    if sequence:
+    if isinstance(value, (list, tuple)):
         items: list[object] = []
-        for item in cast(list[object], value):
+        for item in value:
             item_kind = type(item)
             if item_kind is str:
-                items.append(_nfc(cast(str, item)))
+                items.append(_nfc(item))
             elif item_kind is int or item_kind is bool or item is None:
                 items.append(item)
             else:
                 items.append(_normalize_portable_json(item))
         return items
-    normalized: dict[str, object] = {}
-    for key, item in cast(dict[object, object], value).items():
-        if not isinstance(key, str):
-            raise ValueError("canonical JSON requires string object keys")
-        normalized_key = _nfc(key) if type(key) is str else unicodedata.normalize("NFC", key)
-        if normalized_key in normalized:
-            raise ValueError("canonical JSON rejects normalized key collision")
-        item_kind = type(item)
-        if item_kind is str:
-            normalized[normalized_key] = _nfc(cast(str, item))
-        elif item_kind is int or item_kind is bool or item is None:
-            normalized[normalized_key] = item
-        else:
-            normalized[normalized_key] = _normalize_portable_json(item)
-    return normalized
+    if isinstance(value, dict):
+        normalized: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("canonical JSON requires string object keys")
+            normalized_key = _nfc(key) if type(key) is str else unicodedata.normalize("NFC", key)
+            if normalized_key in normalized:
+                raise ValueError("canonical JSON rejects normalized key collision")
+            item_kind = type(item)
+            if item_kind is str:
+                normalized[normalized_key] = _nfc(item)
+            elif item_kind is int or item_kind is bool or item is None:
+                normalized[normalized_key] = item
+            else:
+                normalized[normalized_key] = _normalize_portable_json(item)
+        return normalized
+    return value
