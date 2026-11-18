@@ -6,12 +6,12 @@ Open the **Save to Open Brain** toolbar action on an HTTPS page. Enter a reason 
 
 The extension and native host are optional. The candidate uses Chrome for Testing with a disposable Chrome user-data directory. Consumer installation through the Chrome Web Store is pending.
 
-1. In a contributor checkout, run `make browser-candidate`. The build writes the extension ZIP, native host, and a platform archive under `build/browser/`. The generated Homebrew formula pins that local archive’s SHA-256. Keep the native executable in a stable, owner-controlled location.
+1. In a contributor checkout, run `make browser-candidate`. The build writes the extension ZIP, native host, and a platform archive under `build/browser/`. The generated Homebrew formula pins that local archive’s SHA-256. Keep the native executable and its sibling `_internal` directory together in a stable, owner-controlled location.
 2. Load the unpacked extension from `packages/browser-extension/extension` in the intended Chrome test profile. Its development ID is `gdeinollcipkdcfglknalgijfkhiojhn`. The manifest public key keeps that ID stable between unpacked upgrades.
 3. Bind the host to the intended Brain. The following example creates a separate saved-item source. Substitute the absolute path to your chosen Brain. Full-domain write access includes all present and future spaces in its three supported tiers.
 
    ```sh
-   HOST="$PWD/build/browser/open-brain-browser-host"
+   HOST="$PWD/build/browser/native/open-brain-browser-host/open-brain-browser-host"
    "$HOST" setup --data-dir "$BRAIN" --extension-id gdeinollcipkdcfglknalgijfkhiojhn \
      --new-source --complete-domain --unassigned --tier personal --tier work --tier public \
      --operation lookup --operation save --operation status
@@ -42,7 +42,7 @@ A file can contain up to 1,000 entries and occupy up to 1 MiB. Split larger list
 
 ## Restore, upgrade and remove
 
-Export and restore the Brain with its ordinary CLI. A Portable 22 archive carries source identities, captures, annotations, filing history, operation receipts and revisit dates. Browser grants, tokens, SSH settings, registration paths and unconfirmed uploads are installation-local. Keep the workflow principal and source tuple from the owner setup output if you want to recover the original browser workflow.
+Export and restore the Brain with its ordinary CLI. A Portable 23 archive carries source identities, captures, annotations, filing history, operation receipts and revisit dates. The filing evidence lets a freshly authorized browser recover a filed folder item even when its original URL had a private fragment. Browser grants, tokens, SSH settings, registration paths and unconfirmed uploads are installation-local. Keep the workflow principal and source tuple from the owner setup output if you want to recover the original browser workflow.
 
 After restore, use `"$HOST" sources --data-dir "$BRAIN"` to inspect the available tuples. Run setup again with `--source CONNECTION_ID RESOURCE_ID --workflow-principal UUID` in place of `--new-source`, choosing the desired permissions. Older Portable 18 saved items need their original producer source tuple and a known saved URL for legacy rebinding. Do not derive those identifiers from a page title.
 
