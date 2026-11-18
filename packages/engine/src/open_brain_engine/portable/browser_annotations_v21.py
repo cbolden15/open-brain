@@ -64,16 +64,20 @@ def _validate_content(
     ):
         raise PortableValidationError("invalid browser annotation content")
     Annotation(annotation_id, quote, prefix, suffix, note).validate(source_reference)
+    digest = annotation_request_digest(row)
+    if digest != row["request_sha256"]:
+        raise PortableValidationError("browser annotation request digest mismatch")
+
+
+def annotation_request_digest(row: Mapping[str, str | None]) -> str:
     request = {
         name: row[name] for name in ("item_key", "capture_id", "annotation_id", *ANNOTATION_CONTENT)
     }
-    digest = sha256(
+    return sha256(
         json.dumps(request, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode(
             "ascii"
         )
     ).hexdigest()
-    if digest != row["request_sha256"]:
-        raise PortableValidationError("browser annotation request digest mismatch")
 
 
 def validate_browser_annotations(files: Mapping[str, bytes]) -> list[dict[str, str | None]]:

@@ -308,3 +308,49 @@ def test_frozen_populated_portable21_fixture_restores(tmp_path: Path) -> None:
     )
     restored = BrainEngine.open(compile_single_user_local(destination))
     assert restored.retrieval.search("Harborsand")
+
+
+def test_preexisting_decomposed_annotation_round_trips_without_mutating_source(
+    tmp_path: Path,
+) -> None:
+    engine = _brain(tmp_path)
+    _, token, key, capture_id, _ = _saved_page(engine)
+    tasks = BrowserAnnotations(engine.profile)
+    annotation, operation = str(uuid4()), str(uuid4())
+    tasks.add(token, operation, key, capture_id, Annotation(annotation, "Café", "", ""))
+    decomposed = "Cafe\u0301"
+    payload = {
+        "item_key": key,
+        "capture_id": capture_id,
+        "annotation_id": annotation,
+        "quote": decomposed,
+        "prefix": "",
+        "suffix": "",
+        "note": None,
+    }
+    old_digest = sha256(
+        json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode(
+            "ascii"
+        )
+    ).hexdigest()
+    state = engine.profile.root / local_schema.PHASE1_STATE_DATABASE
+    with closing(sqlite3.connect(state)) as db, db:
+        db.execute(
+            "UPDATE browser_annotations SET quote=?,request_sha256=? WHERE annotation_id=?",
+            (decomposed, old_digest, annotation),
+        )
+    archive = _export(engine, tmp_path)
+    with closing(sqlite3.connect(state)) as db:
+        assert db.execute("SELECT quote,request_sha256 FROM browser_annotations").fetchone() == (
+            decomposed,
+            old_digest,
+        )
+    destination = tmp_path / "restored"
+    assert (
+        engine.tasks.portability.import_clean(
+            archive, destination, import_id=IMPORT_ID
+        ).schema_version
+        == 21
+    )
+    with closing(sqlite3.connect(destination / local_schema.PHASE1_STATE_DATABASE)) as db:
+        assert db.execute("SELECT quote FROM browser_annotations").fetchone() == ("Café",)
