@@ -1333,3 +1333,28 @@ def test_client_selections_never_evict_the_owner_log_or_its_acks(tmp_path: Path)
     assert len(list(owner_path.parent.glob("*.json"))) == BRIEF_LOG_MAX_KEYS + 1
     again = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
     assert again.items == () and again.since is not None, "the owner ack and history survive"
+
+
+def test_sixth_due_revisit_can_enter_next_five_item_brief(tmp_path: Path) -> None:
+    tasks = _tasks(tmp_path)
+    rows = [
+        {
+            "capture_id": f"capture_01234567-89ab-4def-8000-{i:012d}",
+            "local_date": "2024-01-02",
+            "zone": "UTC",
+        }
+        for i in range(6)
+    ]
+
+    def due(
+        _authority: object, *, limit: int, capture_id: str | None, **kwargs: object
+    ) -> list[dict[str, str]]:
+        return [r for r in rows if capture_id is None or r["capture_id"] == capture_id][:limit]
+
+    tasks.brief_revisits = due
+    log, clock = _log(tasks), _Clock()
+    first = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    second = brief_generate(tasks, OWNER_SESSION, log=log, clock=clock)
+    assert len(first.items) == len(second.items) == 5
+    assert rows[5]["capture_id"] not in {item.ref.removeprefix("revisit:") for item in first.items}
+    assert second.items[0].ref == "revisit:" + rows[5]["capture_id"]

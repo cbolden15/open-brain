@@ -277,3 +277,17 @@ def test_owner_files_are_exempt_from_key_eviction(tmp_path: Path) -> None:
     del raw["owner"]
     owner_path.write_bytes(json.dumps(raw, sort_keys=True, separators=(",", ":")).encode())
     assert store.read(owner_key).unavailable is True
+
+
+def test_historical_v1_dated_brief_remains_readable_after_upgrade(tmp_path: Path) -> None:
+    """Revisits extend the v2 log while a v1 consumer fixture keeps its original items."""
+    root = tmp_path / "state"
+    root.mkdir()
+    store = BriefLogStore(root, clock=lambda: datetime(2026, 11, 18, tzinfo=UTC))
+    entry = _entry("2026-11-18T00:00:00Z")
+    assert store.append(KEY, entry, expected_sha256=None, owner=True)
+    path = next(root.rglob(KEY + ".json"))
+    path.write_bytes(
+        path.read_bytes().replace(b"open-brain-brief-log-v2", b"open-brain-brief-log-v1")
+    )
+    assert store.last(KEY) == entry

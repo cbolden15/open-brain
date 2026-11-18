@@ -203,6 +203,31 @@ class SourceFreshnessTasks:
     def __init__(self, engine: BrainEngine) -> None:
         self._engine = engine
 
+    def due_revisits(
+        self,
+        authority: EffectiveAuthority,
+        *,
+        now: datetime,
+        limit: int,
+        space_ids: frozenset[str] | None,
+        capture_id: str | None,
+    ) -> list[dict[str, str]]:
+        from .browser_revisits import due_for_authority
+
+        authority.require(BRIEF_READ_CAPABILITY)
+        with read_snapshot(self._engine) as db:
+            if db.execute("PRAGMA user_version").fetchone()[0] < 27:
+                return []
+            return due_for_authority(
+                self._engine.profile,
+                db,
+                authority,
+                now=now,
+                limit=limit,
+                space_ids=space_ids,
+                capture_id=capture_id,
+            )
+
     def freshness(
         self,
         authority: EffectiveAuthority,
