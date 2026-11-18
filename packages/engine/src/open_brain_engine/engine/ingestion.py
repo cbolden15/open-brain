@@ -34,6 +34,7 @@ from .normalization import _timestamp
 from .recovery_protection import RecoveryProtectionPendingError
 
 if TYPE_CHECKING:
+    from .browser_pages import BrowserSaveAdmission
     from .local import BrainEngine
     from .saved_item_authority import SelectedSavedItemAdmission
 
@@ -139,12 +140,18 @@ class IngestionJournal:
         return envelope
 
     def enqueue(
-        self, submission: CaptureSubmission, *, writer_locked: bool = False,
+        self,
+        submission: CaptureSubmission,
+        *,
+        writer_locked: bool = False,
     ) -> CaptureOutcome:
         return self._enqueue(submission, writer_locked=writer_locked, selected=None)
 
     def _enqueue(
-        self, submission: CaptureSubmission, *, selected: SelectedSavedItemAdmission | None,
+        self,
+        submission: CaptureSubmission,
+        *,
+        selected: SelectedSavedItemAdmission | BrowserSaveAdmission | None,
         writer_locked: bool = False,
     ) -> CaptureOutcome:
         """Commit custody before writer work; ``writer_locked`` requires the caller's lease."""
@@ -158,18 +165,69 @@ class IngestionJournal:
             raise JournalCapacityError("journal capacity exceeded")
         new_delivery = False
         custody_plan = None
+        browser_refused = False
         with self._engine._store.transaction() as connection:
             if guard is not None:
                 guard.validate_identity(connection)
             if selected is not None:
                 selected.admit(self._engine.profile, connection, submission.delivery_id)
-            elif (submission.delivery_id.startswith("connector.saved_item.")
-                  and submission.submission_path.value == "public_job"
-                  and connection.execute("PRAGMA user_version").fetchone()[0] >= 24):
+            elif (
+                submission.delivery_id.startswith("connector.saved_item.")
+                and submission.submission_path.value == "public_job"
+                and connection.execute("PRAGMA user_version").fetchone()[0] >= 24
+            ):
                 raise PermissionError("saved_item_configured_selection_required")
             existing = self._identity_row(connection, submission.delivery_id)
-            if existing is not None:
-                outcome = self._replay_existing(connection, existing, submission)
+            first_save_replay = False
+            if (
+                selected is not None
+                and connection.execute("PRAGMA user_version").fetchone()[0] >= 25
+            ):
+                from .browser_pages import BrowserSaveAdmission
+
+                browser = isinstance(selected, BrowserSaveAdmission)
+                if existing is not None and existing["location"] != "tombstone":
+                    public_job = connection.execute(
+                        "SELECT 1 FROM capture_ingestion_items WHERE delivery_id=? "
+                        "AND submission_path='public_job' UNION ALL SELECT 1 FROM captures "
+                        "WHERE delivery_id=? AND submission_path='public_job' "
+                        "AND source_origin='third_party' LIMIT 1",
+                        (submission.delivery_id, submission.delivery_id),
+                    ).fetchone()
+                    if not public_job:
+                        from .capture import DeliveryConflict
+                        raise DeliveryConflict()
+                # Existing schema-24 deliveries were exclusively folder produced.
+                producer = "browser" if browser and existing is None else "folder"
+                winner_digest = existing["request_sha256"] if existing is not None else request_sha
+                connection.execute(
+                    "INSERT OR IGNORE INTO saved_item_admissions VALUES(?,?,?)",
+                    (submission.delivery_id, producer, winner_digest),
+                )
+                winner = connection.execute(
+                    "SELECT producer,request_sha256 FROM saved_item_admissions WHERE delivery_id=?",
+                    (submission.delivery_id,),
+                ).fetchone()
+                if winner["request_sha256"] != winner_digest:
+                    raise RuntimeError("saved-item admission evidence mismatch")
+                first_save_replay = existing is not None and (
+                    browser or winner["producer"] == "browser"
+                )
+                browser_refused = (
+                    browser
+                    and existing is not None
+                    and (
+                        existing["location"] == "tombstone"
+                        or self._latest_event(connection, submission.delivery_id)
+                        in {"quarantined", "discarded"}
+                    )
+                )
+            if browser_refused:
+                pass  # Commit the operation binding before reporting the journal disposition.
+            elif existing is not None:
+                outcome = self._replay_existing(
+                    connection, existing, submission, first_save_replay=first_save_replay
+                )
             else:
                 self._engine._refuse_on_storage_watermark()
                 self._enforce_capacity(connection, len(body))
@@ -221,13 +279,18 @@ class IngestionJournal:
                     ).fetchone()
                     event = connection.execute(
                         "SELECT event_sequence,recorded_at FROM capture_ingestion_events "
-                        "WHERE delivery_id=?", (submission.delivery_id,),
+                        "WHERE delivery_id=?",
+                        (submission.delivery_id,),
                     ).fetchone()
                     custody_plan = CaptureCustodyRecoveryPlan(
                         guard.baseline, envelope, custody, item[0], event[0], event[1]
                     )
                 outcome = custody
                 new_delivery = True
+        if browser_refused:
+            from .browser_pages import BrowserDeliveryRefused
+
+            raise BrowserDeliveryRefused("browser_delivery_refused")
         if guard is not None:
             if custody_plan is not None:
                 guard.protect(self._engine, custody_plan)
@@ -240,7 +303,8 @@ class IngestionJournal:
                 # an append after another writer has advanced the history.
                 try:
                     with (
-                        nullcontext() if writer_locked
+                        nullcontext()
+                        if writer_locked
                         else self._engine._writer_lease.acquire_shared_writer()
                     ):
                         guard.protect_pending(self._engine, submission)
@@ -637,8 +701,13 @@ class IngestionJournal:
         connection: sqlite3.Connection,
         row: sqlite3.Row,
         submission: CaptureSubmission,
+        *,
+        first_save_replay: bool = False,
     ) -> CaptureOutcome:
-        if cast(str, row["request_sha256"]) != submission.request_sha256():
+        if (
+            not first_save_replay
+            and cast(str, row["request_sha256"]) != submission.request_sha256()
+        ):
             from .capture import DeliveryConflict
 
             raise DeliveryConflict()
@@ -668,7 +737,9 @@ class IngestionJournal:
             return replace(
                 receipt,
                 duplicate=True,
-                requested_tier=submission.requested_tier,
+                requested_tier=receipt.requested_tier
+                if first_save_replay
+                else submission.requested_tier,
             )
         if location == "tombstone":
             raise ValueError("delivery discarded")

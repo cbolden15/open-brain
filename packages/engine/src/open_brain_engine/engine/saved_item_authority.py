@@ -49,3 +49,5 @@ class SelectedSavedItemAdmission:
         if self.source.delivery_id(self.item_key) != delivery_id:
             raise PermissionError("saved_item_selection_mismatch")
         self.source.register(db)
+        if db.execute("PRAGMA user_version").fetchone()[0] >= 25:
+            self.source.witness(db, self.item_key)

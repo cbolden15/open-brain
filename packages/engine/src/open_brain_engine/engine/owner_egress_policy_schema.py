@@ -101,7 +101,7 @@ def migrate_owner_egress_policy(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state in {"current", "supported_old"} and state.version in {22, 23, 24}:
+        if state.state in {"current", "supported_old"} and state.version in {22, 23, 24, 25}:
             return
         if state.state != "supported_old" or state.version != 21:
             raise T03Error("operation_pending")

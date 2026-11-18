@@ -41,3 +41,10 @@ class SavedItemSource:
         connection.execute(
             "INSERT INTO saved_item_sources VALUES (?,?,?) ON CONFLICT DO NOTHING", self.values()
         )
+
+    def witness(self, db: sqlite3.Connection, item_key: str) -> None:
+        """Remember an owner-verified source mapping on this installation."""
+        db.execute(
+            "INSERT OR IGNORE INTO saved_item_local_witnesses VALUES(?,?,?,?,?)",
+            (self.delivery_id(item_key), *self.values(), item_key),
+        )

@@ -12,7 +12,7 @@ from .historical_compatibility_schema import HISTORICAL_STORED_V2_BOUNDS
 from .historical_schema import HISTORICAL_AUTHORITY_SCHEMA
 from .owner_egress_policy_schema import OWNER_EGRESS_POLICY_MIGRATION
 from .owner_retraction_schema import OWNER_RETRACTION_MIGRATION
-from .saved_item_schema import SAVED_ITEM_MIGRATION
+from .saved_item_schema import BROWSER_OPERATION_MIGRATION, SAVED_ITEM_MIGRATION
 from .slack_sharing_schema import SLACK_SHARING_MIGRATION
 from .source_schema import SOURCE_HISTORY_SCHEMA
 
@@ -1590,4 +1590,4 @@ LOCAL_MIGRATIONS += (OWNER_EGRESS_POLICY_MIGRATION,)
 
 LOCAL_MIGRATIONS += (FOLLOWUP_MIGRATION,)
 
-LOCAL_MIGRATIONS += (SAVED_ITEM_MIGRATION,)
+LOCAL_MIGRATIONS += (SAVED_ITEM_MIGRATION, BROWSER_OPERATION_MIGRATION)

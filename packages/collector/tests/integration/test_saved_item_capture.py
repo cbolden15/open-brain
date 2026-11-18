@@ -428,3 +428,22 @@ def test_saved_item_authority_refuses_foreign_and_generic_jobs(tmp_path: Path) -
                 source, tiers=("personal",), spaces=(None,)
             )
     assert BrowserOwnerSetup(profile, owner).sources() == ()
+
+
+def test_browser_source_and_workflow_grant(tmp_path: Path) -> None:
+    from open_brain_engine.engine.browser_pages import BrowserOwnerSetup, BrowserPages
+
+    from open_brain.services.t03_adapters import owner_authority_for_principal
+
+    profile = compile_single_user_local(tmp_path / "brain")
+    open_local_engine(profile)
+    setup = BrowserOwnerSetup(
+        profile,
+        owner_authority_for_principal(principal_id=profile.owner_actor_id, session_id="setup"),
+    )
+    source = setup.create_source()
+    token = setup.bind(source, tiers=("personal",), spaces=(None,))
+    assert BrowserPages(profile).binding(token).source == source
+    setup.revoke(token)
+    with pytest.raises(PermissionError):
+        BrowserPages(profile).binding(token)

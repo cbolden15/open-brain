@@ -52,6 +52,7 @@ def migrate_saved_item_sources(
     admission: HeldRuntimeAdmission,
     clock: Callable[[], datetime],
     checkpoint: Callable[[str], None] = lambda _stage: None,
+    target: int = 24,
 ) -> None:
     """Exclusively admit schema24 with an empty saved-item registry, touching no other rows."""
     from .historical_recovery import require_historical_snapshot_settled
@@ -76,9 +77,9 @@ def migrate_saved_item_sources(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 24:
+        if state.version == target and state.state in {"current", "supported_old"}:
             return
-        if state.state != "supported_old" or state.version != 23:
+        if state.state != "supported_old" or state.version != target - 1:
             raise T03Error("operation_pending")
         checkpoint("saved_item_preflight")
         admission.validate(profile)
@@ -90,11 +91,11 @@ def migrate_saved_item_sources(
         apply_migrations(
             connection,
             clock=_MigrationClock(clock),
-            migrations=LOCAL_MIGRATIONS[:24],
-            schema_version=24,
+            migrations=LOCAL_MIGRATIONS[:target],
+            schema_version=target,
         )
         upgraded = classify_local_schema(connection)
-        if upgraded.state != "current" or upgraded.version != 24:
+        if upgraded.state not in {"current", "supported_old"} or upgraded.version != target:
             raise T03Error("operation_pending")
         checkpoint("saved_item_before_commit")
         require_historical_snapshot_settled(connection, profile)
@@ -111,3 +112,53 @@ def migrate_saved_item_sources(
         raise
     finally:
         connection.close()
+
+
+BROWSER_OPERATION_MIGRATION = _migration(
+    25,
+    "browser-operations",
+    (
+        """CREATE TABLE browser_grant_bindings (
+ token_hash TEXT PRIMARY KEY REFERENCES browser_grants(token_hash) ON DELETE CASCADE,
+ workflow_principal TEXT NOT NULL,
+ issuer_epoch INTEGER NOT NULL,
+ complete_domain INTEGER NOT NULL CHECK(complete_domain IN (0,1))
+)""",
+        """CREATE TABLE saved_item_local_witnesses (
+ delivery_id TEXT PRIMARY KEY NOT NULL,
+ connector_name TEXT NOT NULL,connection_id TEXT NOT NULL,resource_id TEXT NOT NULL,
+ item_key TEXT NOT NULL CHECK(length(item_key)=32 AND item_key NOT GLOB '*[^0-9a-f]*'),
+ FOREIGN KEY(connector_name,connection_id,resource_id)
+ REFERENCES saved_item_sources(connector_name,connection_id,resource_id)
+)""",
+        """CREATE TABLE browser_operations (
+ brain_id TEXT NOT NULL,workflow_principal TEXT NOT NULL,
+ connector_name TEXT NOT NULL,connection_id TEXT NOT NULL,resource_id TEXT NOT NULL,
+ operation_id TEXT NOT NULL,operation_kind TEXT NOT NULL CHECK(operation_kind='page.save'),
+ request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64
+ AND request_sha256 NOT GLOB '*[^0-9a-f]*'),
+ state TEXT NOT NULL CHECK(state IN ('pending','accepted','refused')),delivery_id TEXT NOT NULL,
+ item_key TEXT NOT NULL CHECK(length(item_key)=32 AND item_key NOT GLOB '*[^0-9a-f]*'),
+ PRIMARY KEY(brain_id,workflow_principal,connector_name,connection_id,resource_id,operation_id),
+ FOREIGN KEY(connector_name,connection_id,resource_id)
+ REFERENCES saved_item_sources(connector_name,connection_id,resource_id)
+)""",
+        """CREATE INDEX browser_pending_operations ON browser_operations
+ (brain_id,workflow_principal,connector_name,connection_id,resource_id) WHERE state='pending'""",
+        """CREATE TABLE saved_item_admissions (
+ delivery_id TEXT PRIMARY KEY NOT NULL,
+ producer TEXT NOT NULL CHECK(producer IN ('browser','folder')),
+ request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64
+ AND request_sha256 NOT GLOB '*[^0-9a-f]*')
+)""",
+        """CREATE TRIGGER browser_operation_ingest_outcome AFTER INSERT ON capture_ingestion_events
+ WHEN NEW.event_kind IN ('queued','accepted','duplicate','quarantined','discarded')
+ BEGIN
+ UPDATE browser_operations SET state=CASE WHEN NEW.event_kind IN ('accepted','duplicate')
+ THEN 'accepted' WHEN NEW.event_kind='queued' THEN 'pending' ELSE 'refused' END
+ WHERE delivery_id=NEW.delivery_id;
+ END""",
+        """CREATE INDEX browser_operation_delivery ON browser_operations(delivery_id)""",
+        *tuple(stmt.replace("24", "25") for stmt in SAVED_ITEM_SCHEMA[-3:]),
+    ),
+)

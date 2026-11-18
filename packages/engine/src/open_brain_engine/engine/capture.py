@@ -28,6 +28,7 @@ from open_brain_engine.storage import watermarks
 from open_brain_engine.storage.locks import WriterQueueFullError
 from open_brain_engine.storage.markdown import render_markdown
 
+from .browser_pages import BrowserSaveAdmission
 from .capture_recovery import CaptureRecoveryPlan, CaptureReservationIdentity
 from .contracts import (
     BoundaryClassifier,
@@ -1099,7 +1100,10 @@ class CaptureTasks:
         return self._submit(submission, selected=None)
 
     def _submit(
-        self, submission: CaptureSubmission, *, selected: SelectedSavedItemAdmission | None,
+        self,
+        submission: CaptureSubmission,
+        *,
+        selected: SelectedSavedItemAdmission | BrowserSaveAdmission | None,
     ) -> CaptureOutcome:
         """Transfer durable custody, then make one best-effort foreground drain.
 
@@ -1257,8 +1261,21 @@ class CaptureTasks:
             connection.close()
         if identity is None:
             raise RuntimeError("brain identity unavailable")
+
+        def browser_winner(delivery_id: str, request_sha: str) -> bool:
+            if selected is None or selected.source.delivery_id(selected.item_key) != delivery_id:
+                return False
+            with closing(self._engine._store.connect()) as db:
+                require_saved_item_owner(profile, db, selected.authority)
+                return db.execute(
+                    "SELECT 1 FROM saved_item_admissions WHERE delivery_id=? "
+                    "AND producer='browser' AND request_sha256=?",
+                    (delivery_id, request_sha),
+                ).fetchone() is not None
+
         return PublicJobCaptureSink(
             self,
+            browser_winner=browser_winner if selected is not None else None,
             context=context,
             selected_submit=None
             if selected is None

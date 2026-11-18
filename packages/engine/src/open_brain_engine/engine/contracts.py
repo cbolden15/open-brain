@@ -829,6 +829,7 @@ class PortabilityReceipt:
             17,
             18,
             19,
+            20,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -3131,6 +3132,7 @@ class PublicJobCaptureSink:
         *,
         context: PublicJobCaptureContext,
         selected_submit: Callable[[CaptureSubmission], CaptureOutcome] | None = None,
+        browser_winner: Callable[[str, str], bool] | None = None,
         brain_fingerprint: str | None = None,
         brain_id: str | None = None,
         issuer_epoch: int | None = None,
@@ -3145,6 +3147,7 @@ class PublicJobCaptureSink:
             or (brain_id is None) != (issuer_epoch is None)
         ):
             raise ValueError("invalid public-job context")
+        self._browser_winner = browser_winner
         self._submit = capture.submit if selected_submit is None else selected_submit
         self._context = context
         self._brain_fingerprint = brain_fingerprint
@@ -3155,6 +3158,13 @@ class PublicJobCaptureSink:
     def context(self) -> PublicJobCaptureContext:
         """Expose only the validated capture actor and role claim bound to this sink."""
         return self._context
+
+    def matches_browser_winner(self, delivery_id: str, request_sha256: str | None) -> bool:
+        return (
+            self._browser_winner is not None
+            and request_sha256 is not None
+            and self._browser_winner(delivery_id, request_sha256)
+        )
 
     @property
     def brain_fingerprint(self) -> str | None:
