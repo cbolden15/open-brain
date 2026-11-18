@@ -669,7 +669,9 @@ def collector_capture_sink(
         },
     )
     if selected is not None:
-        owner = EffectiveAuthority(profile.owner_actor_id, "configured-collector", frozenset(), None, owner=True)
+        owner = EffectiveAuthority(
+            profile.owner_actor_id, "configured-collector", frozenset(), None, owner=True
+        )
         return tasks.capture.selected_saved_item_sink(context, *selected, authority=owner)
     return tasks.capture.public_job_sink(context)
 

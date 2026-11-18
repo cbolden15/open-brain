@@ -662,7 +662,9 @@ class LiveCaptureService:
             source = SavedItemSource(
                 selection.connector_name, selection.connection_id, selection.resource_id
             )
-            sink = collector_capture_sink(self._brain_root, selected=(source, intake.key.external_id))
+            sink = collector_capture_sink(
+                self._brain_root, selected=(source, intake.key.external_id)
+            )
         else:
             sink = collector_capture_sink(self._brain_root)
         # Rebuild the intake with the revision marker before handing it to the
