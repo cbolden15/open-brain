@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import fcntl
+import math
 import os
 import re
 import stat
@@ -35,8 +36,17 @@ RUNTIME_REGISTRY_WAIT_SECONDS = 2.0
 class RuntimeRegistryBusy(T03Error):
     """Another client held the registry lock for the whole wait. Retrying is safe."""
 
-    def __init__(self) -> None:
-        super().__init__("operation_pending")
+    def __init__(self, code: str = "operation_pending") -> None:
+        if code != "operation_pending":
+            raise ValueError("invalid error code")
+        super().__init__(code)
+
+
+def require_registry_wait(seconds: float) -> float:
+    """Refuse a wait that is negative, NaN or infinite, which would never expire."""
+    if type(seconds) not in (int, float) or not 0 <= seconds < math.inf:
+        raise ValueError("registry wait must be a finite number of seconds")
+    return seconds
 
 
 def _private_file(directory: int, name: str, *, create: bool = False) -> int:
@@ -128,7 +138,7 @@ def hold_runtime_registry(
             for handle in (expected, state, root):
                 if handle >= 0:
                     os.close(handle)
-        deadline = time.monotonic() + (
+        deadline = time.monotonic() + require_registry_wait(
             RUNTIME_REGISTRY_WAIT_SECONDS if wait_seconds is None else wait_seconds
         )
         while True:

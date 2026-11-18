@@ -32,6 +32,23 @@ def test_portable_canonical_json_bytes_rejects_nfc_normalized_key_collisions() -
         portable_canonical_json_bytes({"e\u0301": "first", "\u00e9": "second"})
 
 
+def _assert_same(actual: object, expected: object) -> None:
+    """Equal values with identical types at every level."""
+    assert type(actual) is type(expected)
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict)
+        assert list(actual) == list(expected)
+        for key in expected:
+            _assert_same(actual[key], expected[key])
+    elif isinstance(expected, list):
+        assert isinstance(actual, list)
+        assert len(actual) == len(expected)
+        for left, right in zip(actual, expected, strict=True):
+            _assert_same(left, right)
+    else:
+        assert actual == expected
+
+
 def _reference_normalize(value: object) -> object:
     """The 0.2.4 normalizer, kept to pin the faster one to identical results."""
     import unicodedata
@@ -81,9 +98,7 @@ class _Mapping(dict):  # type: ignore[type-arg]
 def test_portable_normalizer_matches_the_reference(value: object) -> None:
     from open_brain_engine.core.ids import _normalize_portable_json
 
-    assert _normalize_portable_json(value) == _reference_normalize(value)
-    result = _normalize_portable_json(value)
-    assert type(result) is type(_reference_normalize(value))
+    _assert_same(_normalize_portable_json(value), _reference_normalize(value))
 
 
 @pytest.mark.parametrize(
@@ -105,3 +120,50 @@ def test_portable_normalizer_refuses_what_the_reference_refuses(value: object) -
     with pytest.raises(ValueError) as faster:
         _normalize_portable_json(value)
     assert str(faster.value) == str(reference.value)
+
+
+class _OnceList(list):  # type: ignore[type-arg]
+    """A list that yields its items only on the first iteration."""
+
+    def __init__(self, items: list[object]) -> None:
+        super().__init__(items)
+        self.spent = False
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        if self.spent:
+            return iter(())
+        self.spent = True
+        return super().__iter__()
+
+
+class _Unhashable(type):
+    __hash__ = None  # type: ignore[assignment]
+
+
+class _OddInt(int, metaclass=_Unhashable):
+    pass
+
+
+def test_portable_normalizer_visits_each_value_once() -> None:
+    from open_brain_engine.core.ids import portable_canonical_json_bytes
+
+    value = {"a": _OnceList([7]), _Text("b"): None}
+    assert portable_canonical_json_bytes(value) == b'{"a":[7],"b":null}'
+
+
+def test_portable_normalizer_accepts_int_subclasses_with_unhashable_classes() -> None:
+    from open_brain_engine.core.ids import portable_canonical_json_bytes
+
+    assert portable_canonical_json_bytes([_OddInt(7)]) == b"[7]"
+
+
+def test_portable_normalizer_keeps_the_reference_recursion_depth() -> None:
+    from open_brain_engine.core.ids import _normalize_portable_json
+
+    class Box(list):  # type: ignore[type-arg]
+        pass
+
+    value: object = 1
+    for _ in range(600):
+        value = Box([value])
+    _assert_same(_normalize_portable_json(value), _reference_normalize(value))

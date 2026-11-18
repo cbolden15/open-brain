@@ -276,6 +276,27 @@ def test_registry_lock_wait_has_a_deadline(monkeypatch: pytest.MonkeyPatch, tmp_
         assert isinstance(raised.value, LocalRuntimeSessionError)
 
 
+def test_registry_expiry_at_close_is_not_retryable_busy(tmp_path: Path) -> None:
+    # The body may have committed a write; a retryable busy here could repeat it.
+    root = _root(tmp_path)
+    identity = capture_root_identity(root)
+    registry = root / ".open-brain/runtime-sessions/registry.lock"
+    with (
+        pytest.raises(LocalRuntimeSessionError, match="at close") as raised,
+        hold_local_runtime_session(
+            root,
+            identity,
+            legacy_state_exists=False,
+            recover_abandoned_sessions=lambda: None,
+            registry_wait_seconds=0.05,
+        ),
+    ):
+        held = registry.open("r+b")
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    held.close()
+    assert not isinstance(raised.value, LocalRuntimeBusyError)
+
+
 def test_registry_wait_seconds_overrides_the_default(tmp_path: Path) -> None:
     root = _root(tmp_path)
     identity = capture_root_identity(root)

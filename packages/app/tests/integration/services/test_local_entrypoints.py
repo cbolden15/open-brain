@@ -580,30 +580,26 @@ def test_runtime_registry_busy_is_retryable_database_busy(
 
 
 def test_cli_waits_out_another_clients_registry_admission(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # A real Brain admits in 6 to 12 s; the CLI must wait longer than that.
-    request_file = tmp_path / "request.json"
-    request_file.write_text(
-        json.dumps(_privacy_request("capture_synthetic", "a" * 64, operation_id="repair.wait")),
-        encoding="utf-8",
-    )
-    waits: list[object] = []
+    # A real Brain admits in 6 to 12 s; 0.2.4 gave up after 2 s. Hold the real registry
+    # lock past the library default and require the CLI command to succeed.
+    import fcntl
+    import threading
 
-    @contextmanager
-    def busy(*_args: object, **kwargs: object) -> Iterator[None]:
-        waits.append(kwargs.get("registry_wait_seconds"))
-        raise LockBusyError("synthetic busy")
-        yield
-
-    monkeypatch.setattr(entrypoints, "select_local_root", lambda **_kwargs: object())
-    monkeypatch.setattr(entrypoints, "open_local_brain", busy)
-    assert run_cli(_privacy_cli_arguments(tmp_path / "brain", request_file)) == 75
+    root = tmp_path / "brain"
+    assert run_cli(("init", "--data-dir", str(root))) == 0
     capsys.readouterr()
-    assert len(waits) == 1
-    assert isinstance(waits[0], float) and waits[0] >= 30
+    registry = root / ".open-brain/runtime-sessions/registry.lock"
+    with registry.open("r+b") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        release = threading.Timer(2.5, lambda: fcntl.flock(held, fcntl.LOCK_UN))
+        release.start()
+        try:
+            assert run_cli(("status", "--json", "--data-dir", str(root))) == 0
+        finally:
+            release.join()
+    assert "error" not in json.loads(capsys.readouterr().out)
 
 
 def test_privacy_repair_cli_conflict_and_supersession_have_zero_partial_writes(

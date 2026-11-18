@@ -16,7 +16,11 @@ from pathlib import Path
 
 from open_brain_engine.core.ids import canonical_json_bytes
 from open_brain_engine.engine.contracts import LocalEngineContext
-from open_brain_engine.engine.runtime_admission import HeldRuntimeAdmission, hold_runtime_registry
+from open_brain_engine.engine.runtime_admission import (
+    HeldRuntimeAdmission,
+    hold_runtime_registry,
+    require_registry_wait,
+)
 from open_brain_engine.storage.filesystem import (
     DurabilityError,
     RootConfinementError,
@@ -174,7 +178,14 @@ def hold_local_runtime_session(
                     assert admission_profile is not None
                     held_admission.validate(admission_profile)
                 if not registry_locked:
-                    _acquire_registry_lock(registry_fd, registry_wait_seconds)
+                    try:
+                        _acquire_registry_lock(registry_fd, registry_wait_seconds)
+                    except LocalRuntimeBusyError:
+                        # The body already ran and may have committed: never report it
+                        # as busy (retryable), or a retry could repeat the write.
+                        raise LocalRuntimeSessionError(
+                            "runtime session registry is busy at close"
+                        ) from None
                     registry_locked = True
                 metadata = os.stat(session_name, dir_fd=directory_fd, follow_symlinks=False)
                 held = os.fstat(session_fd)
@@ -282,7 +293,7 @@ def _remove_stale_sessions(directory_fd: int, stale: dict[str, tuple[int, int]])
 
 
 def _acquire_registry_lock(file_fd: int, wait_seconds: float | None = None) -> None:
-    deadline = time.monotonic() + (
+    deadline = time.monotonic() + require_registry_wait(
         _REGISTRY_LOCK_TIMEOUT_SECONDS if wait_seconds is None else wait_seconds
     )
     while True:

@@ -212,3 +212,28 @@ def test_longer_wait_admits_after_a_holder_outlasts_the_default(tmp_path: Path) 
         release.join()
         for descriptor in (directory, waiter, holder):
             os.close(descriptor)
+
+
+@pytest.mark.parametrize("seconds", [float("nan"), float("inf"), -1.0, True, "30"])
+def test_registry_wait_must_be_finite(seconds: object, tmp_path: Path) -> None:
+    profile = compile_single_user_local(tmp_path / "brain")
+    holder, waiter, directory = _held_registry(profile)
+    try:
+        with (
+            pytest.raises(ValueError, match="finite"),
+            hold_runtime_registry(profile, directory, waiter, wait_seconds=seconds),  # type: ignore[arg-type]
+        ):
+            pytest.fail("an unbounded wait was accepted")
+    finally:
+        for descriptor in (directory, waiter, holder):
+            os.close(descriptor)
+
+
+def test_registry_busy_survives_pickle_and_copy() -> None:
+    import copy
+    import pickle
+
+    error = runtime_admission.RuntimeRegistryBusy()
+    for clone in (pickle.loads(pickle.dumps(error)), copy.copy(error)):
+        assert type(clone) is runtime_admission.RuntimeRegistryBusy
+        assert clone.code == "operation_pending"

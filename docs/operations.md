@@ -34,7 +34,8 @@ with the same idempotency key when one was supplied.
 
 Opening a Brain also holds the runtime registry lock while it verifies history, which takes
 several seconds on a large Brain. A CLI command waits up to 30 seconds for another command to
-finish opening, then reports `database_busy` with exit 75.
+finish opening, then reports a busy error with exit 75 (`local_operation_busy` for `import`,
+`database_busy` for most other commands).
 
 The core has no daemon-authority lease, supervisor, scheduler, service unit, or control socket to inspect.
 
