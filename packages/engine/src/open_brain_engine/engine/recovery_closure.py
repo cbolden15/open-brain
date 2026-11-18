@@ -53,6 +53,8 @@ from open_brain_engine.portable.v20 import validate_portable_file_set_v20
 from open_brain_engine.portable.v20_catalog import PORTABLE_V20_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v21 import validate_portable_file_set_v21
 from open_brain_engine.portable.v21_catalog import PORTABLE_V21_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v22 import validate_portable_file_set_v22
+from open_brain_engine.portable.v22_catalog import PORTABLE_V22_SCHEMA_CATALOG_DIGEST
 
 from .recovery_journal import (
     MAX_RECOVERY_DEPENDENCIES,
@@ -162,7 +164,7 @@ class RecoveryClosure:
             if type(manifest) is not dict or canonical(manifest) != raw:
                 raise ValueError("invalid recovery baseline manifest")
             version = manifest.get("schema_version")
-            if type(version) is not int or version not in range(8, 22):
+            if type(version) is not int or version not in range(8, 23):
                 raise ValueError("unsupported recovery baseline version")
             catalog, validator = {
                 8: (PORTABLE_V8_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v8),
@@ -179,6 +181,7 @@ class RecoveryClosure:
                 19: (PORTABLE_V19_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v19),
                 20: (PORTABLE_V20_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v20),
                 21: (PORTABLE_V21_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v21),
+                22: (PORTABLE_V22_SCHEMA_CATALOG_DIGEST, validate_portable_file_set_v22),
             }[version]
             inventory = _manifest(manifest, version=version, catalog=catalog)
             if inventory != {path: sha256(body).hexdigest() for path, body in files.items()}:

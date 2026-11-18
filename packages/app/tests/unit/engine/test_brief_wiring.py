@@ -10,7 +10,7 @@ from open_brain_engine.engine import BrainEngine, local_schema
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.source_freshness import FreshnessReport, SourceFreshnessTasks
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
-from open_brain_engine.portable.v21_catalog import PORTABLE_V21_SCHEMA_CATALOG
+from open_brain_engine.portable.v22_catalog import PORTABLE_V22_SCHEMA_CATALOG
 
 import open_brain.services.plugin_bridge as bridge
 from open_brain.profile import compile_single_user_local
@@ -61,10 +61,10 @@ def test_brief_grants_are_valid_capabilities_and_gate_the_task(tmp_path: Path) -
 
 def test_brief_wiring_agrees_with_current_coordinates() -> None:
     """The advertised compatibility coordinates agree with the engine and Portable catalog."""
-    assert local_schema.PHASE1_STATE_SCHEMA_VERSION == 26
-    assert len(LOCAL_MIGRATIONS) == 26
+    assert local_schema.PHASE1_STATE_SCHEMA_VERSION == 27
+    assert len(LOCAL_MIGRATIONS) == 27
     assert local_runtime_session.RUNTIME_SESSION_VERSION == 16
-    assert PORTABLE_V21_SCHEMA_CATALOG["state_schema_version"] == 26
+    assert PORTABLE_V22_SCHEMA_CATALOG["state_schema_version"] == 27
     # Same call `_catalog()` makes in packages/app/tests/unit/test_catalog.py:34-49.
     catalog = build_catalog(
         {"schema_version": 2},
@@ -83,7 +83,7 @@ def test_brief_wiring_agrees_with_current_coordinates() -> None:
     compatibility = catalog["compatibility"]
     assert compatibility == {
         **compatibility,  # type: ignore[dict-item]
-        "state_schema": 26,
+        "state_schema": 27,
         "runtime_session": 16,
-        "portable_metadata": 21,
+        "portable_metadata": 22,
     }

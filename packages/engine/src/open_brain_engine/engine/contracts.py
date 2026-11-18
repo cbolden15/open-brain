@@ -831,6 +831,7 @@ class PortabilityReceipt:
             19,
             20,
             21,
+            22,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -3119,8 +3120,12 @@ class CaptureTask(Protocol):
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink: ...
 
     def selected_saved_item_sink(
-        self, context: PublicJobCaptureContext, source: SavedItemSource, item_key: str,
-        *, authority: EffectiveAuthority,
+        self,
+        context: PublicJobCaptureContext,
+        source: SavedItemSource,
+        item_key: str,
+        *,
+        authority: EffectiveAuthority,
     ) -> PublicJobCaptureSink: ...
 
 
@@ -3639,6 +3644,7 @@ class EngineTaskSet:
     # Read-only capture-family freshness for the daily brief; MCP surfaces consume it through the
     # brief-read grant.
     source_freshness: Any = None
+    brief_revisits: Any = None
     # Read-only external-provider record export; the CLI's export-records consumes it.
     record_export: Any = None
 

@@ -35,6 +35,15 @@ URL = "https://example.test/saved"
 TIERS = ("public", "work", "personal")
 
 
+@pytest.fixture(autouse=True)
+def _portable21_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Freeze the Portable21 producer and restore recipe on schema26."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 26)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:26])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 26)
+
+
+
 def _brain(tmp_path: Path) -> BrainEngine:
     tmp_path.chmod(0o700)
     return BrainEngine.open(compile_single_user_local(tmp_path / "brain", starter_spaces=()))

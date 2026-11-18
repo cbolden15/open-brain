@@ -120,7 +120,7 @@ establish public acceptance. On candidates that offer it, compare
 
 The marked runnable blocks below are the preserved **10/5/5 historical candidate fixture**, bound
 by the documentation gate to its exact executable and example hashes. They are not a runnable
-acceptance guide for the current 26/16/21 candidate: the initial coordinate assertions deliberately
+acceptance guide for the current 27/16/22 candidate: the initial coordinate assertions deliberately
 reject a different runtime. Do not remove those assertions to make a newer binary pass. Current
 candidate certification requires a separately reviewed executable and matching guide receipt.
 

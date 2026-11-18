@@ -167,7 +167,7 @@ def migrate_followups(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state in {"current", "supported_old"} and state.version in {23, 24, 25, 26}:
+        if state.state in {"current", "supported_old"} and state.version in {23, 24, 25, 26, 27}:
             return
         if state.state != "supported_old" or state.version != 22:
             raise T03Error("operation_pending")

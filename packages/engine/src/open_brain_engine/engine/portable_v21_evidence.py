@@ -26,12 +26,13 @@ def serialize_portable_v21_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    _expected_schema: int = 26,
 ) -> PortableV5StateEvidence:
     base = serialize_portable_v20_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=26,
+        _expected_schema=_expected_schema,
     )
     rows = connection.execute(
         f"SELECT {', '.join(ANNOTATION_COLUMNS)} FROM browser_annotations "

@@ -195,7 +195,7 @@ def test_wrong_destination_never_opens_an_unmigrated_store(
     command: tuple[str, ...],
     mismatch: str,
 ) -> None:
-    # A schema-22 store, as an older release leaves it. A plain CLI call would migrate it to 26.
+    # A schema-22 store, as an older release leaves it. A plain CLI call would migrate it to 27.
     with monkeypatch.context() as legacy:
         legacy.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 22)
         legacy.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:22])
