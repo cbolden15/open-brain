@@ -241,3 +241,19 @@ def test_terminal_results_match_the_operation_and_arguments() -> None:
     for bad in ({**row, "note": 1}, {**row, "prefix": "x" * 129}, {**row, "quote": "\ud800"}):
         assert not remote.validate_result("annotation.list", paging, {**page, "annotations": [bad]})
     assert not remote.validate_result("unregistered.method", {}, {"state": "accepted"})
+
+
+def test_filing_and_import_remote_results() -> None:
+    space = {"space_id": "space_inbox", "name": "Inbox"}
+    page = {"spaces": [space], "next_offset": None, "current_space": space}
+    assert remote.validate_result("space.list", {"limit": 1, "offset": 0}, page)
+    assert not remote.validate_result(
+        "space.list", {"limit": 1, "offset": 0}, {**page, "spaces": [None]}
+    )
+    args = {"capture_id": "capture_parent", "space_id": "space_inbox"}
+    accepted = {"state": "accepted", **args}
+    assert remote.validate_result("page.file", args, accepted)
+    assert remote.validate_result("operation.status", {}, accepted)
+    assert not remote.validate_result("page.file", args, {**accepted, "space_id": "other"})
+    assert remote.validate_result("import.begin", {}, {"batch_id": str(uuid4())})
+    assert not remote.validate_result("import.begin", {}, {"batch_id": 5})

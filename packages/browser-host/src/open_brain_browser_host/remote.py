@@ -10,7 +10,7 @@ import secrets
 import sqlite3
 import struct
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -154,6 +154,17 @@ _HANDLER_ERRORS = frozenset(
         "unknown_field",
         "missing_field",
         "payload_too_large",
+        "import_chunk_conflict",
+        "import_confirmation_mismatch",
+        "import_digest_mismatch",
+        "import_incomplete",
+        "import_invalid_encoding",
+        "import_not_confirmed",
+        "import_not_found",
+        "import_not_ready",
+        "import_preview_limit",
+        "import_staging_unavailable",
+        "import_too_large",
     }
 )
 _UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
@@ -191,25 +202,52 @@ def _annotation_row(row: object) -> bool:
     )
 
 
+def _space_row(row: object) -> bool:
+    return (
+        isinstance(row, dict)
+        and set(row) == {"space_id", "name"}
+        and _text(row["space_id"], 128)
+        and _text(row["name"], 4096)
+    )
+
+
+def _rows_page(
+    args: Mapping[str, object],
+    rows: object,
+    cursor: object,
+    key: str,
+    valid_row: Callable[[object], bool],
+) -> bool:
+    limit, offset = args["limit"], args["offset"]
+    if not isinstance(rows, list) or type(limit) is not int or type(offset) is not int:
+        return False
+    return (
+        len(rows) <= limit
+        and all(valid_row(row) for row in rows)
+        and len({row[key] for row in rows}) == len(rows)
+        and (
+            cursor is None or (type(cursor) is int and bool(rows) and cursor == offset + len(rows))
+        )
+    )
+
+
 def validate_result(operation: str, args: Mapping[str, object], result: object) -> bool:
     """Validate terminal data from the pinned handler before acknowledging a browser operation."""
     if not isinstance(result, dict):
         return False
+    if operation.startswith("import."):
+        from .bookmark_import import validate_import_result
+
+        return validate_import_result(operation, dict(args), result)
     if operation == "annotation.list":
-        if set(result) != {"annotations", "next_offset"}:
-            return False
-        rows, cursor = result["annotations"], result["next_offset"]
-        limit, offset = args["limit"], args["offset"]
-        if not isinstance(rows, list) or type(limit) is not int or type(offset) is not int:
-            return False
+        return set(result) == {"annotations", "next_offset"} and _rows_page(
+            args, result["annotations"], result["next_offset"], "annotation_id", _annotation_row
+        )
+    if operation == "space.list":
         return (
-            len(rows) <= limit
-            and all(_annotation_row(row) for row in rows)
-            and len({row["annotation_id"] for row in rows}) == len(rows)
-            and (
-                cursor is None
-                or (type(cursor) is int and bool(rows) and cursor == offset + len(rows))
-            )
+            set(result) == {"spaces", "next_offset", "current_space"}
+            and (result["current_space"] is None or _space_row(result["current_space"]))
+            and _rows_page(args, result["spaces"], result["next_offset"], "space_id", _space_row)
         )
     state = result.get("state")
     if operation == "page.lookup":
@@ -221,7 +259,7 @@ def validate_result(operation: str, args: Mapping[str, object], result: object) 
             and _text(result["capture_id"], 128)
             and (result["space_id"] is None or _text(result["space_id"], 128))
         )
-    if operation not in {"page.save", "annotation.add", "operation.status"}:
+    if operation not in {"page.save", "annotation.add", "page.file", "operation.status"}:
         return False
     if state in ("pending", "refused"):
         return set(result) == {"state"}
@@ -233,6 +271,18 @@ def validate_result(operation: str, args: Mapping[str, object], result: object) 
             and result["capture_id"] == args["capture_id"]
             and result["annotation_id"] == args["annotation_id"]
             and _uuid(result["annotation_id"])
+        )
+    if operation == "page.file" or (operation == "operation.status" and "space_id" in result):
+        return (
+            set(result) == {"state", "capture_id", "space_id"}
+            and _text(result["space_id"], 128)
+            and (
+                operation == "operation.status"
+                or (
+                    result["capture_id"] == args["capture_id"]
+                    and result["space_id"] == args["space_id"]
+                )
+            )
         )
     if operation == "operation.status" and "annotation_id" in result:
         return set(result) == {"state", "capture_id", "annotation_id"} and _uuid(
