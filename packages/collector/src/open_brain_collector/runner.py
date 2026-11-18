@@ -24,6 +24,8 @@ from open_brain_engine.engine import (
     PublicJobCaptureSink,
     open_local_engine,
 )
+from open_brain_engine.engine.saved_item_identity import SavedItemSource
+from open_brain_engine.engine.t03_contracts import EffectiveAuthority
 
 from open_brain_collector.capture_health import CaptureHealthStore
 from open_brain_collector.lifecycle import (
@@ -644,7 +646,9 @@ class DispatchingSourceRuntime(CollectorSourceRuntime):
         return entry
 
 
-def collector_capture_sink(brain_root: Path) -> PublicJobCaptureSink:
+def collector_capture_sink(
+    brain_root: Path, *, selected: tuple[SavedItemSource, str] | None = None,
+) -> PublicJobCaptureSink:
     """Open the selected Brain root and return the collector's public capture sink."""
 
     try:
@@ -664,6 +668,9 @@ def collector_capture_sink(brain_root: Path) -> PublicJobCaptureSink:
             "tenant_id": tasks.profile.tenant_id,
         },
     )
+    if selected is not None:
+        owner = EffectiveAuthority(profile.owner_actor_id, "configured-collector", frozenset(), None, owner=True)
+        return tasks.capture.selected_saved_item_sink(context, *selected, authority=owner)
     return tasks.capture.public_job_sink(context)
 
 

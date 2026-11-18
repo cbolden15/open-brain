@@ -14,13 +14,13 @@ from typing import cast
 
 from open_brain_engine.core.models import PrivacyTier
 
-from .consent_contracts import EgressMode
 from .contracts import LocalEngineContext
 from .local_schema import open_local_database_read_only
 from .local_store import _LocalStore
 from .records import RecordProjector
+from .saved_item_authority import require_saved_item_owner
 from .saved_item_identity import SavedItemSource
-from .t03_contracts import EffectiveAuthority, SessionOrigin, T03Error
+from .t03_contracts import EffectiveAuthority, T03Error
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,18 +40,14 @@ def _accepted(connection: sqlite3.Connection, delivery: str) -> str | None:
 
 class BrowserOwnerSetup:
     def __init__(self, profile: LocalEngineContext, authority: EffectiveAuthority) -> None:
-        if (
-            not authority.owner
-            or authority.egress_mode is not EgressMode.OWNER_LOCAL
-            or authority.session_origin is not SessionOrigin.LOCAL_OWNER
-        ):
-            raise PermissionError("owner_local_required")
         self.profile = profile
+        self._authority = authority
 
     def sources(self, *, limit: int = 100, offset: int = 0) -> tuple[SavedItemSource, ...]:
         if not 1 <= limit <= 100 or offset < 0:
             raise ValueError("invalid source page")
         with closing(open_local_database_read_only(self.profile)) as db:
+            require_saved_item_owner(self.profile, db, self._authority)
             return tuple(
                 SavedItemSource(*row)
                 for row in db.execute(
@@ -63,6 +59,7 @@ class BrowserOwnerSetup:
 
     def register_legacy(self, source: SavedItemSource, item_key: str) -> None:
         with _LocalStore(self.profile, initialize=False).transaction() as db:
+            require_saved_item_owner(self.profile, db, self._authority)
             if _accepted(db, source.delivery_id(item_key)) is None:
                 raise ValueError("legacy_rebinding_requires_original_source")
             source.register(db)
@@ -92,6 +89,7 @@ class BrowserOwnerSetup:
             raise ValueError("invalid browser spaces")
         token = secrets.token_hex(32)
         with _LocalStore(self.profile, initialize=False).transaction() as db:
+            require_saved_item_owner(self.profile, db, self._authority)
             if not db.execute(
                 "SELECT 1 FROM saved_item_sources WHERE connector_name=? AND "
                 "connection_id=? AND resource_id=?",

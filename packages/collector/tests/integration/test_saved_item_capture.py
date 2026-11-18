@@ -199,7 +199,8 @@ def test_v18_saved_item_recovery_evidence(tmp_path: Path) -> None:
 
     profile = compile_single_user_local(restored)
     setup = BrowserOwnerSetup(
-        profile, owner_authority_for_principal(principal_id="owner", session_id="setup")
+        profile,
+        owner_authority_for_principal(principal_id=profile.owner_actor_id, session_id="setup"),
     )
     source = SavedItemSource("saved_item", folder, resource)
     key = item_key(identity_url("https://example.org/saved#0")[0])
@@ -267,7 +268,7 @@ def test_saved_page_identity_round_trip(tmp_path: Path) -> None:
         sources.append(
             SavedItemSource(identity.connector_name, identity.connection_id, identity.resource_id)
         )
-    owner = owner_authority_for_principal(principal_id="owner", session_id="setup")
+    owner = owner_authority_for_principal(principal_id=profile.owner_actor_id, session_id="setup")
     setup = BrowserOwnerSetup(profile, owner)
     assert set(setup.sources()) == set(sources)
     first_key = item_key(identity_url(urls[0])[0])
@@ -380,3 +381,50 @@ def test_saved_page_identity_round_trip(tmp_path: Path) -> None:
     )
     assert pages_api.lookup(other, first_key) is None
     assert pages_api.lookup(filed, first_key) is None
+
+
+def test_saved_item_authority_refuses_foreign_and_generic_jobs(tmp_path: Path) -> None:
+    import sqlite3
+    from dataclasses import replace
+
+    from open_brain_engine.engine.browser_pages import BrowserOwnerSetup
+    from open_brain_engine.engine.saved_item_identity import SavedItemSource
+
+    from open_brain.services.t03_adapters import owner_authority_for_principal
+    from open_brain_collector.lifecycle import EngineCaptureSink
+    from open_brain_collector.runner import collector_capture_sink
+
+    root = tmp_path / "brain"
+    profile = compile_single_user_local(root)
+    open_local_engine(profile)
+    folder = tmp_path / "inbox"
+    folder.mkdir(mode=0o700)
+    (folder / "1.json").write_text(_record("https://example.org/sample", "why", "sample"))
+    selection, _ = select_folder(str(folder))
+    source = SavedItemSource(
+        selection.connector_name, selection.connection_id, selection.resource_id
+    )
+    runtime = PriorityRuntime(tmp_path / "live")
+    (item,) = runtime.fetch(selection, {"folder_path": str(folder)}, None).intakes
+    generic = EngineCaptureSink(collector_capture_sink(root))
+    with pytest.raises(PermissionError):
+        generic.submit(item)
+    owner = owner_authority_for_principal(principal_id=profile.owner_actor_id, session_id="setup")
+    with sqlite3.connect(root / ".open-brain/state/phase1.sqlite3") as db:
+        brain, epoch = db.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
+        assert db.execute("SELECT count(*) FROM captures").fetchone()[0] == 0
+    for unauthorized in (
+        replace(owner, owner=False),
+        replace(owner, principal_id="other"),
+        replace(owner, brain_id=brain, issuer_epoch=epoch + 1),
+        replace(owner, brain_id="brn_" + "a" * 26, issuer_epoch=epoch),
+    ):
+        with pytest.raises(PermissionError):
+            BrowserOwnerSetup(profile, unauthorized).sources()
+        with pytest.raises(PermissionError):
+            BrowserOwnerSetup(profile, unauthorized).register_legacy(source, item.key.external_id)
+        with pytest.raises(PermissionError):
+            BrowserOwnerSetup(profile, unauthorized).bind(
+                source, tiers=("personal",), spaces=(None,)
+            )
+    assert BrowserOwnerSetup(profile, owner).sources() == ()

@@ -38,7 +38,6 @@ from open_brain_engine.engine.historical_checkpoint import (
     CurrentRevisionCheckpoint,
     HistoricalBaselineDuplicate,
 )
-from open_brain_engine.engine.saved_item_identity import SavedItemSource
 from open_brain_engine.engine.source_intake import SourceRevisionObservedDelivery
 from open_brain_engine.engine.t03_contracts import T03Error
 
@@ -1367,9 +1366,7 @@ class EngineCaptureSink:
             raise LiveSourceError("source_brain_unavailable")
         return binding
 
-    def submit(
-        self, intake: SourceRecordIntake, *, selection: SourceResourceSelection | None = None
-    ) -> object:
+    def submit(self, intake: SourceRecordIntake) -> object:
         if type(intake) is not SourceRecordIntake:
             raise ConnectorContractError("invalid collector capture")
         submission = CaptureSubmission.for_public_job(
@@ -1383,15 +1380,8 @@ class EngineCaptureSink:
             intent="reference",
             title=intake.title,
         )
-        evidence = None
-        if selection is not None and "saved_item" in (selection.connector_name, intake.key.connector_name):
-            source = SavedItemSource(
-                selection.connector_name, selection.connection_id, selection.resource_id
-            )
-            evidence = (source, intake.key.external_id)
         receipt = self._sink.submit(
             intake.payload(),
-            saved_item_evidence=evidence,
             delivery_id=intake.key.delivery_id(),
             source_origin="third_party",
             source_reference=intake.source_reference,

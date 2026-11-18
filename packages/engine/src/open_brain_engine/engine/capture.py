@@ -76,7 +76,10 @@ from .normalization import (
 )
 from .portability_ports import portable_write_port
 from .privacy_projection import narrow_retained_privacy_decision
+from .saved_item_authority import SelectedSavedItemAdmission, require_saved_item_owner
+from .saved_item_identity import SavedItemSource
 from .sharing import validate_reserved_copy_submission
+from .t03_contracts import EffectiveAuthority
 
 if TYPE_CHECKING:
     from .local import BrainEngine
@@ -1093,6 +1096,11 @@ class CaptureTasks:
         )
 
     def submit(self, submission: CaptureSubmission) -> CaptureOutcome:
+        return self._submit(submission, selected=None)
+
+    def _submit(
+        self, submission: CaptureSubmission, *, selected: SelectedSavedItemAdmission | None,
+    ) -> CaptureOutcome:
         """Transfer durable custody, then make one best-effort foreground drain.
 
         The writer fence deliberately starts *after* enqueue.  A busy writer
@@ -1118,8 +1126,13 @@ class CaptureTasks:
             if engine.ingestion.known(submission)
             else engine._admit_submission(submission)
         )
+        def enqueue() -> CaptureOutcome:
+            if selected is None:
+                return engine.ingestion.enqueue(submission)
+            return engine.ingestion._enqueue(submission, selected=selected)
+
         with admission:
-            outcome = engine.ingestion.enqueue(submission)
+            outcome = enqueue()
         if isinstance(outcome, CaptureReceipt):
             return self._protect_destination_receipt(submission, outcome)
         try:
@@ -1135,7 +1148,7 @@ class CaptureTasks:
             for receipt in receipts:
                 if receipt.capture_id == expected.capture_id:
                     return self._protect_destination_receipt(submission, receipt)
-        replay = engine.ingestion.enqueue(submission)
+        replay = enqueue()
         return self._protect_destination_receipt(submission, replay)
 
     def _protect_destination_receipt(
@@ -1205,6 +1218,27 @@ class CaptureTasks:
         )
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink:
+        return self._job_sink(context, selected=None)
+
+    def selected_saved_item_sink(
+        self,
+        context: PublicJobCaptureContext,
+        source: SavedItemSource,
+        item_key: str,
+        *,
+        authority: EffectiveAuthority,
+    ) -> PublicJobCaptureSink:
+        source.delivery_id(item_key)
+        return self._job_sink(
+            context, selected=SelectedSavedItemAdmission(source, item_key, authority)
+        )
+
+    def _job_sink(
+        self,
+        context: PublicJobCaptureContext,
+        *,
+        selected: SelectedSavedItemAdmission | None,
+    ) -> PublicJobCaptureSink:
         context.validate_profile(self._engine.profile)
         profile = self._engine.profile
         fingerprint = PublicJobCaptureSink.fingerprint_for(
@@ -1212,6 +1246,10 @@ class CaptureTasks:
         )
         connection = self._engine._store.connect()
         try:
+            if selected is not None:
+                require_saved_item_owner(profile, connection, selected.authority)
+                if connection.execute("PRAGMA user_version").fetchone()[0] < 24:
+                    raise ValueError("saved-item source registry unavailable")
             identity = connection.execute(
                 "SELECT brain_id, issuer_epoch FROM brain_identity WHERE singleton = 1"
             ).fetchone()
@@ -1222,6 +1260,9 @@ class CaptureTasks:
         return PublicJobCaptureSink(
             self,
             context=context,
+            selected_submit=None
+            if selected is None
+            else lambda submission: self._submit(submission, selected=selected),
             brain_fingerprint=fingerprint,
             brain_id=cast(str, identity["brain_id"]),
             issuer_epoch=cast(int, identity["issuer_epoch"]),

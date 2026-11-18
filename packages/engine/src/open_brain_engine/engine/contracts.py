@@ -8,7 +8,7 @@ import unicodedata
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
 from html import unescape
@@ -1787,9 +1787,6 @@ class CaptureSubmission:
     destination_brain_id: str | None = None
     issuer_epoch: int | None = None
 
-    # Trusted collector selection, persisted atomically with custody outside the envelope.
-    saved_item_evidence: tuple[SavedItemSource, str] | None = field(default=None, compare=False)
-
     def __post_init__(self) -> None:
         if not isinstance(
             self.payload,
@@ -1799,14 +1796,6 @@ class CaptureSubmission:
         _delivery_id(self.delivery_id)
         object.__setattr__(self, "action", CaptureAction(self.action))
         object.__setattr__(self, "submission_path", CaptureSubmissionPath(self.submission_path))
-        if self.saved_item_evidence is not None:
-            source, item_key = self.saved_item_evidence
-            if (
-                self.submission_path is not CaptureSubmissionPath.PUBLIC_JOB
-                or not isinstance(source, SavedItemSource)
-                or source.delivery_id(item_key) != self.delivery_id
-            ):
-                raise ValueError("saved-item delivery does not match configured source")
         if self.schema_version != 1:
             raise ValueError("invalid capture submission schema version")
         if (self.destination_brain_id is None) != (self.issuer_epoch is None):
@@ -1963,7 +1952,6 @@ class CaptureSubmission:
         privacy: PrivacyDecision,
         intent: Intent | str | None = None,
         title: str | None = None,
-        saved_item_evidence: tuple[SavedItemSource, str] | None = None,
     ) -> CaptureSubmission:
         if not isinstance(context, PublicJobCaptureContext):
             raise ValueError("invalid public-job context")
@@ -1984,7 +1972,6 @@ class CaptureSubmission:
             role_claim=context.role_claim,
             intent=_intent(intent),
             capture_why_origin=CaptureWhyOrigin.AUTOMATION_ABSENT,
-            saved_item_evidence=saved_item_evidence,
             title=title,
             occurrence_at=occurrence_at,
             submission_path=CaptureSubmissionPath.PUBLIC_JOB,
@@ -3129,6 +3116,11 @@ class CaptureTask(Protocol):
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink: ...
 
+    def selected_saved_item_sink(
+        self, context: PublicJobCaptureContext, source: SavedItemSource, item_key: str,
+        *, authority: EffectiveAuthority,
+    ) -> PublicJobCaptureSink: ...
+
 
 class PublicJobCaptureSink:
     """A capture-only capability for one validated non-owner public-job identity."""
@@ -3138,6 +3130,7 @@ class PublicJobCaptureSink:
         capture: CaptureTask,
         *,
         context: PublicJobCaptureContext,
+        selected_submit: Callable[[CaptureSubmission], CaptureOutcome] | None = None,
         brain_fingerprint: str | None = None,
         brain_id: str | None = None,
         issuer_epoch: int | None = None,
@@ -3152,7 +3145,7 @@ class PublicJobCaptureSink:
             or (brain_id is None) != (issuer_epoch is None)
         ):
             raise ValueError("invalid public-job context")
-        self._capture = capture
+        self._submit = capture.submit if selected_submit is None else selected_submit
         self._context = context
         self._brain_fingerprint = brain_fingerprint
         self._brain_id = brain_id
@@ -3198,9 +3191,8 @@ class PublicJobCaptureSink:
         privacy: PrivacyDecision,
         intent: Intent | str | None = None,
         title: str | None = None,
-        saved_item_evidence: tuple[SavedItemSource, str] | None = None,
     ) -> CaptureOutcome:
-        return self._capture.submit(
+        return self._submit(
             CaptureSubmission.for_public_job(
                 context=self._context,
                 payload=payload,
@@ -3210,7 +3202,6 @@ class PublicJobCaptureSink:
                 provenance=provenance,
                 privacy=privacy,
                 intent=intent,
-                saved_item_evidence=saved_item_evidence,
                 title=title,
             )
         )

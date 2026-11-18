@@ -35,6 +35,7 @@ from .recovery_protection import RecoveryProtectionPendingError
 
 if TYPE_CHECKING:
     from .local import BrainEngine
+    from .saved_item_authority import SelectedSavedItemAdmission
 
 
 class JournalAllocatedError(ValueError):
@@ -140,6 +141,12 @@ class IngestionJournal:
     def enqueue(
         self, submission: CaptureSubmission, *, writer_locked: bool = False,
     ) -> CaptureOutcome:
+        return self._enqueue(submission, writer_locked=writer_locked, selected=None)
+
+    def _enqueue(
+        self, submission: CaptureSubmission, *, selected: SelectedSavedItemAdmission | None,
+        writer_locked: bool = False,
+    ) -> CaptureOutcome:
         """Commit custody before writer work; ``writer_locked`` requires the caller's lease."""
         guard = self._engine._recovery_protection_guard
         if guard is not None:
@@ -154,6 +161,12 @@ class IngestionJournal:
         with self._engine._store.transaction() as connection:
             if guard is not None:
                 guard.validate_identity(connection)
+            if selected is not None:
+                selected.admit(self._engine.profile, connection, submission.delivery_id)
+            elif (submission.delivery_id.startswith("connector.saved_item.")
+                  and submission.submission_path.value == "public_job"
+                  and connection.execute("PRAGMA user_version").fetchone()[0] >= 24):
+                raise PermissionError("saved_item_configured_selection_required")
             existing = self._identity_row(connection, submission.delivery_id)
             if existing is not None:
                 outcome = self._replay_existing(connection, existing, submission)
@@ -215,9 +228,6 @@ class IngestionJournal:
                     )
                 outcome = custody
                 new_delivery = True
-            if submission.saved_item_evidence is not None:
-                source, _item_key = submission.saved_item_evidence
-                source.register(connection)
         if guard is not None:
             if custody_plan is not None:
                 guard.protect(self._engine, custody_plan)

@@ -656,7 +656,15 @@ class LiveCaptureService:
         text = f"Source revision: {intake.key.revision_identity()}\n\n{intake.text}"
         if len(text) > 65_536:
             raise LiveSourceError("source_content_too_large")
-        sink = collector_capture_sink(self._brain_root)
+        if selection.connector_name == "saved_item":
+            from open_brain_engine.engine.saved_item_identity import SavedItemSource
+
+            source = SavedItemSource(
+                selection.connector_name, selection.connection_id, selection.resource_id
+            )
+            sink = collector_capture_sink(self._brain_root, selected=(source, intake.key.external_id))
+        else:
+            sink = collector_capture_sink(self._brain_root)
         # Rebuild the intake with the revision marker before handing it to the
         # shared verifier. A queued receipt releases provider custody only
         # after that verifier binds Brain, epoch, delivery, request digest,
@@ -670,7 +678,7 @@ class LiveCaptureService:
         )
         from open_brain_collector.lifecycle import EngineCaptureSink
 
-        receipt = EngineCaptureSink(sink).submit(revised, selection=selection)
+        receipt = EngineCaptureSink(sink).submit(revised)
         if isinstance(receipt, CaptureCustodyReceipt):
             return ("captured", receipt.ingestion_id)
         if not isinstance(receipt, CaptureReceipt):
