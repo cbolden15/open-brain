@@ -42,9 +42,17 @@ Include `operation_id`, a lowercase UUIDv4, on save and status.
 
 | Operation | Exact arguments | Result |
 | --- | --- | --- |
+| `binding.describe` | Empty object | `{"binding_id":"…","destination":"This computer"}` after validating the current installation grant. |
 | `page.lookup` | `url` | `{"state":"absent"}` or `{"state":"saved","capture_id":"…","space_id":null}`. A filed save has its space ID in place of null. |
 | `page.save` | `url`, `reason`, optional `title` and `passage` | State is `accepted`, `pending` or `refused`. An accepted result includes `capture_id`. |
 | `operation.status` | Empty object | Same result shape as save, filtered by current scope. |
+
+The extension pins the ID returned by `binding.describe` in the top-level
+`binding_id` field on lookup, save and status. It is a 64-character lowercase
+hexadecimal string. A changed ID returns `binding_changed` before the operation
+runs. The ID represents the canonical Brain, saved-item source and workflow,
+and survives explicit rebinding to that workflow on a restored Brain. The
+current grant still controls each operation. Existing v1 calls may omit the ID.
 
 URLs must be HTTPS and at most 8,192 characters. Reasons are required and
 limited to 280 characters. Titles and passages are limited to 300 and 4,096

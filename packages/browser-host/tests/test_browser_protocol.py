@@ -3,6 +3,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
+import select
 import struct
 import subprocess
 import sys
@@ -49,9 +51,16 @@ def _decode(out: bytes) -> dict[str, object]:
 
 
 def _request(
-    home: Path, operation: str, args: dict[str, str], operation_id: str | None = None
+    home: Path,
+    operation: str,
+    args: dict[str, str],
+    operation_id: str | None = None,
+    *,
+    binding_id: str | None = None,
 ) -> dict[str, object]:
     envelope: dict[str, object] = {"version": VERSION, "operation": operation, "args": args}
+    if binding_id is not None:
+        envelope["binding_id"] = binding_id
     if operation_id:
         envelope["operation_id"] = operation_id
     return _decode(_call(home, [ORIGIN], frame=_frame(envelope)))
@@ -552,3 +561,182 @@ def test_owner_retraction_withholds_browser_receipts_across_restore(
         limited, "page.save", {**args, "url": URL + "/absent"}, str(uuid4())
     )
     assert owner("search", "Cinnabarwren", "--data-dir", str(destination))["results"] == []
+
+
+def _binding_id(home: Path) -> str:
+    described = _request(home, "binding.describe", {})
+    assert "result" in described, described
+    result = cast(dict[str, str], described["result"])
+    assert set(result) == {"binding_id", "destination"}
+    assert result["destination"] == "This computer"
+    binding_id = result["binding_id"]
+    assert re.fullmatch(r"[0-9a-f]{64}", binding_id)
+    return binding_id
+
+
+def test_bound_v1_round_trip_refuses_wrong_or_changed_binding(
+    installation: tuple[Path, Path],
+) -> None:
+    home, root = installation
+    pin = _binding_id(home)
+    args = {"url": URL, "reason": REASON}
+    operation = str(uuid4())
+    assert _request(home, "page.lookup", {"url": URL}, binding_id=pin) == {
+        "result": {"state": "absent"}
+    }
+    assert _request(home, "page.save", args, operation, binding_id="0" * 64) == {
+        "error": {"code": "binding_changed"}
+    }
+    assert _request(home, "page.save", args, operation, binding_id="0" * 63) == {
+        "error": {"code": "invalid_request"}
+    }
+    assert _request(home, "operation.status", {}, operation, binding_id=pin) == {
+        "result": {"state": "refused"}
+    }
+    saved = _request(home, "page.save", args, operation, binding_id=pin)
+    receipt = cast(dict[str, object], saved["result"])
+    assert receipt["state"] == "accepted"
+    assert _request(home, "operation.status", {}, operation, binding_id=pin) == saved
+    assert _request(home, "page.lookup", {"url": URL}, binding_id=pin) == {
+        "result": {"state": "saved", "capture_id": receipt["capture_id"], "space_id": None}
+    }
+    _setup(home, root, "--new-source", "--complete-domain", "--tier", "public", "--tier", "work")
+    assert _binding_id(home) != pin
+    for method, body, receipt_id in (
+        ("page.lookup", {"url": URL}, None),
+        ("page.save", args, operation),
+        ("operation.status", {}, operation),
+    ):
+        assert _request(home, method, body, receipt_id, binding_id=pin) == {
+            "error": {"code": "binding_changed"}
+        }
+    assert _request(home, "page.lookup", {"url": URL}) == {"result": {"state": "absent"}}
+
+
+def test_binding_describe_requires_an_installed_grant(
+    installation: tuple[Path, Path], tmp_path: Path
+) -> None:
+    home, _ = installation
+    unconfigured = tmp_path / "unconfigured"
+    unconfigured.mkdir(mode=0o700)
+    assert _request(unconfigured, "binding.describe", {}) == {"error": {"code": "browser_unbound"}}
+    assert _request(home, "binding.describe", {"url": URL}) == {
+        "error": {"code": "invalid_request"}
+    }
+    assert _request(home, "binding.describe", {}, binding_id="0" * 64) == {
+        "error": {"code": "invalid_request"}
+    }
+    _call(home, ["revoke"])
+    assert _request(home, "binding.describe", {}) == {"error": {"code": "browser_unbound"}}
+
+
+@pytest.mark.parametrize("method", ["save", "status"])
+def test_in_flight_bound_request_cannot_follow_reconfigured_source(
+    installation: tuple[Path, Path], method: str
+) -> None:
+    home, root = installation
+    pin = _binding_id(home)
+    operation_id = str(uuid4())
+    args = {"url": URL, "reason": REASON}
+    if method == "status":
+        result = _request(home, "page.save", args, operation_id, binding_id=pin)
+        assert cast(dict[str, object], result["result"])["state"] == "accepted"
+    envelope = {
+        "version": VERSION,
+        "operation": "page.save" if method == "save" else "operation.status",
+        "operation_id": operation_id,
+        "binding_id": pin,
+        "args": args if method == "save" else {},
+    }
+    _, env = _host(home)
+    pause_after_pin_validation = r"""import sys
+from open_brain_browser_host import native, operations
+
+method = sys.argv.pop()
+original = getattr(operations.BrowserPages, method)
+
+def paused(self, *args, **kwargs):
+    sys.stderr.buffer.write(b'pinned\n')
+    sys.stderr.buffer.flush()
+    if sys.stdin.buffer.read(1) != b'G':
+        raise RuntimeError("missing resume")
+    return original(self, *args, **kwargs)
+
+setattr(operations.BrowserPages, method, paused)
+raise SystemExit(native.main())
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", pause_after_pin_validation, ORIGIN, method],
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as process:
+        assert process.stdin is not None and process.stderr is not None
+        try:
+            process.stdin.write(_frame(envelope))
+            process.stdin.flush()
+            assert select.select([process.stderr], [], [], 5)[0], "pin validation never completed"
+            assert process.stderr.readline() == b"pinned\n"
+            _setup(
+                home,
+                root,
+                "--new-source",
+                "--complete-domain",
+                "--tier",
+                "public",
+                "--tier",
+                "work",
+            )
+            process.stdin.write(b"G")
+            process.stdin.flush()
+            output, errors = process.communicate(timeout=5)
+        finally:
+            if process.poll() is None:
+                process.kill()
+        assert process.returncode == 0, errors
+    assert _decode(output) == {"error": {"code": "browser_unbound"}}
+    assert _request(home, "page.lookup", {"url": URL}) == {"result": {"state": "absent"}}
+    assert _request(home, "operation.status", {}, operation_id) == {"result": {"state": "refused"}}
+
+
+def test_fresh_restored_grant_preserves_explicit_workflow_binding(
+    installation: tuple[Path, Path], tmp_path: Path
+) -> None:
+    home, root = installation
+    pin = _binding_id(home)
+    operation = str(uuid4())
+    args = {"url": URL, "reason": REASON}
+    saved = _request(home, "page.save", args, operation, binding_id=pin)
+    assert cast(dict[str, object], saved["result"])["state"] == "accepted"
+
+    archive = tmp_path / "portable"
+    restored = tmp_path / "restored"
+    cli = str(Path(sys.executable).with_name("open-brain"))
+    for command in (
+        ["export", str(archive), "--verify", "--data-dir", str(root)],
+        ["restore", str(archive), str(restored), "--import-id", "import_" + str(uuid4())],
+    ):
+        subprocess.run([cli, *command], capture_output=True, check=True, timeout=20)
+
+    policy = json.loads((home / ".open-brain-browser" / "policy.json").read_bytes())
+    _, *source = policy["binding"]["source"]
+    restored_home = tmp_path / "restored-home"
+    restored_home.mkdir(mode=0o700)
+    assert _request(restored_home, "binding.describe", {}) == {"error": {"code": "browser_unbound"}}
+    _setup(restored_home, restored, "--source", *source)
+    assert _binding_id(restored_home) != pin
+    assert _request(restored_home, "operation.status", {}, operation, binding_id=pin) == {
+        "error": {"code": "binding_changed"}
+    }
+    _setup(
+        restored_home,
+        restored,
+        "--source",
+        *source,
+        "--workflow-principal",
+        policy["binding"]["workflow_principal"],
+    )
+    assert _binding_id(restored_home) == pin
+    assert _request(restored_home, "operation.status", {}, operation, binding_id=pin) == saved
+    assert _request(restored_home, "page.save", args, operation, binding_id=pin) == saved

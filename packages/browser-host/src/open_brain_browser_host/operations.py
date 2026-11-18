@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 
 from open_brain_engine.engine import CaptureSubmission, LocalEngineContext, PublicJobCaptureContext
-from open_brain_engine.engine.browser_pages import BrowserPages
+from open_brain_engine.engine.browser_pages import BrowserBinding, BrowserPages
 
 from open_brain.profile import open_existing_single_user_local
 from open_brain_connectors.runtime.saved_item import (
@@ -24,7 +24,13 @@ from open_brain_connectors.runtime.source_registry import SourceResourceSelectio
 from .policy import Policy, Refused, encoded
 
 VERSION = "browser.v1"
-OPERATIONS = {"page.lookup": "lookup", "page.save": "save", "operation.status": "status"}
+OPERATIONS = {
+    "binding.describe": "describe",
+    "page.lookup": "lookup",
+    "page.save": "save",
+    "operation.status": "status",
+}
+_RECEIPT_OPERATIONS = {"save", "status"}
 
 
 def _text(value: object, limit: int) -> str:
@@ -42,6 +48,7 @@ class Request:
     operation: str
     operation_id: str
     args: dict[str, str]
+    binding_id: str | None = None
 
     @classmethod
     def parse(cls, value: object) -> Request:
@@ -54,13 +61,23 @@ class Request:
             raise Refused("operation_denied")
         operation = OPERATIONS[name]
         fields = {"version", "operation", "args"}
-        if operation != "lookup":
+        if operation in _RECEIPT_OPERATIONS:
             fields.add("operation_id")
+        binding_id: str | None = None
+        if "binding_id" in value and operation != "describe":
+            supplied_id = value["binding_id"]
+            if (
+                not isinstance(supplied_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", supplied_id) is None
+            ):
+                raise Refused("invalid_request")
+            binding_id = supplied_id
+            fields.add("binding_id")
         args = value.get("args")
         if not isinstance(args, dict) or set(value) != fields:
             raise Refused("invalid_request")
         operation_id = value.get("operation_id", "")
-        if operation != "lookup" and (
+        if operation in _RECEIPT_OPERATIONS and (
             not isinstance(operation_id, str)
             or re.fullmatch(
                 r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", operation_id
@@ -68,10 +85,10 @@ class Request:
             is None
         ):
             raise Refused("invalid_request")
-        if operation == "status" and not args:
-            return cls(operation, operation_id, {})
+        if operation in {"describe", "status"} and not args:
+            return cls(operation, operation_id, {}, binding_id)
         if operation == "lookup" and set(args) == {"url"}:
-            return cls(operation, "", {"url": _text(args["url"], 8192)})
+            return cls(operation, "", {"url": _text(args["url"], 8192)}, binding_id)
         required = {"url", "reason"}
         limits = {
             "url": 8192,
@@ -81,7 +98,10 @@ class Request:
         }
         if operation == "save" and required <= set(args) <= limits.keys():
             return cls(
-                operation, operation_id, {key: _text(args[key], limits[key]) for key in args}
+                operation,
+                operation_id,
+                {key: _text(args[key], limits[key]) for key in args},
+                binding_id,
             )
         raise Refused("invalid_request")
 
@@ -101,11 +121,31 @@ def _capture_context(profile: LocalEngineContext, principal: str) -> PublicJobCa
     )
 
 
+def _binding_id(binding: BrowserBinding) -> str:
+    # Installation grants and issuer epochs rotate. Explicit rebinding to the
+    # original workflow on a restored Brain must still reconcile its receipts.
+    identity = {
+        "version": "browser-binding.v1",
+        "topology": "local",
+        "brain_id": binding.brain_id,
+        "source": binding.source.values(),
+        "workflow_principal": binding.workflow_principal,
+    }
+    return sha256(encoded(identity)).hexdigest()
+
+
 def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     profile = open_existing_single_user_local(policy.brain_root)
     pages = BrowserPages(profile)
     binding = pages.binding(policy.token)
     policy.require(binding)
+    if request.operation == "describe":
+        return {"binding_id": _binding_id(binding), "destination": "This computer"}
+    if request.binding_id is not None and request.binding_id != _binding_id(binding):
+        raise Refused("binding_changed")
+    # The token came from the same policy snapshot as the pin. Every engine
+    # operation rechecks that immutable grant inside its transaction, so a
+    # concurrent setup cannot substitute different authority or redirect it.
     if request.operation not in binding.operations:
         raise Refused("operation_denied")
     if request.operation == "status":
