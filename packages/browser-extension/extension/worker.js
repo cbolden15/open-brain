@@ -93,7 +93,7 @@ async function validateBeforeDispatch(snapshot) {
     throw new Error('changed');
 }
 
-async function begin(tabId, windowId) {
+async function begin(tabId, windowId, expected) {
   const menu = menus.get(windowId);
   menus.delete(windowId);
   const intent = menu?.intent ?? startIntent(tabId, windowId);
@@ -104,17 +104,29 @@ async function begin(tabId, windowId) {
     page = await menu.snapshot;
     await validateBeforeDispatch(page);
   } else page = await snapshotTab(tabId, windowId);
+  if (expected && expected.documentId !== page.documentId) throw new Error('changed');
   const binding = await sendNative('binding.describe', {});
-  if (!/^[0-9a-f]{64}$/.test(binding.binding_id) || binding.destination !== 'This computer')
-    throw new Error('refused');
-  const lookup = await sendNative('page.lookup', {url: page.url}, binding.binding_id);
-  if (!['absent','saved'].includes(lookup.state)) throw new Error('refused');
+  if (expected && expected.binding !== binding.binding_id) throw new Error('changed');
+  if (!/^[0-9a-f]{64}$/.test(binding.binding_id) || typeof binding.destination !== 'string' ||
+      !binding.destination.trim() || binding.destination.length > 120 ||
+      /[\u0000-\u001f\u007f]/u.test(binding.destination)) throw new Error('refused');
+  let lookup;
+  try { lookup = await sendNative('page.lookup', {url:page.url}, binding.binding_id); }
+  catch (error) {
+    if (error.message !== 'unavailable') throw error;
+    lookup = {state:'unavailable'};
+  }
+  if (!['absent','saved','unavailable'].includes(lookup.state)) throw new Error('refused');
   requireIntent(intent);
   const nonce = lookup.state === 'absent' ? crypto.randomUUID() : null;
-  if (nonce) gestures.set(windowId, {page, intent, binding:binding.binding_id, nonce, expires:Date.now()+300000});
-  else gestures.delete(windowId);
+  const viewNonce = lookup.state === 'saved' && lookup.capture_id ? crypto.randomUUID() : null;
+  if (nonce || viewNonce) {
+    gestures.set(windowId, {page, intent, binding:binding.binding_id, nonce:nonce ?? viewNonce,
+      kind:nonce ? 'save' : 'view', captureId:lookup.capture_id, expires:Date.now()+300000});
+  } else gestures.delete(windowId);
   return {url:displayUrl(page.url), title:page.title, passage:page.passage, lookup:lookup.state,
-    destination:binding.destination, nonce};
+    destination:binding.destination, nonce, viewNonce,
+    expected:{documentId:page.documentId, binding:binding.binding_id}};
 }
 
 async function ledger() {
@@ -124,12 +136,15 @@ async function ledger() {
 async function forget(id) {
   await chrome.storage.local.set({pending:(await ledger()).filter(row => row.id !== id)});
 }
-async function save({windowId, nonce, reason}) {
+function currentGesture(windowId, nonce, kind) {
   const gesture = gestures.get(windowId);
-  if (!gesture || gesture.nonce !== nonce || Date.now() > gesture.expires)
+  if (!gesture || gesture.nonce !== nonce || gesture.kind !== kind || Date.now() > gesture.expires)
     throw new Error('changed');
-  const args = saveArgs(gesture.page, reason);
-  gestures.delete(windowId);
+  requireIntent(gesture.intent);
+  return gesture;
+}
+
+async function mutation(gesture, operation, args) {
   const pending = await ledger();
   if (pending.length >= maxPending) throw new Error('full');
   const row = {id:crypto.randomUUID(), binding:gesture.binding};
@@ -137,7 +152,7 @@ async function save({windowId, nonce, reason}) {
   try { await validateBeforeDispatch(gesture.page); requireIntent(gesture.intent); }
   catch { await forget(row.id); throw new Error('changed'); }
   let result;
-  try { result = await sendNative('page.save', args, row.binding, row.id); }
+  try { result = await sendNative(operation, args, row.binding, row.id); }
   catch (error) {
     if (error.beforeAdmission) {
       await forget(row.id);
@@ -145,23 +160,77 @@ async function save({windowId, nonce, reason}) {
     }
   }
   const state = receiptState(result);
-  if (state === 'saved') await forget(row.id);
+  if (state === 'saved' || state === 'highlighted') await forget(row.id);
   return {state:result?.state === 'refused' ? 'refused' : state};
+}
+
+async function save({windowId, nonce, reason}) {
+  const gesture = currentGesture(windowId, nonce, 'save');
+  const args = saveArgs(gesture.page, reason);
+  gestures.delete(windowId);
+  return mutation(gesture, 'page.save', args);
+}
+
+function readAnchor() {
+  const quote = String(window.getSelection() || '');
+  if (!quote || [...quote].length > 4096) return null;
+  return {url:location.href, ...globalThis.openBrainAnchors.capture(quote)};
+}
+
+async function annotate({windowId, nonce, note = ''}) {
+  const gesture = currentGesture(windowId, nonce, 'view');
+  if (!gesture.page.passage.trim() || typeof note !== 'string' || !note.isWellFormed() ||
+      [...note].length > 1024 || note.includes('\0')) throw new Error('invalid');
+  const target = {tabId:gesture.page.tabId, documentIds:[gesture.page.documentId]};
+  await chrome.scripting.executeScript({target, files:['anchors.js']});
+  const [frame] = await chrome.scripting.executeScript({target, func:readAnchor});
+  const anchor = frame?.result;
+  if (frame?.documentId !== gesture.page.documentId || anchor?.url !== gesture.page.url ||
+      anchor?.quote !== gesture.page.passage) throw new Error('changed');
+  gestures.delete(windowId);
+  return mutation(gesture, 'annotation.add', {url:gesture.page.url,capture_id:gesture.captureId,
+    annotation_id:crypto.randomUUID(),quote:anchor.quote,prefix:anchor.prefix,suffix:anchor.suffix,
+    ...(note.trim() && {note:note.trim()})});
+}
+
+async function highlights({windowId, nonce, offset = 0}, paint) {
+  const gesture = currentGesture(windowId, nonce, 'view');
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('invalid');
+  const rows = await sendNative('annotation.list', {url:gesture.page.url,
+    capture_id:gesture.captureId,limit:10,offset}, gesture.binding);
+  if (!Array.isArray(rows.annotations) || rows.annotations.length > 10) throw new Error('refused');
+  await validateBeforeDispatch(gesture.page);
+  requireIntent(gesture.intent);
+  if (!paint) return rows;
+  const target = {tabId:gesture.page.tabId, documentIds:[gesture.page.documentId]};
+  // Only anchor text reaches the isolated document. Owner notes stay in the popup.
+  const anchors = rows.annotations.map(({quote,prefix,suffix}) => ({quote,prefix,suffix}));
+  await chrome.scripting.executeScript({target, files:['anchors.js']});
+  await chrome.scripting.insertCSS({target, css:
+    '::highlight(open-brain-saved-passages) { background-color: #ffe589; color: #292315; }'});
+  requireIntent(gesture.intent);
+  const [frame] = await chrome.scripting.executeScript({target,
+    func:(items) => globalThis.openBrainAnchors.restore(items), args:[anchors]});
+  if (frame?.documentId !== gesture.page.documentId) throw new Error('changed');
+  return {...rows, resolved:frame.result};
 }
 async function reconcile(id) {
   const row = (await ledger()).find(entry => entry.id === id);
   if (!row) return {state:'cleared'};
   const result = await sendNative('operation.status', {}, row.binding, row.id).catch(() => null);
   const state = receiptState(result);
-  if (state === 'saved') await forget(id);
+  if (state === 'saved' || state === 'highlighted') await forget(id);
   return {state};
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (sender.id !== chrome.runtime.id || sender.url !== popup) return;
   async function handle() {
     switch (message.action) {
-      case 'begin': return begin(message.tabId, message.windowId);
+      case 'begin': return begin(message.tabId, message.windowId, message.expected);
       case 'save': return serialize(() => save(message));
+      case 'annotate': return serialize(() => annotate(message));
+      case 'highlights': return highlights(message, false);
+      case 'restore': return highlights(message, true);
       case 'list': return {ids:(await ledger()).map(row => row.id)};
       case 'status': return serialize(() => reconcile(message.id));
       case 'abandon': return serialize(() => forget(message.id));

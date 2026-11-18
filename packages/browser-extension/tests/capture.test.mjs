@@ -39,8 +39,15 @@ async function workerFixture() {
         const {operation, operation_id:id} = message;
         if (operation !== 'binding.describe') assert.equal(message.binding_id, binding);
         let result;
-        if (operation === 'binding.describe') result = {binding_id:binding,destination:'This computer'};
-        if (operation === 'page.lookup') result = {state:env.lookup ?? 'absent'};
+        if (operation === 'binding.describe') result = {binding_id:binding,destination:env.destination ?? 'This computer'};
+        if (operation === 'page.lookup') result = {state:env.lookup ?? 'absent', ...(env.lookup === 'saved' && {capture_id:'fixture'})};
+        if (operation === 'page.lookup' && env.lookupOffline) throw new Error('offline');
+        if (operation === 'annotation.add') {
+          result = {state:'accepted',capture_id:'fixture',annotation_id:message.args.annotation_id};
+          receipts.set(id, result);
+          if (env.delivery === 'lost') throw new Error('reply lost');
+        }
+        if (operation === 'annotation.list') result = {annotations:[], next_offset:null};
         if (operation === 'operation.status') result = receipts.get(id) ?? {state:'refused'};
         if (operation === 'page.save') {
           if (env.nativeError) return {version:'browser.v1',error:{code:env.nativeError}};
@@ -53,7 +60,10 @@ async function workerFixture() {
       }},
     tabs:{onActivated:{addListener(fn){env.activate = fn;}},onUpdated:{addListener(fn){env.update = fn;}},async query(){return env.active ? [{id:7,url:page.url}] : [{id:8}];},async get(){return {url:page.url, windowId:1, active:env.active};}},
     windows:{onRemoved:{addListener(){}},async get(){return {focused:true};}},
-    scripting:{async executeScript({func}){env.readPage = func; await env.injection?.(); return [{documentId:env.documentId,
+    scripting:{async executeScript({func, files}){if (files) return [];
+      if (func.name === 'readAnchor') return [{documentId:env.documentId,
+        result:{url:page.url, quote:page.passage,prefix:'Start ',suffix:' end'}}];
+      env.readPage = func; await env.injection?.(); return [{documentId:env.documentId,
       result:{url:page.url,title:page.title,passage:page.passage}}];}},
     contextMenus:{onClicked:{addListener(){}}},
     storage:{local:{async setAccessLevel(value){trusted = value.accessLevel === 'TRUSTED_CONTEXTS';},
@@ -109,7 +119,7 @@ test('changed document cancels before native save and missing helper surfaces se
   const {nonce} = await f.begin();
   f.env.documentId = 'doc-two';
   assert.equal((await f.save(nonce)).error,'changed');
-  assert.deepEqual(f.storage.pending,[]);
+  assert.deepEqual(f.storage.pending ?? [],[]);
   assert.equal(f.calls.filter(x => x.operation === 'page.save').length,0);
   f.env.online = false;
   assert.equal((await f.request('begin',{tabId:7,windowId:1})).error,'unavailable');
@@ -146,7 +156,7 @@ test('returning to the original tab cannot revive an invalidated confirmation', 
   f.env.activate({windowId:1,tabId:8});
   f.env.activate({windowId:1,tabId:7});
   assert.equal((await f.save(nonce)).error,'changed');
-  assert.deepEqual(f.storage.pending,[]);
+  assert.deepEqual(f.storage.pending ?? [],[]);
   assert.equal(f.calls.filter(message => message.operation === 'page.save').length,0);
 });
 
@@ -179,4 +189,51 @@ test('top-frame reader preserves astral title and selection at the native limits
     delete globalThis.location;
     delete globalThis.window;
   }
+});
+
+test('a lost annotation has a distinct child receipt and an intentional repeat gets a new ID', async () => {
+  const f = await workerFixture();
+  f.env.lookup = 'saved';
+  f.env.delivery = 'lost';
+  async function annotate(note) {
+    const preview = await f.begin();
+    return f.request('annotate', {windowId:1, nonce:preview.viewNonce, note});
+  }
+  assert.equal((await annotate('owner note')).value.state, 'unknown');
+  const [row] = f.storage.pending;
+  assert.deepEqual(Object.keys(row).sort(), ['binding','id']);
+  await f.restart();
+  assert.equal((await f.request('status', {id:row.id})).value.state, 'highlighted');
+  assert.deepEqual(f.storage.pending, []);
+  f.env.delivery = 'accepted';
+  assert.equal((await annotate('second note')).value.state, 'highlighted');
+  const writes = f.calls.filter(x => x.operation === 'annotation.add');
+  assert.equal(writes.length, 2);
+  assert.notEqual(writes[0].args.annotation_id, writes[1].args.annotation_id);
+  assert.notEqual(writes[0].args.annotation_id, writes[0].operation_id);
+  assert.deepEqual(writes[0].args, {url:page.url,capture_id:'fixture',quote:'quote',
+    prefix:'Start ',suffix:' end',annotation_id:writes[0].args.annotation_id,note:'owner note'});
+  assert.equal(f.calls.filter(x => x.operation === 'page.save').length, 0);
+});
+
+test('a disconnected configured destination stays visible and cannot issue a save', async () => {
+  const f = await workerFixture();
+  f.env.destination = 'Remote research Brain';
+  f.env.lookupOffline = true;
+  const page = await f.begin();
+  assert.equal(page.destination, 'Remote research Brain');
+  assert.equal(page.lookup, 'unavailable');
+  assert.equal(page.nonce, null);
+  assert.equal((await f.save(page.nonce)).error, 'changed');
+});
+
+test('refresh after a save never looks up a replacement document', async () => {
+  const f = await workerFixture();
+  await f.begin();
+  f.env.documentId = 'replacement';
+  const before = f.calls.length;
+  const result = await f.request('begin', {tabId:7,windowId:1,
+    expected:{documentId:'doc-one',binding}});
+  assert.equal(result.error, 'changed');
+  assert.equal(f.calls.length, before);
 });
