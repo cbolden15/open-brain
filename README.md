@@ -95,7 +95,7 @@ package and permission boundaries.
 
 The current candidate includes [paged search, complete reads and retained history](docs/records-and-history.md),
 including owner-CLI revision relationships and publication workflows in both clients. Its
-[Portable v20 exports](docs/portable-brain-v20.md) preserve current versioned evidence. Earlier
+[Portable v21 exports](docs/portable-brain-v21.md) preserve current versioned evidence. Earlier
 Portable specifications remain available as format history. These changes
 require this candidate's surfaces; local verification does not publish a new Homebrew release.
 

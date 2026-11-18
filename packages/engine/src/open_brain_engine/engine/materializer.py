@@ -677,7 +677,7 @@ def materialize_portable_root(
             )
         if _v5_restore is not None:
             _v5_restore.install(connection, profile=profile)
-        if snapshot.manifest["schema_version"] in range(8, 21):
+        if snapshot.manifest["schema_version"] in range(8, 22):
             from open_brain_engine.portable.v8_capture_metadata import (
                 CAPTURE_COLUMNS,
                 validate_capture_metadata,
@@ -701,10 +701,14 @@ def materialize_portable_root(
             from .portable_v8_journal import install_journal_snapshot
 
             install_journal_snapshot(connection, validate_capture_custody(files), profile)
-            if snapshot.manifest["schema_version"] == 20:
+            if snapshot.manifest["schema_version"] in {20, 21}:
                 from .portable_v20_restore import install_saved_item_admission
 
                 install_saved_item_admission(connection, files)
+            if snapshot.manifest["schema_version"] == 21:
+                from .portable_v21_restore import install_browser_annotations
+
+                install_browser_annotations(connection, files)
     batch_count = sum(
         path.startswith("sources/batches/") and path.endswith(".jsonl") for path in files
     )

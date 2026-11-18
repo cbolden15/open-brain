@@ -54,9 +54,9 @@ def _catalog() -> dict[str, object]:
         "compatibility": {
             "bridge_protocol": 1,
             "catalog_schema": 2,
-            "portable_metadata": 20,
+            "portable_metadata": 21,
             "runtime_session": 16,
-            "state_schema": 25,
+            "state_schema": 26,
             "task_contract": "t03.v1",
         },
         "packages": [
@@ -244,7 +244,7 @@ def test_grantless_catalog_probe_requires_core_coordinates_and_no_optional_claim
     with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
         base_native._smoke_catalog(tmp_path / "open-brain", environment)
     compatibility.update(current)
-    compatibility.update(portable_metadata=20, runtime_session=17, state_schema=25)
+    compatibility.update(portable_metadata=21, runtime_session=17, state_schema=26)
     with pytest.raises(BaseNativeError, match="native catalog discovery failed"):
         base_native._smoke_catalog(tmp_path / "open-brain", environment)
     compatibility.update(current)

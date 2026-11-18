@@ -15,7 +15,7 @@ and compatibility without opening a Brain. See the [feature/version matrix](core
 |---|---|
 | `setup` | Interactive first capture/retrieval and optional client/vault setup; current source, unreleased; [first use](first-use.md) |
 | `init`, `capture`, `import`, `status`, `export` | Local storage lifecycle; `capture TEXT\|-` also takes `--delivery-id` and `--expect-brain-id`/`--expect-issuer-epoch` (see below); [first-use](first-use.md), [install](install.md) |
-| `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 20](portable-brain-v20.md) |
+| `restore` | Owner-local clean Portable recovery without opening a caller Brain; [Portable 21](portable-brain-v21.md) |
 | `capture-submit` | Destination-bound capture under a trusted startup policy; [capture contract](capture-contract.md) |
 | `export-records` | JSON Lines of head captures an external-provider policy and its consent may read; [record export](export-records.md) |
 | `journal status/drain/retry/discard` | Owner-only durable ingress inspection and recovery; [operations](operations.md) |
@@ -50,8 +50,8 @@ Sharing is owner-local. `preview`, `approve`, `reject`, and `revoke` require a
 closed version-1 JSON `--request-file`; `inspect` takes a preview or approval ID.
 The CLI prints a pending approval as pending and never treats a canonical review
 approval as external sharing. Sharing was introduced at schema/runtime/Portable
-12/7/7. The current candidate reports 25/16/20. See
-[Portable 20](portable-brain-v20.md) for current export and import behavior;
+12/7/7. The current candidate reports 26/16/21. See
+[Portable 21](portable-brain-v21.md) for current export and import behavior;
 the [docs index](README.md) lists the earlier formats, including
 [Portable 8](portable-brain-v8.md) and [Portable 7](portable-brain-v7.md).
 

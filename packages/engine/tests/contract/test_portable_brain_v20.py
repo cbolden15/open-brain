@@ -36,6 +36,15 @@ EXPORT_ID = "export_00000000-0000-4000-8000-000000000001"
 IMPORT_ID = "import_00000000-0000-4000-8000-000000000002"
 
 
+@pytest.fixture(autouse=True)
+def _portable20_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the complete Portable20 recipe on its original schema25."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 25)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:25])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 25)
+
+
+
 def _export(
     tmp_path: Path, *, scenario: str = "accepted", version: int = 20
 ) -> tuple[BrainEngine, Path]:
