@@ -271,7 +271,7 @@ class Run:
             await route.abort()
 
     @asynccontextmanager
-    async def browser(self, playwright: Any) -> AsyncIterator[None]:
+    async def browser(self, playwright: Any, *, load_extension: bool = True) -> AsyncIterator[None]:
         ctx = await playwright.chromium.launch_persistent_context(
             str(self.profile),
             executable_path=str(self.chrome),
@@ -282,8 +282,14 @@ class Run:
                 "--use-mock-keychain",
                 "--enable-unsafe-extension-debugging",
                 "--host-resolver-rules=MAP * ~NOTFOUND",
-                f"--load-extension={self.extension}",
-                f"--disable-extensions-except={self.extension}",
+                *(
+                    [
+                        f"--load-extension={self.extension}",
+                        f"--disable-extensions-except={self.extension}",
+                    ]
+                    if load_extension
+                    else []
+                ),
             ],
         )
         try:
