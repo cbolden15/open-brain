@@ -111,8 +111,8 @@ is a trial, not a place to keep personal notes or configure a lasting agent conn
 
 ## Current source compatibility
 
-The current source candidate uses local state schema **25**, runtime session **16**, and Portable
-metadata **20**. These coordinates do not identify the published Homebrew release and do not
+The current source candidate uses local state schema **28**, runtime session **16**, and Portable
+metadata **23**. These coordinates do not identify the published Homebrew release and do not
 establish public acceptance. On candidates that offer it, compare
 `catalog --schema-version 2 --json` with the [compatibility matrix](core-v01-features.md#compatibility-coordinates).
 

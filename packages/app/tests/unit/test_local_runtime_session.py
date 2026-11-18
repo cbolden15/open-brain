@@ -13,6 +13,7 @@ from open_brain_engine.storage.filesystem import capture_root_identity
 
 import open_brain.services.local_runtime_session as runtime_session_module
 from open_brain.services.local_runtime_session import (
+    LocalRuntimeBusyError,
     LocalRuntimeCompatibilityError,
     LocalRuntimeSession,
     LocalRuntimeSessionError,
@@ -263,7 +264,7 @@ def test_registry_lock_wait_has_a_deadline(monkeypatch: pytest.MonkeyPatch, tmp_
     with registry.open("r+b") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with (
-            pytest.raises(LocalRuntimeSessionError, match="registry is busy"),
+            pytest.raises(LocalRuntimeBusyError, match="registry is busy") as raised,
             hold_local_runtime_session(
                 root,
                 identity,
@@ -272,6 +273,100 @@ def test_registry_lock_wait_has_a_deadline(monkeypatch: pytest.MonkeyPatch, tmp_
             ),
         ):
             pass
+        assert isinstance(raised.value, LocalRuntimeSessionError)
+
+
+def test_registry_expiry_at_close_is_not_retryable_busy(tmp_path: Path) -> None:
+    # The body may have committed a write; a retryable busy here could repeat it.
+    root = _root(tmp_path)
+    identity = capture_root_identity(root)
+    registry = root / ".open-brain/runtime-sessions/registry.lock"
+    with (
+        pytest.raises(LocalRuntimeSessionError, match="at close") as raised,
+        hold_local_runtime_session(
+            root,
+            identity,
+            legacy_state_exists=False,
+            recover_abandoned_sessions=lambda: None,
+            registry_wait_seconds=0.05,
+        ),
+    ):
+        held = registry.open("r+b")
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    held.close()
+    assert not isinstance(raised.value, LocalRuntimeBusyError)
+
+
+def test_writer_lease_busy_at_close_is_not_retryable_busy(tmp_path: Path) -> None:
+    from open_brain_engine.storage.locks import LockBusyError
+
+    root = _root(tmp_path)
+    identity = capture_root_identity(root)
+
+    def recovery_lease_is_busy() -> None:
+        raise LockBusyError("synthetic writer lease is held")
+
+    with (
+        pytest.raises(LocalRuntimeSessionError, match="at close") as raised,
+        hold_local_runtime_session(
+            root,
+            identity,
+            legacy_state_exists=False,
+            recover_abandoned_sessions=recovery_lease_is_busy,
+        ),
+    ):
+        pass
+    assert not isinstance(raised.value, LocalRuntimeBusyError)
+    # The CLI's busy check follows __context__, so nothing busy may ride along.
+    assert raised.value.__context__ is None
+
+
+def test_body_error_wins_over_a_busy_close(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    identity = capture_root_identity(root)
+    registry = root / ".open-brain/runtime-sessions/registry.lock"
+    with (
+        pytest.raises(KeyError, match="body failed"),
+        hold_local_runtime_session(
+            root,
+            identity,
+            legacy_state_exists=False,
+            recover_abandoned_sessions=lambda: None,
+            registry_wait_seconds=0.05,
+        ),
+    ):
+        held = registry.open("r+b")
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        raise KeyError("body failed")
+    held.close()
+
+
+def test_registry_wait_seconds_overrides_the_default(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    identity = capture_root_identity(root)
+    with hold_local_runtime_session(
+        root,
+        identity,
+        legacy_state_exists=False,
+        recover_abandoned_sessions=lambda: None,
+    ):
+        pass
+    registry = root / ".open-brain/runtime-sessions/registry.lock"
+    with registry.open("r+b") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        started = time.monotonic()
+        with (
+            pytest.raises(LocalRuntimeBusyError),
+            hold_local_runtime_session(
+                root,
+                identity,
+                legacy_state_exists=False,
+                recover_abandoned_sessions=lambda: None,
+                registry_wait_seconds=0.05,
+            ),
+        ):
+            pass
+        assert time.monotonic() - started < 1
 
 
 @pytest.mark.parametrize("legacy_state_exists", [False, True])

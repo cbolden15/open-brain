@@ -189,8 +189,12 @@ def open_local_brain(
     receipt_protection_port: ReceiptProtectionPort | None = None,
     receipt_protection_timeout_seconds: float = 5.0,
     existing_only: bool = False,
+    registry_wait_seconds: float | None = None,
 ) -> Iterator[LocalBrainSession]:
-    """Bootstrap and hold one default Brain through a direct local operation."""
+    """Bootstrap and hold one default Brain through a direct local operation.
+
+    registry_wait_seconds bounds the wait for another client's registry admission.
+    """
     existing_profile = (
         open_existing_single_user_local(selection.brain_root) if existing_only else None
     )
@@ -299,6 +303,7 @@ def open_local_brain(
             admit_session=admit,
             admission_profile=profile,
             held_admission=None if transaction is None else transaction._admission,
+            registry_wait_seconds=registry_wait_seconds,
         ):
             if tasks is None:
                 raise RuntimeError("local engine admission did not complete")

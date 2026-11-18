@@ -545,6 +545,65 @@ def test_privacy_repair_cli_real_lock_busy_is_database_busy(
     assert "synthetic private" not in output.out
 
 
+@pytest.mark.parametrize("busy_error", ["session_registry", "engine_registry"])
+def test_runtime_registry_busy_is_retryable_database_busy(
+    busy_error: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A start that outwaits another client's registry admission is retryable (0.2.4 said
+    # "could not complete the local command").
+    from open_brain_engine.engine.runtime_admission import RuntimeRegistryBusy
+
+    from open_brain.services.local_runtime_session import LocalRuntimeBusyError
+
+    request_file = tmp_path / "request.json"
+    request_file.write_text(
+        json.dumps(_privacy_request("capture_synthetic", "a" * 64, operation_id="repair.busy")),
+        encoding="utf-8",
+    )
+
+    @contextmanager
+    def busy(*_args: object, **_kwargs: object) -> Iterator[None]:
+        if busy_error == "session_registry":
+            raise LocalRuntimeBusyError("runtime session registry is busy")
+        raise RuntimeRegistryBusy()
+        yield
+
+    monkeypatch.setattr(entrypoints, "select_local_root", lambda **_kwargs: object())
+    monkeypatch.setattr(entrypoints, "open_local_brain", busy)
+    assert run_cli(_privacy_cli_arguments(tmp_path / "brain", request_file)) == 75
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["error"]["code"] == "database_busy"
+
+
+def test_cli_waits_out_another_clients_registry_admission(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A real Brain admits in 6 to 12 s; 0.2.4 gave up after 2 s. Hold the real registry
+    # lock past the library default and require the CLI command to succeed.
+    import fcntl
+    import threading
+
+    root = tmp_path / "brain"
+    assert run_cli(("init", "--data-dir", str(root))) == 0
+    capsys.readouterr()
+    registry = root / ".open-brain/runtime-sessions/registry.lock"
+    with registry.open("r+b") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # 4 s leaves well over 2 s of contention even if the command starts late.
+        release = threading.Timer(4.0, lambda: fcntl.flock(held, fcntl.LOCK_UN))
+        release.start()
+        try:
+            assert run_cli(("status", "--json", "--data-dir", str(root))) == 0
+        finally:
+            release.join()
+    assert "error" not in json.loads(capsys.readouterr().out)
+    assert entrypoints._CLI_REGISTRY_WAIT_SECONDS >= 30
+
+
 def test_privacy_repair_cli_conflict_and_supersession_have_zero_partial_writes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -626,7 +685,7 @@ def test_local_help_and_version_are_root_free(
     ):
         assert command in help_output
     assert run_cli(("--version",), environment={}) == 0
-    assert capsys.readouterr().out == "open-brain 0.2.4\n"
+    assert capsys.readouterr().out == "open-brain 0.2.5\n"
 
 
 def test_mcp_help_names_owner_only_retraction(capsys: pytest.CaptureFixture[str]) -> None:
@@ -969,7 +1028,7 @@ def test_obsidian_plugin_cli_installs_reports_and_removes_owned_assets(
                 "isDesktopOnly": True,
                 "minAppVersion": "1.12.7",
                 "name": "Open Brain",
-                "version": "0.2.4",
+                "version": "0.2.5",
             }
         ),
         encoding="utf-8",
@@ -1812,7 +1871,7 @@ def test_local_dependency_doctor_rejects_an_unconditional_secure_node_dependency
     home = _private_home(tmp_path)
 
     expected = {
-        "open-brain": ["open-brain-engine==0.2.4"],
+        "open-brain": ["open-brain-engine==0.2.5"],
         "open-brain-engine": ["rfc8785<0.2,>=0.1.4"],
         "rfc8785": [],
     }
