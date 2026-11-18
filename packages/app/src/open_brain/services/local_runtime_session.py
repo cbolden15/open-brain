@@ -41,6 +41,10 @@ class LocalRuntimeSessionError(RuntimeError):
     """The foreground runtime-session registry could not fail closed."""
 
 
+class LocalRuntimeBusyError(LocalRuntimeSessionError):
+    """Another client held the registry lock for the whole wait. Retrying is safe."""
+
+
 class LocalRuntimeCompatibilityError(LocalRuntimeSessionError):
     """A schema migration cannot proceed while another runtime is admitted."""
 
@@ -64,8 +68,13 @@ def hold_local_runtime_session(
     admit_session: Callable[[LocalRuntimeSession], object] | None = None,
     admission_profile: LocalEngineContext | None = None,
     held_admission: HeldRuntimeAdmission | None = None,
+    registry_wait_seconds: float | None = None,
 ) -> Iterator[LocalRuntimeSession]:
-    """Register one client and distinguish live peers from abandoned sessions."""
+    """Register one client and distinguish live peers from abandoned sessions.
+
+    registry_wait_seconds bounds each wait for another client's registry lock
+    (default _REGISTRY_LOCK_TIMEOUT_SECONDS); a lock held longer raises a busy error.
+    """
     if held_admission is not None:
         if admission_profile is None:
             raise LocalRuntimeSessionError("held runtime admission requires a profile")
@@ -90,10 +99,15 @@ def hold_local_runtime_session(
         if held_admission is not None:
             pass
         elif admission_profile is None:
-            _acquire_registry_lock(registry_fd)
+            _acquire_registry_lock(registry_fd, registry_wait_seconds)
         else:
             admission_stack.enter_context(
-                hold_runtime_registry(admission_profile, directory_fd, registry_fd)
+                hold_runtime_registry(
+                    admission_profile,
+                    directory_fd,
+                    registry_fd,
+                    wait_seconds=registry_wait_seconds,
+                )
             )
         registry_locked = True
         registry_initialized = _registry_initialized(directory_fd)
@@ -160,7 +174,7 @@ def hold_local_runtime_session(
                     assert admission_profile is not None
                     held_admission.validate(admission_profile)
                 if not registry_locked:
-                    _acquire_registry_lock(registry_fd)
+                    _acquire_registry_lock(registry_fd, registry_wait_seconds)
                     registry_locked = True
                 metadata = os.stat(session_name, dir_fd=directory_fd, follow_symlinks=False)
                 held = os.fstat(session_fd)
@@ -267,8 +281,10 @@ def _remove_stale_sessions(directory_fd: int, stale: dict[str, tuple[int, int]])
         os.fsync(directory_fd)
 
 
-def _acquire_registry_lock(file_fd: int) -> None:
-    deadline = time.monotonic() + _REGISTRY_LOCK_TIMEOUT_SECONDS
+def _acquire_registry_lock(file_fd: int, wait_seconds: float | None = None) -> None:
+    deadline = time.monotonic() + (
+        _REGISTRY_LOCK_TIMEOUT_SECONDS if wait_seconds is None else wait_seconds
+    )
     while True:
         try:
             fcntl.flock(file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -277,7 +293,7 @@ def _acquire_registry_lock(file_fd: int) -> None:
             if error.errno not in {errno.EACCES, errno.EAGAIN}:
                 raise
             if time.monotonic() >= deadline:
-                raise LocalRuntimeSessionError("runtime session registry is busy") from None
+                raise LocalRuntimeBusyError("runtime session registry is busy") from None
             time.sleep(0.01)
 
 
@@ -323,6 +339,7 @@ def _require_private_directory(directory_fd: int) -> None:
 
 __all__ = [
     "LocalRuntimeSession",
+    "LocalRuntimeBusyError",
     "LocalRuntimeCompatibilityError",
     "LocalRuntimeSessionError",
     "RUNTIME_SESSION_VERSION",

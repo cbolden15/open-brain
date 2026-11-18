@@ -27,6 +27,16 @@ _ACTIVE: ContextVar[HeldRuntimeAdmission | None] = ContextVar(
     "engine_runtime_admission", default=None
 )
 _SESSION = re.compile(r"session-[0-9a-f]{32}\.lock")
+# Default wait for another client's registry admission. Callers that can wait longer
+# (the CLI) pass their own wait_seconds.
+RUNTIME_REGISTRY_WAIT_SECONDS = 2.0
+
+
+class RuntimeRegistryBusy(T03Error):
+    """Another client held the registry lock for the whole wait. Retrying is safe."""
+
+    def __init__(self) -> None:
+        super().__init__("operation_pending")
 
 
 def _private_file(directory: int, name: str, *, create: bool = False) -> int:
@@ -90,11 +100,15 @@ def hold_runtime_registry(
     profile: LocalEngineContext,
     directory: int,
     descriptor: int,
+    *,
+    wait_seconds: float | None = None,
 ) -> Iterator[HeldRuntimeAdmission]:
     """Acquire the actual descriptor before issuing a lifetime-bound capability.
 
     App callers enter before creating their own session marker. The captured peer count
     therefore excludes only that future session, never an arbitrary existing marker.
+    A lock still held after wait_seconds (default RUNTIME_REGISTRY_WAIT_SECONDS) raises
+    RuntimeRegistryBusy.
     """
     locked = False
     token = None
@@ -114,7 +128,9 @@ def hold_runtime_registry(
             for handle in (expected, state, root):
                 if handle >= 0:
                     os.close(handle)
-        deadline = time.monotonic() + 2
+        deadline = time.monotonic() + (
+            RUNTIME_REGISTRY_WAIT_SECONDS if wait_seconds is None else wait_seconds
+        )
         while True:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -124,7 +140,7 @@ def hold_runtime_registry(
                 if error.errno not in {errno.EAGAIN, errno.EACCES}:
                     raise
                 if time.monotonic() >= deadline:
-                    raise T03Error("operation_pending") from None
+                    raise RuntimeRegistryBusy() from None
                 time.sleep(0.01)
         peers = 0
         for name in os.listdir(directory):

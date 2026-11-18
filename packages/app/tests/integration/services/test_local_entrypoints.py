@@ -545,6 +545,67 @@ def test_privacy_repair_cli_real_lock_busy_is_database_busy(
     assert "synthetic private" not in output.out
 
 
+@pytest.mark.parametrize("busy_error", ["session_registry", "engine_registry"])
+def test_runtime_registry_busy_is_retryable_database_busy(
+    busy_error: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A start that outwaits another client's registry admission is retryable (0.2.4 said
+    # "could not complete the local command").
+    from open_brain_engine.engine.runtime_admission import RuntimeRegistryBusy
+
+    from open_brain.services.local_runtime_session import LocalRuntimeBusyError
+
+    request_file = tmp_path / "request.json"
+    request_file.write_text(
+        json.dumps(_privacy_request("capture_synthetic", "a" * 64, operation_id="repair.busy")),
+        encoding="utf-8",
+    )
+
+    @contextmanager
+    def busy(*_args: object, **_kwargs: object) -> Iterator[None]:
+        if busy_error == "session_registry":
+            raise LocalRuntimeBusyError("runtime session registry is busy")
+        raise RuntimeRegistryBusy()
+        yield
+
+    monkeypatch.setattr(entrypoints, "select_local_root", lambda **_kwargs: object())
+    monkeypatch.setattr(entrypoints, "open_local_brain", busy)
+    assert run_cli(_privacy_cli_arguments(tmp_path / "brain", request_file)) == 75
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["error"]["code"] == "database_busy"
+
+
+def test_cli_waits_out_another_clients_registry_admission(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A real Brain admits in 6 to 12 s; the CLI must wait longer than that.
+    request_file = tmp_path / "request.json"
+    request_file.write_text(
+        json.dumps(_privacy_request("capture_synthetic", "a" * 64, operation_id="repair.wait")),
+        encoding="utf-8",
+    )
+    waits: list[object] = []
+
+    @contextmanager
+    def busy(*_args: object, **kwargs: object) -> Iterator[None]:
+        waits.append(kwargs.get("registry_wait_seconds"))
+        raise LockBusyError("synthetic busy")
+        yield
+
+    monkeypatch.setattr(entrypoints, "select_local_root", lambda **_kwargs: object())
+    monkeypatch.setattr(entrypoints, "open_local_brain", busy)
+    assert run_cli(_privacy_cli_arguments(tmp_path / "brain", request_file)) == 75
+    capsys.readouterr()
+    assert len(waits) == 1
+    assert isinstance(waits[0], float) and waits[0] >= 30
+
+
 def test_privacy_repair_cli_conflict_and_supersession_have_zero_partial_writes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

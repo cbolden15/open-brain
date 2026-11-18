@@ -59,6 +59,7 @@ from open_brain_engine.engine.privacy_repairs import (
     PrivacyRepairError,
     PrivacyRepairRequest,
 )
+from open_brain_engine.engine.runtime_admission import RuntimeRegistryBusy
 from open_brain_engine.engine.sharing_contracts import SharingError, SharingInspectRequest
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, SessionOrigin, T03Error
 from open_brain_engine.portable.v1 import MAX_PORTABLE_SIDECAR_BYTES, PortableSidecarTooLarge
@@ -174,7 +175,10 @@ from open_brain.services.local_operations import (
 from open_brain.services.local_operations import (
     workspace_status as workspace_status_result,
 )
-from open_brain.services.local_runtime_session import LocalRuntimeCompatibilityError
+from open_brain.services.local_runtime_session import (
+    LocalRuntimeBusyError,
+    LocalRuntimeCompatibilityError,
+)
 from open_brain.services.managed_recovery import (
     ManagedRecoveryCommandFailure,
     run_managed_recovery,
@@ -233,6 +237,9 @@ _EXPORT_ID = re.compile(
     r"^export_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 _MAX_PRIVACY_REPAIR_REQUEST_BYTES = 65_536
+# A CLI client waits out another client's registry admission, which takes 6 to 12 s
+# on a real Brain (about 5,900 captures); the library default is 2 s.
+_CLI_REGISTRY_WAIT_SECONDS = 30.0
 _MAX_STARTUP_POLICY_BYTES = 65_536
 _EXPORT_RECORDS_DEFAULT_LIMIT = 2_000
 _EXPORT_RECORDS_DEFAULT_MAX_BYTES = 16_384
@@ -608,6 +615,7 @@ def _run_parsed_command(
                     selection,
                     filesystem_type_probe=filesystem_type_probe,
                     existing_only=True,
+                    registry_wait_seconds=_CLI_REGISTRY_WAIT_SECONDS,
                 ) as session:
                     return run_consumer_command(parsed, session.tasks, json_output=json_output)
             except ConsumerIntakeError as error:
@@ -638,6 +646,7 @@ def _run_parsed_command(
                     selection,
                     filesystem_type_probe=filesystem_type_probe,
                     existing_only=True,
+                    registry_wait_seconds=_CLI_REGISTRY_WAIT_SECONDS,
                 ) as session:
                     return run_retraction_command(parsed, session.tasks, json_output=json_output)
             except RetractionError as error:
@@ -676,6 +685,7 @@ def _run_parsed_command(
                     selection,
                     filesystem_type_probe=filesystem_type_probe,
                     existing_only=True,
+                    registry_wait_seconds=_CLI_REGISTRY_WAIT_SECONDS,
                 ) as session:
                     return run_embedding_command(parsed, session.tasks, json_output=json_output)
             except EmbeddingPolicyError as error:
@@ -697,6 +707,7 @@ def _run_parsed_command(
                     selection,
                     filesystem_type_probe=filesystem_type_probe,
                     existing_only=True,
+                    registry_wait_seconds=_CLI_REGISTRY_WAIT_SECONDS,
                 ) as session:
                     return run_egress_policy_command(
                         parsed, session.tasks, json_output=json_output
@@ -782,6 +793,7 @@ def _run_parsed_command(
             open_local_brain(
                 selection,
                 filesystem_type_probe=filesystem_type_probe,
+                registry_wait_seconds=_CLI_REGISTRY_WAIT_SECONDS,
             )
             if protection is None
             else open_local_brain(
@@ -789,6 +801,7 @@ def _run_parsed_command(
                 filesystem_type_probe=filesystem_type_probe,
                 receipt_protection_port=protection.port,
                 receipt_protection_timeout_seconds=protection.timeout_seconds,
+                registry_wait_seconds=_CLI_REGISTRY_WAIT_SECONDS,
             )
         )
         with brain_session as session:
@@ -867,6 +880,19 @@ def _run_parsed_command(
         else:
             print(error.code, file=sys.stderr)
         return 2 if error.code == "invalid_arguments" else 1
+    except LocalRuntimeBusyError, RuntimeRegistryBusy:
+        # Another client was opening the Brain for the whole registry wait.
+        if _is_workspace_recovery(parsed):
+            return _write_managed_recovery_failure(
+                "database_busy",
+                schema_upgraded=False,
+                json_output=json_output,
+            )
+        if parsed.command == "import":
+            _write_import_busy(json_output=json_output)
+            return 75
+        _write_database_busy(json_output=json_output)
+        return 75
     except LockBusyError:
         if _is_workspace_recovery(parsed):
             return _write_managed_recovery_failure(
