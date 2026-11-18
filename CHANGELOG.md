@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.5 - 2026-11-18
+
+- Fixed: two `open-brain` commands started together on a large Brain made one of them fail with
+  `local_operation_failed`, for example two `open-brain mcp` sessions. Opening a Brain holds the
+  runtime registry lock while it verifies history, which takes 6 to 12 seconds at about 5,900
+  captures, and the second command gave up after 2 seconds. CLI commands now wait up to 30
+  seconds. A command that still finds the registry busy reports `database_busy` with exit 75, so
+  it can be retried. The library default stays 2 seconds.
+- Changed: opening a Brain verifies its history about 20% faster.
+
 ## 0.2.4 - 2026-11-13
 
 - Fixed: `open-brain export` and `open-brain restore` failed with `local_operation_failed` on a

@@ -32,6 +32,10 @@ Open Brain uses bounded SQLite waits and process locks. A competing local writer
 `database_busy` or exit 75. Wait for the other foreground command to finish, then retry a capture
 with the same idempotency key when one was supplied.
 
+Opening a Brain also holds the runtime registry lock while it verifies history, which takes
+several seconds on a large Brain. A CLI command waits up to 30 seconds for another command to
+finish opening, then reports `database_busy` with exit 75.
+
 The core has no daemon-authority lease, supervisor, scheduler, service unit, or control socket to inspect.
 
 ## Backup and transfer
