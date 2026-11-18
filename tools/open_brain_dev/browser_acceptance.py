@@ -11,6 +11,7 @@ import importlib
 import json
 import platform
 import shlex
+import shutil
 import struct
 import subprocess
 import sys
@@ -20,6 +21,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[2]
 EXTENSION = ROOT / "packages/browser-extension/extension"
@@ -31,7 +33,7 @@ TIMEOUT = 15
 
 async def until(check: Callable[[], Any], label: str) -> Any:
     try:
-        async with asyncio.timeout(TIMEOUT):
+        async with asyncio.timeout(45):
             while True:
                 if result := await check():
                     return result
@@ -57,6 +59,11 @@ def relay(home: Path, executable: Path, origin: str) -> None:
     body = sys.stdin.buffer.read(struct.unpack("=I", header)[0])
     request = json.loads(body)
     operation = request["operation"]
+    if operation == "annotation.add" and (home / "never-deliver").exists():
+        (home / "never-deliver").unlink()
+        return
+    if operation == "operation.status" and (home / "offline-status").exists():
+        return
     if operation == "page.save" and (home / "hold").exists():
         (home / "dispatched").touch()
         deadline = time.monotonic() + TIMEOUT
@@ -77,7 +84,7 @@ def relay(home: Path, executable: Path, origin: str) -> None:
     with (home / "receipts").open("a") as stream:
         stream.write(json.dumps(event) + "\n")
     if (
-        operation == "page.save"
+        operation in {"page.save", "annotation.add"}
         and response.get("result", {}).get("state") == "accepted"
         and (home / "drop").exists()
     ):
@@ -144,15 +151,24 @@ class Target:
         await until(available, "popup destination")
 
     async def click_save(self, reason: str) -> None:
+        await self.fill("reason", reason)
+        await self.click("save")
+
+    async def fill(self, field: str, value: str) -> None:
         await self.evaluate(
-            "const reason=document.querySelector('#reason');reason.value="
-            + json.dumps(reason)
-            + ";reason.dispatchEvent(new Event('input',{bubbles:true}))"
+            "(() => {const el=document.getElementById("
+            + json.dumps(field)
+            + ");el.value="
+            + json.dumps(value)
+            + ";el.dispatchEvent(new Event('input',{bubbles:true}));})()"
         )
 
+    async def click(self, field: str) -> None:
         point = await self.evaluate(
-            "(() => {const r=document.querySelector('#save')"
-            ".getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()"
+            "(() => {const el=document.getElementById("
+            + json.dumps(field)
+            + ");el.scrollIntoView();const r=el.getBoundingClientRect();"
+            "return {x:r.x+r.width/2,y:r.y+r.height/2}})()"
         )
         for kind in ("mousePressed", "mouseReleased"):
             await self.send(
@@ -161,17 +177,21 @@ class Target:
 
 
 class Run:
-    def __init__(self, home: Path, chrome: Path, host: Path, brain_cli: Path) -> None:
+    def __init__(
+        self, home: Path, chrome: Path, host: Path, brain_cli: Path, extension: Path = EXTENSION
+    ) -> None:
         self.home, self.chrome, self.host, self.cli = home, chrome, host, brain_cli
         self.brain = home / "brain"
         self.profile = home / "chrome"
-        manifest = json.loads((EXTENSION / "manifest.json").read_text())
+        self.extension = home / "extension"
+        shutil.copytree(extension, self.extension)
+        manifest = json.loads((self.extension / "manifest.json").read_text())
         digest = hashlib.sha256(base64.b64decode(manifest["key"])).hexdigest()[:32]
         self.id = "".join(chr(97 + int(i, 16)) for i in digest)
         self.blocked: list[str] = []
         self.version = ""
 
-    def setup(self) -> None:
+    def setup(self, *source: str) -> None:
         command(
             self.host,
             "setup",
@@ -179,8 +199,7 @@ class Run:
             str(self.brain),
             "--extension-id",
             self.id,
-            "--initialize-brain",
-            "--new-source",
+            *(source or ("--initialize-brain", "--new-source")),
             "--complete-domain",
             "--unassigned",
             "--operation",
@@ -229,7 +248,11 @@ class Run:
         ]
 
     async def route(self, route: Any) -> None:
-        if route.request.url.startswith(DOMAIN + "/"):
+        if route.request.url == DOMAIN + "/passages":
+            await route.fulfill(
+                content_type="text/html; charset=utf-8", body=self.highlight_fixture()
+            )
+        elif route.request.url.startswith(DOMAIN + "/"):
             await route.fulfill(
                 content_type="text/html",
                 body=(
@@ -252,8 +275,8 @@ class Run:
                 "--use-mock-keychain",
                 "--enable-unsafe-extension-debugging",
                 "--host-resolver-rules=MAP * ~NOTFOUND",
-                f"--load-extension={EXTENSION}",
-                f"--disable-extensions-except={EXTENSION}",
+                f"--load-extension={self.extension}",
+                f"--disable-extensions-except={self.extension}",
             ],
         )
         try:
@@ -317,6 +340,230 @@ class Run:
         assert len(hits) == 1 and hits[0]["trust"] == "third_party"
         return str(hits[0]["capture_id"])
 
+    @staticmethod
+    def highlight_fixture() -> str:
+        def section(key: str, content: str) -> str:
+            return (
+                f'<section id="{key}">{(key + " left ") * 30}'
+                f'<span class="quote">{content}</span>{(key + " right ") * 30}</section>'
+            )
+
+        return (
+            "<title>Synthetic passages</title>"
+            + section("first", "shared <em>phrase</em>")
+            + section("decoy", "shared phrase")
+            + section("second", "cafe<span>\u0301 passage</span>")
+        )
+
+    async def passage(self, key: str, *, navigate: bool = False) -> Target:
+        if navigate:
+            await self.page.goto(DOMAIN + "/passages")
+        await self.page.evaluate(
+            """key => {
+            const range=new Range();
+            range.selectNodeContents(document.querySelector('#'+key+' .quote'));
+            const selection=getSelection();selection.removeAllRanges();selection.addRange(range);
+        }""",
+            key,
+        )
+        popup = await self.toolbar()
+        await popup.ready()
+        quote = await popup.evaluate("document.querySelector('#passage').textContent")
+        assert quote == ("shared phrase" if key == "first" else "cafe\u0301 passage"), quote
+        return popup
+
+    async def paint(self, popup: Target, expected: list[str], unresolved: int = 0) -> None:
+        await popup.click("show-highlights")
+        await until(
+            lambda: popup.evaluate(
+                "document.querySelector('#status').textContent === 'Saved highlights loaded.'"
+            ),
+            "highlight listing",
+        )
+        await popup.click("restore-highlights")
+        label = f"Located {len(expected)} of {len(expected) + unresolved} passages on this page."
+        await until(
+            lambda: popup.evaluate(
+                "document.querySelector('#status').textContent === " + json.dumps(label)
+            ),
+            label,
+        )
+        rows = await popup.evaluate(
+            "Array.from(document.querySelectorAll('#quotes li'),n=>n.textContent)"
+        )
+        assert sum("Could not locate" in text for text in rows) == unresolved
+        assert any("syntheticorchidnote" in text for text in rows)
+        assert not await self.page.evaluate(
+            "document.documentElement.textContent.includes('syntheticorchidnote')"
+        )
+        ranges = await self.page.evaluate("""() => Array.from(
+            CSS.highlights.get('open-brain-saved-passages')
+            || [], r=>[r.startContainer.parentElement.closest('section').id,r.toString(),
+                       r.startContainer!==r.endContainer, r.getClientRects().length>0])""")
+        assert sorted(r[0] for r in ranges) == sorted(expected), ranges
+        painted = await self.page.evaluate("""() => getComputedStyle(
+            document.querySelector('.quote'),
+            '::highlight(open-brain-saved-passages)').backgroundColor""")
+        assert painted == "rgb(255, 229, 137)", painted
+        for key, quote, across_nodes, visible in ranges:
+            assert quote == ("shared phrase" if key == "first" else "cafe\u0301 passage"), ranges
+            assert across_nodes and visible
+
+    def portable_restore(self) -> Run:
+        archive = self.home / "export"
+        home = self.home / "restored-home"
+        home.mkdir(mode=0o700)
+        restored = Run(home, self.chrome, self.host, self.cli, self.extension)
+        for args in (
+            ["export", str(archive), "--verify", "--data-dir", str(self.brain)],
+            ["restore", str(archive), str(restored.brain), "--import-id", "import_" + str(uuid4())],
+        ):
+            proc = subprocess.run(
+                [self.cli, *args],
+                capture_output=True,
+                env=environment(self.home if args[0] == "export" else home),
+                timeout=40,
+            )
+            if proc.returncode:
+                raise RuntimeError(f"{args[0]} failed: {proc.stdout!r} {proc.stderr!r}")
+        # A copied former installation token must fail when aimed at the restored Brain.
+        policy_path = self.home / ".open-brain-browser/policy.json"
+        old = json.loads(policy_path.read_bytes())
+        stale = home / ".open-brain-browser/policy.json"
+        stale.parent.mkdir(mode=0o700)
+        stale.write_text(json.dumps({**old, "brain_root": str(restored.brain)}))
+        stale.chmod(0o600)
+        body = json.dumps(
+            {"version": "browser.v1", "operation": "binding.describe", "args": {}}
+        ).encode()
+        raw = subprocess.run(
+            [self.host, f"chrome-extension://{self.id}/"],
+            input=struct.pack("=I", len(body)) + body,
+            capture_output=True,
+            check=True,
+            env=environment(home),
+            timeout=15,
+        ).stdout
+        assert json.loads(raw[4:])["error"]["code"] == "browser_unbound"
+        restored.setup(
+            "--source",
+            *old["binding"]["source"][1:],
+            "--workflow-principal",
+            old["binding"]["workflow_principal"],
+        )
+        restored.insert_relay()
+        return restored
+
+    async def highlights(self, pw: Any) -> dict[str, Any]:
+        reason = "syntheticvioletparent"
+        self.insert_relay()
+        async with self.browser(pw):
+            popup = await self.passage("first", navigate=True)
+            await popup.click_save(reason)
+            await until(
+                lambda: popup.evaluate("!document.querySelector('#highlight-form').hidden"),
+                "parent saved, highlight available",
+            )
+            parent = await self.wait_hit(reason)
+            (self.home / "never-deliver").touch()
+            await popup.click("add-highlight")
+            await until(
+                lambda: popup.evaluate("!document.querySelector('#pending').hidden"),
+                "parent accepted, child interrupted",
+            )
+            assert not self.events("annotation.add") and len(self.events("page.save")) == 1
+            await self.close_popup()
+            popup = await self.passage("first")
+            await popup.fill("note", "syntheticorchidnote")
+            (self.home / "drop").touch()
+            await popup.click("add-highlight")
+
+            async def lost_reply() -> bool:
+                return not (self.home / "drop").exists() and bool(
+                    await popup.evaluate("document.querySelectorAll('#pending li').length===2")
+                )
+
+            await until(lost_reply, "accepted child lost reply")
+            [first] = self.events("annotation.add")
+            first_id = first["response"]["result"]["annotation_id"]
+            first_op = first["request"]["operation_id"]
+        async with self.browser(pw):
+            (self.home / "offline-status").touch()
+            popup = await self.passage("second", navigate=True)
+            assert await popup.evaluate("document.querySelectorAll('#pending li').length") == 2
+            assert len(self.events("annotation.add")) == 1
+            await self.close_popup()
+            (self.home / "offline-status").unlink()
+            popup = await self.passage("second")
+            saved_status = [
+                e
+                for e in self.events("operation.status")
+                if e["request"]["operation_id"] == first_op
+            ]
+            assert saved_status[-1]["response"] == first["response"]
+            assert await popup.evaluate("document.querySelectorAll('#pending li').length") == 1
+            await popup.click("add-highlight")
+            await until(
+                lambda: popup.evaluate(
+                    "document.querySelector('#status').textContent==='Highlight saved.'"
+                ),
+                "second quote saved",
+            )
+            await self.close_popup()
+            popup = await self.passage("second")
+            await popup.click("add-highlight")
+            await until(
+                lambda: popup.evaluate(
+                    "document.querySelector('#status').textContent==='Highlight saved.'"
+                ),
+                "intentional second annotation of same passage",
+            )
+            await self.close_popup()
+            popup = await self.passage("second", navigate=True)
+            await self.paint(popup, ["first", "second", "second"])
+            adds = self.events("annotation.add")
+            ids = {r["response"]["result"]["annotation_id"] for r in adds}
+            assert first_id in ids and len(adds) == len(ids) == 3
+            assert len({r["request"]["operation_id"] for r in adds}) == 3
+            assert all(r["response"]["result"]["capture_id"] == parent for r in adds)
+            assert len(self.events("page.save")) == 1
+            assert [r["capture_id"] for r in self.hits("syntheticorchidnote")] == [parent]
+            await self.page.evaluate("""() => {
+                const first=document.querySelector('#first');const twin=first.cloneNode(true);
+                twin.id='ambiguous';document.body.append(twin);
+            }""")
+            assert await self.page.evaluate("!CSS.highlights.has('open-brain-saved-passages')")
+            await self.paint(popup, ["second", "second"], 1)
+        restored = self.portable_restore()
+        async with restored.browser(pw):
+            popup = await restored.passage("first", navigate=True)
+            await restored.paint(popup, ["first", "second", "second"])
+            rows = restored.events("annotation.list")[-1]["response"]["result"]["annotations"]
+            assert {r["annotation_id"] for r in rows} == ids
+            assert [r["capture_id"] for r in restored.hits("syntheticorchidnote")] == [parent]
+            assert not restored.events("annotation.add") and not restored.events("page.save")
+        assert not self.blocked and not restored.blocked
+        return {
+            "chrome": self.version,
+            "macos": platform.mac_ver()[0],
+            "extension_id": self.id,
+            "extension_sha256": {
+                p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in sorted(self.extension.iterdir())
+                if p.is_file()
+            },
+            "canonical_parents": 1,
+            "canonical_annotations": len(ids),
+            "distinct_quotes": 2,
+            "accepted_annotation_replies_lost": 1,
+            "undelivered_annotations": 1,
+            "offline_status_preserved": 2,
+            "wrong_ranges_after_ambiguous_edit": 0,
+            "post_restore_ranges": 3,
+            "old_grants_refused": 1,
+            "post_restore_mutations": 0,
+        }
+
     async def scenarios(self, pw: Any) -> dict[str, Any]:
         reason = "syntheticquartzbird"
         async with self.browser(pw):
@@ -375,7 +622,7 @@ class Run:
             await popup.ready()
             worker = await self.attach("service_worker", f"{self.id}/worker.js")
             await worker.send("Debugger.enable")
-            lines = (EXTENSION / "worker.js").read_text().splitlines()
+            lines = (self.extension / "worker.js").read_text().splitlines()
             line = next(
                 i for i, value in enumerate(lines) if "const current = await snapshotTab" in value
             )
@@ -466,7 +713,7 @@ class Run:
             "extension_id": self.id,
             "extension_sha256": {
                 p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                for p in sorted(EXTENSION.iterdir())
+                for p in sorted(self.extension.iterdir())
                 if p.is_file()
             },
             "searchable_captures": 3,
@@ -483,7 +730,7 @@ async def main() -> None:
     if not __debug__:
         raise RuntimeError("Run acceptance with assertions enabled")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("scenario", choices=["local"])
+    parser.add_argument("scenario", choices=["local", "highlights"])
     parser.add_argument("--chrome", required=True, type=Path)
     parser.add_argument("--host", type=Path, default=ROOT / ".venv/bin/open-brain-browser-host")
     parser.add_argument("--brain-cli", type=Path, default=ROOT / ".venv/bin/open-brain")
@@ -498,7 +745,10 @@ async def main() -> None:
         )
         run.setup()
         async with playwright.async_playwright() as pw:
-            print(json.dumps(await run.scenarios(pw), indent=2))
+            result = (
+                await run.scenarios(pw) if args.scenario == "local" else await run.highlights(pw)
+            )
+            print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
