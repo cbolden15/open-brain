@@ -279,3 +279,8 @@ def test_revisit_and_recovery_remote_results() -> None:
     assert remote.validate_result("operation.list", cursor, intents)
     assert not remote.validate_result("operation.list", {**cursor, "after": op}, intents)
     assert not remote.validate_result("operation.list", cursor, {**intents, "next_after": "bad"})
+    later, earlier = sorted((str(uuid4()), str(uuid4())), reverse=True)
+    family = {"intents": [{"id": earlier, "state": "pending"}], "next_after": earlier}
+    assert remote.validate_result("operation.list", {"limit": 1, "after": later}, family)
+    repeated = {"intents": [{"id": earlier, "state": "pending"}] * 2, "next_after": None}
+    assert not remote.validate_result("operation.list", {"limit": 2, "after": later}, repeated)

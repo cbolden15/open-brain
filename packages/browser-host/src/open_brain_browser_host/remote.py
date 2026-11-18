@@ -265,16 +265,18 @@ def _recovery_page(args: Mapping[str, object], result: dict[str, object]) -> boo
     after = args.get("after") or ""
     if not isinstance(after, str):
         return False
+    seen = {after}
     for row in rows:
         if (
             not isinstance(row, dict)
             or set(row) != {"id", "state"}
             or not _uuid(row["id"])
-            or row["id"] <= after
+            or row["id"] in seen
             or row["state"] not in ("pending", "accepted")
         ):
             return False
         after = row["id"]
+        seen.add(after)
     return result["next_after"] is None or (len(rows) == limit and result["next_after"] == after)
 
 
