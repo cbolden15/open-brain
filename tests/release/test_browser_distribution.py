@@ -163,3 +163,25 @@ def test_reinstalled_host_recovers_lost_highlight_under_fresh_grant(
     assert len(rows["annotations"]) == 1  # type: ignore[arg-type]
     assert setup.main([*args, "--new-source"]) == 0
     assert dispatch(policy.load(), recover) == {"intents": [], "next_after": None}
+
+
+def test_identical_foreign_manifest_cannot_be_adopted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    executable = tmp_path / "host"
+    executable.touch(mode=0o700)
+    existing, target = tmp_path / "original", tmp_path / "second"
+    grant = policy.Policy("a" * 32, tmp_path / "brain", "0" * 64, {})
+    original = policy.install(grant, executable, user_data_dir=existing)
+    foreign = target / "NativeMessagingHosts" / original.name
+    foreign.parent.mkdir(parents=True)
+    foreign.write_bytes(original.read_bytes())
+    foreign.chmod(0o600)
+    with pytest.raises(ValueError):
+        policy.install(grant, executable, user_data_dir=target)
+    with policy.lock_setup(create=False) as fd:
+        assert policy.registration_status(fd, target)["state"] == "foreign"
+        with pytest.raises(ValueError):
+            policy.unregister(fd, target)
+    assert foreign.read_bytes() == original.read_bytes()

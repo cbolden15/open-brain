@@ -367,9 +367,9 @@ def install(
         allowed = [digest]
         try:
             current = hashlib.sha256(_read_private(fd, path.name)).hexdigest()
+            if current not in _registration_hashes(setup_directory, parts):
+                raise ValueError("native registration belongs to a different installation")
             if current != digest:
-                if current not in _registration_hashes(setup_directory, parts):
-                    raise ValueError("native registration belongs to a different installation")
                 allowed.append(current)
         except FileNotFoundError:
             pass
