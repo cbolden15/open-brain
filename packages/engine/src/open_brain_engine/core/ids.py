@@ -5,7 +5,7 @@ import json
 import re
 import unicodedata
 from hashlib import sha256
-from typing import NewType
+from typing import NewType, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 CaptureId = NewType("CaptureId", str)
@@ -147,7 +147,54 @@ def _normalize_legacy_json(value: object) -> object:
     return value
 
 
+_PORTABLE_LEAF_TYPES = frozenset({int, bool, type(None)})
+
+
+def _nfc(text: str) -> str:
+    # ASCII text is already NFC; skipping the call keeps the result identical.
+    return text if text.isascii() else unicodedata.normalize("NFC", text)
+
+
 def _normalize_portable_json(value: object) -> object:
+    """Fast path for exact JSON types; any other type takes the general path below.
+
+    Historical verification canonicalizes millions of values per Brain open, so
+    leaves are normalized inline instead of through one call each.
+    """
+    kind = type(value)
+    if kind is str:
+        return _nfc(cast(str, value))
+    if kind is dict:
+        normalized: dict[str, object] = {}
+        for key, item in cast(dict[object, object], value).items():
+            if type(key) is not str:
+                return _normalize_portable_json_general(value)
+            normalized_key = _nfc(key)
+            if normalized_key in normalized:
+                raise ValueError("canonical JSON rejects normalized key collision")
+            item_kind = type(item)
+            if item_kind is str:
+                normalized[normalized_key] = _nfc(cast(str, item))
+            elif item_kind in _PORTABLE_LEAF_TYPES:
+                normalized[normalized_key] = item
+            else:
+                normalized[normalized_key] = _normalize_portable_json(item)
+        return normalized
+    if kind is list or kind is tuple:
+        return [
+            _nfc(item)
+            if type(item) is str
+            else item
+            if type(item) in _PORTABLE_LEAF_TYPES
+            else _normalize_portable_json(item)
+            for item in cast(list[object], value)
+        ]
+    if kind in _PORTABLE_LEAF_TYPES:
+        return value
+    return _normalize_portable_json_general(value)
+
+
+def _normalize_portable_json_general(value: object) -> object:
     if isinstance(value, float):
         raise ValueError("Portable canonical JSON rejects floats")
     if isinstance(value, str):
