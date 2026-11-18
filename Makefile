@@ -27,6 +27,7 @@ build: plugin-build
 	uv build --no-sources --project packages/app --out-dir dist
 	uv build --no-sources --project packages/connectors --out-dir dist
 	uv build --no-sources --project packages/collector --out-dir dist
+	uv build --no-sources --project packages/browser-host --out-dir dist
 
 test:
 	uv run --frozen pytest -q -n auto
@@ -107,4 +108,14 @@ contributor-check-without-tests:
 
 verify: lint typecheck test verify-without-tests
 
-verify-without-tests: lint typecheck build plugin-test
+verify-without-tests: lint typecheck build plugin-test browser-test
+
+.PHONY: browser-candidate browser-test
+browser-test:
+	node --test packages/browser-extension/tests/*.mjs
+
+browser-candidate:
+	mkdir -p build/browser
+	uv run --frozen --all-packages --group native-build python -m PyInstaller --noconfirm --distpath build/browser/native --workpath build/browser/work release/open-brain-browser-host/open-brain-browser-host.spec
+	uv run --frozen python -m tools.open_brain_dev.browser_distribution build/browser/open-brain-bookmarks.zip
+	uv run --frozen python -m tools.open_brain_dev.browser_host_archive build/browser/native/open-brain-browser-host build/browser

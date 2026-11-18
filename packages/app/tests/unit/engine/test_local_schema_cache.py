@@ -53,7 +53,9 @@ def test_expected_shape_tracks_historical_catalog_and_flags(
     assert local_schema._expected_shape(13, False, False) != current
 
 
-@pytest.mark.parametrize("version", [6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22])
+@pytest.mark.parametrize(
+    "version", [6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
+)
 def test_classifier_builds_only_requested_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: int
 ) -> None:
@@ -74,7 +76,7 @@ def test_classifier_builds_only_requested_schema(
     with sqlite3.connect(profile.root / local_schema.PHASE1_STATE_DATABASE) as connection:
         state = local_schema.classify_local_schema(connection)
     assert state == local_schema.SchemaState(
-        "current" if version == 23 else "supported_old", version
+        "supported_old", version
     )
     assert requested == [(version + 2, False, True)]
 

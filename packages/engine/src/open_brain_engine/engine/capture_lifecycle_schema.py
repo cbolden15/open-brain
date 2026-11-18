@@ -79,6 +79,11 @@ def migrate_capture_lifecycle(
             21,
             22,
             23,
+            24,
+            25,
+            26,
+            27,
+            28,
         }:
             return
         if state.state != "supported_old" or state.version != 17:

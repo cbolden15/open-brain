@@ -188,3 +188,9 @@ standard Shortcuts actions.
 On the Mac that runs the collector, select the `saved-items` folder inside the Shortcuts folder of
 iCloud Drive. A wrong UTC offset only changes which of two saves of the same URL in one scan wins;
 it never drops a save.
+
+### Browser access to protected saved items
+
+A browser can look up the saved items visible under its current local grant. Creating a new item also requires explicit write authority for the entire selected source. If a saved item has been classified secret or has unknown privacy, new browser saves for that source are refused. Existing visible pages can still be looked up, and an existing visible operation can be reconciled.
+
+After restoring an older folder delivery, the Brain may know that a protected saved item exists without knowing which folder produced it. In that case every source that could own it refuses new browser saves. An owner who knows the original source identifiers and the exact original URL can supply them to local browser setup with `--source CONNECTION_ID RESOURCE_ID --recover-url URL`. The engine verifies the resulting delivery identity against the retained capture. This lets other sources resume writes. The protected source keeps its read restrictions. Without the original evidence, use scoped lookup or the existing folder workflow.

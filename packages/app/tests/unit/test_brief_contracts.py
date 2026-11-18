@@ -128,6 +128,7 @@ def test_limits_are_the_spec_bounds() -> None:
 def test_enums_are_the_registered_values() -> None:
     assert [kind.value for kind in BriefItemKind] == [
         "followup_due",
+        "revisit_due",
         "followup_new_evidence",
         "followup_open",
         "source_unavailable",
@@ -137,6 +138,7 @@ def test_enums_are_the_registered_values() -> None:
     assert [code.value for code in BriefReasonCode] == [
         "overdue",
         "due_today",
+        "revisit_date_reached",
         "new_evidence",
         "open_owned",
         "captures_unavailable",

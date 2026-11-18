@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased candidate - 2026-11-18
+
+- Added optional Chrome capture with source-scoped lookup, multiple searchable highlights, filing, resumable bookmark imports and calendar-day revisits in the daily brief.
+- Portable Brain 23 preserves saved-item source identity, operation receipts, filing evidence for fragment-sensitive folder saves, and revisit dates. A restored Brain requires fresh browser authorization.
+- Added an optional foreground native host and an unpacked Chrome extension candidate (0.1.0). The store-signed extension, Linux installation and separate-machine SSH qualification are pending.
+
 ## 0.2.5 - 2026-11-18
 
 - Fixed: two `open-brain` commands started together on a large Brain made one of them fail with

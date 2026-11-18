@@ -628,7 +628,9 @@ class LiveCaptureService:
             intakes=intakes,
         )
 
-    def _submit(self, intake: SourceRecordIntake) -> tuple[str, str | None]:
+    def _submit(
+        self, intake: SourceRecordIntake, selection: SourceResourceSelection
+    ) -> tuple[str, str | None]:
         if self._sink is not None:
             result = self._sink(intake)
             if getattr(result, "outcome", None) == "history_only":
@@ -654,7 +656,17 @@ class LiveCaptureService:
         text = f"Source revision: {intake.key.revision_identity()}\n\n{intake.text}"
         if len(text) > 65_536:
             raise LiveSourceError("source_content_too_large")
-        sink = collector_capture_sink(self._brain_root)
+        if selection.connector_name == "saved_item":
+            from open_brain_engine.engine.saved_item_identity import SavedItemSource
+
+            source = SavedItemSource(
+                selection.connector_name, selection.connection_id, selection.resource_id
+            )
+            sink = collector_capture_sink(
+                self._brain_root, selected=(source, intake.key.external_id)
+            )
+        else:
+            sink = collector_capture_sink(self._brain_root)
         # Rebuild the intake with the revision marker before handing it to the
         # shared verifier. A queued receipt releases provider custody only
         # after that verifier binds Brain, epoch, delivery, request digest,
@@ -705,7 +717,7 @@ class LiveCaptureService:
             self._save(current)
             intake = self._custody.intake(receipt_id)
             try:
-                outcome, capture_id = self._submit(intake)
+                outcome, capture_id = self._submit(intake, _selection(current["selection"]))
             except Exception as error:
                 if self._is_item_conflict(error):
                     current["retry_receipts"] = [
@@ -815,7 +827,7 @@ class LiveCaptureService:
                         )
                         continue
                     try:
-                        outcome, capture_id = self._submit(intake)
+                        outcome, capture_id = self._submit(intake, _selection(latest["selection"]))
                     except Exception as error:
                         if not self._is_item_conflict(error):
                             raise

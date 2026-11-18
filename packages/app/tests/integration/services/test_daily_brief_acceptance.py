@@ -49,6 +49,7 @@ RECORDED = datetime(2026, 9, 1, 9, 0, tzinfo=UTC)
 
 RANK_ORDER = (
     BriefItemKind.FOLLOWUP_DUE,
+    BriefItemKind.REVISIT_DUE,
     BriefItemKind.SOURCE_UNAVAILABLE,
     BriefItemKind.FOLLOWUP_NEW_EVIDENCE,
     BriefItemKind.FOLLOWUP_OPEN,
@@ -950,3 +951,64 @@ def test_stale_days_and_unknown_space_are_validated_not_guessed(brain: Brain) ->
     assert "source_stale" not in _kinds(wide)
     assert wide["coverage"]["families_stale"] == 0
     assert wide["coverage"]["families_checked"] == 3
+
+
+def test_due_revisit_in_full_brief_respects_scope_and_retraction(brain: Brain) -> None:
+    from uuid import uuid4
+
+    from open_brain_engine.engine.browser_pages import BrowserOwnerSetup, BrowserPages
+
+    from open_brain.services.t03_adapters import owner_authority_for_principal
+    from open_brain_browser_host.operations import Request, dispatch
+    from open_brain_browser_host.policy import Policy, binding_value
+
+    _seed_followups(brain)
+    profile = brain.engine.profile
+    owner = owner_authority_for_principal(principal_id=profile.owner_actor_id, session_id="owner")
+    setup = BrowserOwnerSetup(profile, owner)
+    token = setup.bind(
+        setup.create_source(),
+        tiers=["public", "work", "personal"],
+        spaces=[None],
+        operations=["lookup", "save", "status"],
+        complete_domain=True,
+    )
+    policy = Policy(
+        "a" * 32, brain.root, token, binding_value(BrowserPages(profile).binding(token))
+    )
+    url = "https://example.test/revisit"
+    capture = str(
+        dispatch(policy, Request("save", str(uuid4()), {"url": url, "reason": "brief marker"}))[
+            "capture_id"
+        ]
+    )
+    dispatch(
+        policy,
+        Request(
+            "revisit.set",
+            str(uuid4()),
+            {
+                "url": url,
+                "capture_id": capture,
+                "local_date": "2024-02-29",
+                "zone": "America/New_York",
+            },
+        ),
+    )
+    brief = brain.brief()
+    assert len(brief["items"]) == 5
+    assert _kinds(brief)[:2] == ["followup_due", "revisit_due"]
+    assert brief["items"][1]["ref"] == "revisit:" + capture
+    assert brief["items"][1]["reasons"] == ["revisit_date_reached"]
+
+    def restricted(adapter: Any) -> None:
+        result = _ok(adapter.call_tool("brain_brief", {}))
+        assert "revisit_due" not in _kinds(result)
+        assert capture not in json.dumps(result)
+
+    brain.mcp(restricted, grants=(BRIEF_GRANT_READ,), read_tiers=("work",))
+    preview = brain.engine.lifecycle.preview_retraction(capture_id=capture, authority=owner)
+    brain.engine.lifecycle.commit_retraction(
+        str(preview["preview_id"]), str(uuid4()), authority=owner
+    )
+    assert "revisit_due" not in _kinds(brain.brief())

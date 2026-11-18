@@ -647,6 +647,38 @@ class CaptureLifecycleTasks:
         result = journal.retract(request)
         if journal.eligibility_generation != before:
             self._advance(journal)
+            version = journal.connection.execute("PRAGMA user_version").fetchone()[0]
+            if version >= 28:
+                for route in journal.connection.execute(
+                    "SELECT r.route_id,r.capture_id FROM browser_filing_witnesses w "
+                    "JOIN route_operations r USING (route_id)"
+                ).fetchall():
+                    if not journal.permits_capture(route["capture_id"]):
+                        journal.connection.execute(
+                            "DELETE FROM browser_filing_witnesses WHERE route_id=?",
+                            (route["route_id"],),
+                        )
+            if version >= 27:
+                for (capture_id,) in journal.connection.execute(
+                    "SELECT DISTINCT capture_id FROM browser_revisits WHERE state='accepted'"
+                ).fetchall():
+                    if not journal.permits_capture(capture_id):
+                        journal.connection.execute(
+                            "UPDATE browser_revisits SET state='withdrawn',local_date=NULL,"
+                            "zone=NULL WHERE capture_id=?", (capture_id,),
+                        )
+            if version >= 26:
+                for (capture_id,) in journal.connection.execute(
+                    "SELECT DISTINCT capture_id FROM browser_annotations WHERE state='accepted'"
+                ).fetchall():
+                    if not journal.permits_capture(capture_id):
+                        journal.connection.execute(
+                            "UPDATE browser_annotations SET state='withdrawn',quote=NULL,"
+                            "prefix=NULL,suffix=NULL,note=NULL WHERE capture_id=?", (capture_id,),
+                        )
+                        journal.connection.execute(
+                            "DELETE FROM search_documents WHERE capture_id=?", (capture_id,),
+                        )
             if journal.connection.execute("PRAGMA user_version").fetchone()[0] >= 19:
                 # Current readers enforce the authoritative marker before using
                 # projections. The decision/receipt never waits on row cleanup.

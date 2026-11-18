@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Save to Open Brain</title>
+<link rel="stylesheet" href="popup.css"><script type="module" src="popup.js"></script></head>
+<body><main>
+<h1>Save to Open Brain</h1>
+<p id="status" role="status" aria-live="polite">Checking this page…</p>
+<section id="preview" hidden>
+<h2 id="title"></h2><p id="url"></p><blockquote id="passage"></blockquote>
+<p>Destination · <strong id="destination"></strong></p>
+<p id="existing" hidden>Already saved in this source. The original reason is retained.</p>
+<form id="page-form"><label for="reason">Why save this page?</label>
+<textarea id="reason" required maxlength="560" rows="3"></textarea>
+<button type="submit" id="save">Save page</button></form>
+<form id="highlight-form" hidden>
+<label for="note">Highlight note (optional)</label>
+<textarea id="note" rows="2" maxlength="2048"></textarea>
+<button id="add-highlight" type="submit">Save highlight</button>
+</form>
+<details id="revisit-edit" hidden><summary>Revisit this page</summary>
+<p id="revisit-status" role="status" aria-live="polite"></p>
+<form id="revisit-form"><label for="revisit-date">Revisit date</label>
+<input id="revisit-date" type="date" required>
+<label for="revisit-zone">Time zone (for example, America/Chicago)</label>
+<input id="revisit-zone" required maxlength="128">
+<button type="submit" id="revisit-set">Save revisit date</button></form>
+<button type="button" id="revisit-dismiss" hidden>Dismiss revisit</button>
+<button type="button" id="revisit-clear" hidden>Clear revisit date</button></details>
+<section id="filing" hidden aria-label="Filing">
+<p id="current-space"></p><button id="show-spaces" type="button">Choose filing space</button>
+<form id="space-form" hidden><label for="space">File saved page in</label>
+<select id="space"></select><button id="file-page" type="submit">File page</button>
+<button id="more-spaces" type="button" hidden>More spaces</button></form></section>
+<section id="highlights" hidden aria-label="Saved highlights">
+<button id="show-highlights" type="button">Show saved highlights</button>
+<div id="highlight-list" hidden>
+<ol id="quotes"></ol>
+<button id="restore-highlights" type="button">Highlight these passages on the page</button>
+<button id="previous-highlights" type="button">Previous highlights</button>
+<button id="next-highlights" type="button">More highlights</button>
+</div>
+</section>
+</section>
+<details id="due-panel" hidden><summary>Due revisits</summary>
+<p id="due-status" role="status" aria-live="polite"></p><ol id="due-rows"></ol>
+<button id="due-back" type="button" hidden>Previous revisits</button>
+<button id="due-more" type="button" hidden>More revisits</button></details>
+<details id="import-panel" hidden><summary>Import bookmarks</summary>
+<p id="import-status" role="status" aria-live="polite"></p>
+<form id="import-form"><label for="bookmarks">Bookmark file</label>
+<input id="bookmarks" type="file" accept=".html,.htm,.txt,text/html,text/plain" required>
+<label for="bookmark-format">File format</label><select id="bookmark-format">
+<option value="html">Bookmark HTML</option><option value="urls">One HTTPS URL per line</option></select>
+<label for="import-reason">Why save these bookmarks?</label>
+<textarea id="import-reason" maxlength="560" required rows="2"></textarea>
+<button type="submit">Preview bookmarks</button></form>
+<div id="import-job" hidden><ol id="import-rows"></ol>
+<button id="import-previous" type="button" hidden>Previous rows</button>
+<button id="import-next" type="button" hidden>More rows</button>
+<button id="import-confirm" type="button" hidden>Confirm import</button>
+<button id="import-resume" type="button" hidden>Resume import</button>
+<button id="import-cancel" type="button">Cancel import</button>
+<button id="import-done" type="button" hidden>Close results</button>
+</div></details>
+<details id="recovery" hidden><summary>Recover saved attempts</summary>
+<p id="recovery-status" role="status" aria-live="polite"></p><ol id="recovery-list"></ol>
+<button type="button" id="recovery-next" hidden>More attempts</button></details>
+<section id="pending" hidden><h2>Unresolved saves</h2><ul></ul></section>
+</main></body></html>

@@ -21,6 +21,12 @@ failure before retrying the suite.
 
 Discovered: 2026-10-28, compact-search final verification.
 
+The saved-items rollout reproduced this with ten workers. The Google Calendar
+drip-feed test reached its 600 ms deadline before the child sent its first
+request. Both calendar transport cases passed in isolation. On the same commit,
+`PYTEST_XDIST_AUTO_NUM_WORKERS=4 make verify` passed all 10,102 Python tests
+that ran and all 704 Obsidian tests.
+
 ### TESTING-019: Scoped MCP discovery expectations also live in collector fixtures
 
 Category: Testing / Capability discovery.
@@ -4918,3 +4924,19 @@ as a code failure. Never write into the worktree during a full verify: the harne
 fail with `source_changed_during_run`.
 
 Discovered: 2026-10-17, G4 gate 5.
+
+### BROWSER-BUILD-001: Native host builds need the pinned PyInstaller wheel
+
+Category: Build pipeline.
+
+A cold uv cache does not contain the optional native-build group. Use the frozen lock with download access on the first build, or prewarm that group before building offline. A separate uv project environment lets the core and browser artifact checks run without replacing the contributor test environment.
+
+Discovered: 2026-11-18, browser saved-items candidate.
+
+### BROWSER-BUILD-002: Chrome needs the native host’s colocated runtime
+
+Category: Build pipeline / macOS.
+
+The PyInstaller one-file host ran from a shell but stalled in the dynamic loader when launched by Chrome. Build the optional host in one-folder mode. Install its executable and `_internal` directory together under `libexec` and link the executable from `bin`. Preserve the runtime’s relative library links.
+
+Discovered: 2026-11-18, real Chrome launch and isolated formula installation.

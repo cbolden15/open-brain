@@ -13,6 +13,7 @@ from open_brain_engine.engine import (
     Provenance,
     ReferencePayload,
 )
+from open_brain_engine.engine.saved_item_identity import source_delivery_id
 from open_brain_engine.engine.source_observation import SourceRevisionObservation
 from open_brain_engine.engine.t03_contracts import T03Error
 
@@ -52,17 +53,9 @@ class SourceRecordKey:
                 raise ConnectorContractError("invalid source record key")
 
     def delivery_id(self) -> str:
-        digest = sha256(
-            "\x1f".join(
-                (
-                    self.connector_name,
-                    self.connection_id,
-                    self.resource_id,
-                    self.external_id,
-                )
-            ).encode("utf-8")
-        ).hexdigest()
-        return f"connector.{self.connector_name}.{digest}"
+        return source_delivery_id(
+            self.connector_name, self.connection_id, self.resource_id, self.external_id
+        )
 
     def revision_identity(self) -> str:
         return sha256(

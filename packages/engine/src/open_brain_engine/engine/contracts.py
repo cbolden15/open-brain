@@ -50,6 +50,7 @@ from .normalization import (
     _text,
 )
 from .privacy_projection import _NARROWED_REASON
+from .saved_item_identity import SavedItemSource
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
 
 if TYPE_CHECKING:
@@ -827,6 +828,11 @@ class PortabilityReceipt:
             16,
             17,
             18,
+            19,
+            20,
+            21,
+            22,
+            23,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -3114,6 +3120,15 @@ class CaptureTask(Protocol):
 
     def public_job_sink(self, context: PublicJobCaptureContext) -> PublicJobCaptureSink: ...
 
+    def selected_saved_item_sink(
+        self,
+        context: PublicJobCaptureContext,
+        source: SavedItemSource,
+        item_key: str,
+        *,
+        authority: EffectiveAuthority,
+    ) -> PublicJobCaptureSink: ...
+
 
 class PublicJobCaptureSink:
     """A capture-only capability for one validated non-owner public-job identity."""
@@ -3123,6 +3138,8 @@ class PublicJobCaptureSink:
         capture: CaptureTask,
         *,
         context: PublicJobCaptureContext,
+        selected_submit: Callable[[CaptureSubmission], CaptureOutcome] | None = None,
+        browser_winner: Callable[[str, str], bool] | None = None,
         brain_fingerprint: str | None = None,
         brain_id: str | None = None,
         issuer_epoch: int | None = None,
@@ -3137,7 +3154,8 @@ class PublicJobCaptureSink:
             or (brain_id is None) != (issuer_epoch is None)
         ):
             raise ValueError("invalid public-job context")
-        self._capture = capture
+        self._browser_winner = browser_winner
+        self._submit = capture.submit if selected_submit is None else selected_submit
         self._context = context
         self._brain_fingerprint = brain_fingerprint
         self._brain_id = brain_id
@@ -3147,6 +3165,13 @@ class PublicJobCaptureSink:
     def context(self) -> PublicJobCaptureContext:
         """Expose only the validated capture actor and role claim bound to this sink."""
         return self._context
+
+    def matches_browser_winner(self, delivery_id: str, request_sha256: str | None) -> bool:
+        return (
+            self._browser_winner is not None
+            and request_sha256 is not None
+            and self._browser_winner(delivery_id, request_sha256)
+        )
 
     @property
     def brain_fingerprint(self) -> str | None:
@@ -3184,7 +3209,7 @@ class PublicJobCaptureSink:
         intent: Intent | str | None = None,
         title: str | None = None,
     ) -> CaptureOutcome:
-        return self._capture.submit(
+        return self._submit(
             CaptureSubmission.for_public_job(
                 context=self._context,
                 payload=payload,
@@ -3620,6 +3645,7 @@ class EngineTaskSet:
     # Read-only capture-family freshness for the daily brief; MCP surfaces consume it through the
     # brief-read grant.
     source_freshness: Any = None
+    brief_revisits: Any = None
     # Read-only external-provider record export; the CLI's export-records consumes it.
     record_export: Any = None
 

@@ -45,6 +45,14 @@ from packages.app.tests.unit.engine.test_followups import _new_source, _revise_s
 QUOTE_TEXT = "PRIVATE_SYNTHETIC_QUOTE promise to deliver the synthetic report"
 
 
+@pytest.fixture(autouse=True)
+def _portable18_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise the frozen Portable18 recipe on its original local schema."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 23)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:23])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 23)
+
+
 def _engine(root: Path) -> BrainEngine:
     root.parent.chmod(0o700)
     return BrainEngine.open(compile_single_user_local(root, starter_spaces=()))

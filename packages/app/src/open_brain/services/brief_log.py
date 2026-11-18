@@ -32,7 +32,7 @@ from open_brain.services.brief_contracts import (
     BriefReasonCode,
 )
 
-BRIEF_LOG_PROTOCOL = "open-brain-brief-log-v1"
+BRIEF_LOG_PROTOCOL = "open-brain-brief-log-v2"
 BRIEF_LOG_DIRECTORY = "briefs"
 LOG_ITEM_KEYS = frozenset({"changed", "evidence", "kind", "rank", "ref", "reasons"})
 
@@ -44,7 +44,9 @@ _EVIDENCE_ID = re.compile(r"^evidence_" + _UUID4 + "$")
 # the prefix 1..2200 non-control characters (connector names may hold spaces and non-ASCII text).
 _FAMILY_BODY = r"family:(consumer|markdown):[^\x00-\x1f\x7f]{1,2200}"
 _FAMILY_REF = re.compile("^" + _FAMILY_BODY + "$")
-_REF = re.compile("^(followup:followup_" + _UUID4 + "|" + _FAMILY_BODY + ")$")
+_REF = re.compile(
+    "^(followup:followup_" + _UUID4 + "|revisit:capture_" + _UUID4 + "|" + _FAMILY_BODY + ")$"
+)
 _TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$")
 _KINDS = frozenset(kind.value for kind in BriefItemKind)
 _CHANGES = frozenset(change.value for change in BriefChange)
@@ -339,7 +341,7 @@ def _parse(key: str, payload: bytes) -> BriefLogFile:
     if (
         not isinstance(value, dict)
         or set(value) != _FILE_KEYS
-        or value["protocol"] != BRIEF_LOG_PROTOCOL
+        or value["protocol"] not in ("open-brain-brief-log-v1", BRIEF_LOG_PROTOCOL)
         or value["key"] != key
         or type(value["owner"]) is not bool
         or not isinstance(value["written_at"], str)
@@ -405,6 +407,10 @@ def _require_item(item: object) -> None:
         row["kind"] not in _KINDS
         or not isinstance(row["ref"], str)
         or _REF.fullmatch(row["ref"]) is None
+        or ((row["kind"] == "revisit_due") != row["ref"].startswith("revisit:"))
+        or (
+            row["kind"] == "revisit_due" and (reasons != ["revisit_date_reached"] or evidence != [])
+        )
         or not isinstance(reasons, list)
         or not 1 <= len(reasons) <= len(_REASONS)
         or any(reason not in _REASONS for reason in reasons)

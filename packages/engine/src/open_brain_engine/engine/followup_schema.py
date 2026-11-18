@@ -167,7 +167,7 @@ def migrate_followups(
     committed = False
     try:
         state = classify_local_schema(connection)
-        if state.state == "current" and state.version == 23:
+        if state.state in {"current", "supported_old"} and state.version in range(23, 29):
             return
         if state.state != "supported_old" or state.version != 22:
             raise T03Error("operation_pending")
@@ -185,7 +185,7 @@ def migrate_followups(
             schema_version=23,
         )
         upgraded = classify_local_schema(connection)
-        if upgraded.state != "current" or upgraded.version != 23:
+        if upgraded.state not in {"current", "supported_old"} or upgraded.version != 23:
             raise T03Error("operation_pending")
         checkpoint("followup_before_commit")
         require_historical_snapshot_settled(connection, profile)

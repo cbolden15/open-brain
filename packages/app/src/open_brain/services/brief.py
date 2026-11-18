@@ -65,6 +65,7 @@ BriefOperation = Callable[[Mapping[str, object]], dict[str, object]]
 
 _LEVELS = (
     BriefItemKind.FOLLOWUP_DUE,
+    BriefItemKind.REVISIT_DUE,
     BriefItemKind.SOURCE_UNAVAILABLE,
     BriefItemKind.FOLLOWUP_NEW_EVIDENCE,
     BriefItemKind.FOLLOWUP_OPEN,
@@ -120,7 +121,28 @@ class FamilyCandidate:
         return "family:" + self.family_id
 
 
-Candidate = FollowupCandidate | FamilyCandidate
+@dataclass(frozen=True)
+class RevisitCandidate:
+    capture_id: str
+    local_date: str
+    zone: str
+    kind = BriefItemKind.REVISIT_DUE
+    reasons = (BriefReasonCode.REVISIT_DATE_REACHED,)
+
+    @property
+    def ref(self) -> str:
+        return "revisit:" + self.capture_id
+
+    @property
+    def reason_text(self) -> str:
+        return f"Revisit scheduled for {self.local_date}."
+
+    @property
+    def sort_key(self) -> tuple[str, str]:
+        return self.local_date, self.capture_id
+
+
+Candidate = FollowupCandidate | FamilyCandidate | RevisitCandidate
 
 
 @dataclass(frozen=True)
@@ -412,10 +434,11 @@ def rank_candidates(
     families: Sequence[FamilyCandidate],
     *,
     previous_refs: Collection[str],
+    revisits: Sequence[RevisitCandidate] = (),
 ) -> tuple[Candidate, ...]:
     """Fixed level order; within a level refs new since the last brief sort first."""
     by_kind: dict[BriefItemKind, list[Candidate]] = {kind: [] for kind in _LEVELS}
-    candidates: tuple[Candidate, ...] = (*followups, *families)
+    candidates: tuple[Candidate, ...] = (*followups, *families, *revisits)
     for candidate in candidates:
         by_kind[candidate.kind].append(candidate)
     ordered: list[Candidate] = []
@@ -431,6 +454,7 @@ def select_items(
     *,
     previous: Mapping[str, Mapping[str, object]],
     reread: Callable[[FollowupCandidate], tuple[str, ...] | None],
+    reread_revisit: Callable[[RevisitCandidate], bool] | None = None,
 ) -> tuple[tuple[BriefItem, ...], int]:
     """Walk the ranked list: at most five items, at most two families; a follow-up that no
     longer re-reads is dropped and counted (its identity is never reported)."""
@@ -445,6 +469,11 @@ def select_items(
                 continue
             families += 1
             evidence: tuple[str, ...] = ()
+        elif isinstance(candidate, RevisitCandidate):
+            if reread_revisit is None or not reread_revisit(candidate):
+                hidden += 1
+                continue
+            evidence = ()
         else:
             found = reread(candidate)
             if found is None:
@@ -594,14 +623,42 @@ def brief_generate(
         stale_days=stale_days,
         acks=acks,
     )
+
     previous_items = _previous_items(previous)
+
+    def revisit_rows(capture_id: str | None = None) -> list[dict[str, str]]:
+        provider = getattr(tasks, "brief_revisits", None)
+        if provider is None:
+            return []
+        try:
+            return cast(
+                list[dict[str, str]],
+                provider(
+                    authority,
+                    now=now,
+                    limit=1 if capture_id else BRIEF_MAX_ITEMS + len(previous_items),
+                    space_ids=None if selected is None else frozenset(selected),
+                    capture_id=capture_id,
+                ),
+            )
+        except Exception as error:
+            _raise_if_unreadable(error)
+            raise BriefError("operation_pending") from error
+
     ordered = rank_candidates(
-        followup_result.candidates, family_result.candidates, previous_refs=previous_items
+        followup_result.candidates,
+        family_result.candidates,
+        previous_refs=previous_items,
+        revisits=[RevisitCandidate(**row) for row in revisit_rows()],
     )
     items, hidden = select_items(
         ordered,
         previous=previous_items,
         reread=lambda candidate: _reread(tasks.followups, authority, candidate),
+        reread_revisit=lambda candidate: any(
+            row["local_date"] == candidate.local_date and row["zone"] == candidate.zone
+            for row in revisit_rows(candidate.capture_id)
+        ),
     )
     coverage = BriefCoverage(
         families_checked=family_result.families_checked,
@@ -714,6 +771,21 @@ def brief_last(
             except Exception:  # noqa: BLE001 - the dated brief stays readable
                 readable = False
             view["status"] = "current" if readable else "withheld"
+        elif ref.startswith("revisit:"):
+            provider = getattr(tasks, "brief_revisits", None)
+            try:
+                current_revisit = provider is not None and bool(
+                    provider(
+                        session.authority,
+                        now=default_brief_clock(),
+                        limit=1,
+                        space_ids=None if selected is None else frozenset(selected),
+                        capture_id=ref.removeprefix("revisit:"),
+                    )
+                )
+            except Exception:  # The historical brief stays readable if the current read fails.
+                current_revisit = False
+            view["status"] = "current" if current_revisit else "withheld"
         else:
             view["status"] = "logged"
         items.append(view)

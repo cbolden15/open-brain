@@ -17,6 +17,9 @@ from open_brain_engine.engine.t03_contracts import (
     RelationshipListRequest,
     T03Error,
 )
+from open_brain_engine.portable.browser_annotations_v21 import BROWSER_ANNOTATIONS_PATH
+from open_brain_engine.portable.browser_filing_v23 import BROWSER_FILING_PATH
+from open_brain_engine.portable.browser_revisits_v22 import BROWSER_REVISITS_PATH
 from open_brain_engine.portable.developments_v11 import DEVELOPMENT_SIDECAR_PATHS
 from open_brain_engine.portable.facets_v10 import FACET_SIDECAR_PATHS
 from open_brain_engine.portable.relationships_v1 import (
@@ -24,6 +27,8 @@ from open_brain_engine.portable.relationships_v1 import (
     validate_relationship_metadata,
 )
 from open_brain_engine.portable.retraction_v14 import APPROVALS_PATH
+from open_brain_engine.portable.saved_item_admission_v20 import SAVED_ITEM_ADMISSION_PATH
+from open_brain_engine.portable.saved_item_sources_v19 import SAVED_ITEM_SOURCES_PATH
 from open_brain_engine.portable.slack_v12 import SELECTIONS_PATH
 from open_brain_engine.portable.v4 import (
     PORTABLE_V4_RELATIONSHIPS_CATALOG_DIGEST,
@@ -50,6 +55,11 @@ from open_brain_engine.portable.v15_catalog import PORTABLE_V15_SCHEMA_CATALOG_D
 from open_brain_engine.portable.v16_catalog import PORTABLE_V16_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v17_catalog import PORTABLE_V17_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v18_catalog import PORTABLE_V18_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v19_catalog import PORTABLE_V19_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v20_catalog import PORTABLE_V20_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v21_catalog import PORTABLE_V21_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v22_catalog import PORTABLE_V22_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v23_catalog import PORTABLE_V23_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.versioned import validated_portable_snapshot
 
 from open_brain.profile import compile_single_user_local
@@ -100,6 +110,10 @@ def _write_v4_fixture(source: Path, destination: Path) -> dict[str, Any]:
         and relative not in DEVELOPMENT_SIDECAR_PATHS
         and relative != SELECTIONS_PATH
         and relative != APPROVALS_PATH
+        and relative != SAVED_ITEM_SOURCES_PATH
+        and relative != SAVED_ITEM_ADMISSION_PATH
+        and relative != BROWSER_ANNOTATIONS_PATH
+        and relative not in {BROWSER_REVISITS_PATH, BROWSER_FILING_PATH}
         and not relative.startswith("history/capture-lifecycle/")
         and not relative.startswith("history/consumer-intake/")
         and not relative.startswith("history/embedding-policy/")
@@ -201,11 +215,11 @@ def test_symmetric_relationship_replay_versions_and_hidden_endpoint(tmp_path: Pa
         engine.relationships.decide(proposed, authority=scoped)
 
 
-@pytest.mark.parametrize("portable_version", [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18])
+@pytest.mark.parametrize("portable_version", range(8, 24))
 def test_supersedes_cycle_self_and_export_complete_decisions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, portable_version: int
 ) -> None:
-    if portable_version in {8, 9, 10, 11, 12, 13, 14, 15, 16, 17}:
+    if portable_version < 23:
         version = portable_version + 5
         monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", version)
         monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:version])
@@ -221,6 +235,11 @@ def test_supersedes_cycle_self_and_export_complete_decisions(
         16: PORTABLE_V16_SCHEMA_CATALOG_DIGEST,
         17: PORTABLE_V17_SCHEMA_CATALOG_DIGEST,
         18: PORTABLE_V18_SCHEMA_CATALOG_DIGEST,
+        19: PORTABLE_V19_SCHEMA_CATALOG_DIGEST,
+        20: PORTABLE_V20_SCHEMA_CATALOG_DIGEST,
+        21: PORTABLE_V21_SCHEMA_CATALOG_DIGEST,
+        22: PORTABLE_V22_SCHEMA_CATALOG_DIGEST,
+        23: PORTABLE_V23_SCHEMA_CATALOG_DIGEST,
     }[portable_version]
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     ids = [

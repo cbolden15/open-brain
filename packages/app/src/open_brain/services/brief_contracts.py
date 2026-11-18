@@ -62,6 +62,7 @@ class BriefError(Exception):
 
 class BriefItemKind(StrEnum):
     FOLLOWUP_DUE = "followup_due"
+    REVISIT_DUE = "revisit_due"
     FOLLOWUP_NEW_EVIDENCE = "followup_new_evidence"
     FOLLOWUP_OPEN = "followup_open"
     SOURCE_UNAVAILABLE = "source_unavailable"
@@ -77,6 +78,7 @@ class BriefChange(StrEnum):
 class BriefReasonCode(StrEnum):
     OVERDUE = "overdue"
     DUE_TODAY = "due_today"
+    REVISIT_DATE_REACHED = "revisit_date_reached"
     NEW_EVIDENCE = "new_evidence"
     OPEN_OWNED = "open_owned"
     CAPTURES_UNAVAILABLE = "captures_unavailable"
@@ -84,7 +86,7 @@ class BriefReasonCode(StrEnum):
 
 
 FAMILY_KINDS = frozenset({BriefItemKind.SOURCE_UNAVAILABLE, BriefItemKind.SOURCE_STALE})
-FOLLOWUP_KINDS = frozenset(BriefItemKind) - FAMILY_KINDS
+FOLLOWUP_KINDS = frozenset(BriefItemKind) - FAMILY_KINDS - {BriefItemKind.REVISIT_DUE}
 
 _TIERS = frozenset({"public", "work", "personal"})
 _FOLLOWUP_STATUS = frozenset({"read", "not_granted", "failed"})
@@ -147,6 +149,13 @@ class BriefItem:
                 parse_family_ref(self.ref)
                 if self.evidence:
                     raise ValueError("invalid brief item")
+            elif self.kind == BriefItemKind.REVISIT_DUE:
+                if (
+                    not re.fullmatch(rf"revisit:capture_{_UUID4}", self.ref)
+                    or self.evidence
+                    or self.reasons != (BriefReasonCode.REVISIT_DATE_REACHED,)
+                ):
+                    raise ValueError("invalid revisit reference")
             else:
                 parse_followup_ref(self.ref)
         except BriefError:

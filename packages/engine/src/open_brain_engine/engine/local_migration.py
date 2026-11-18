@@ -91,6 +91,7 @@ def coordinate_local_migration(
         schema.state == "supported_old" and schema.version == 21 and target >= 22
     )
     followup_phase = schema.state == "supported_old" and schema.version == 22 and target >= 23
+    saved_item_phase = schema.state == "supported_old" and schema.version == 23 and target >= 24
     if not any(
         (
             source_phase,
@@ -110,6 +111,10 @@ def coordinate_local_migration(
             embedding_policy_phase,
             owner_egress_policy_phase,
             followup_phase,
+            saved_item_phase,
+            schema.state == "supported_old"
+            and schema.version in {24, 25, 26, 27}
+            and target > schema.version,
         )
     ):
         return
@@ -248,6 +253,24 @@ def coordinate_local_migration(
 
             migrate_followups(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        if schema.state == "supported_old" and schema.version == 23 and target >= 24:
+            from .saved_item_schema import migrate_saved_item_sources
+
+            migrate_saved_item_sources(
+                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
+            )
+            schema = inspect_phase1_state(profile)
+        while (
+            schema.state == "supported_old" and schema.version in {24, 25, 26, 27}
+            and target > schema.version
+        ):
+            from .saved_item_schema import migrate_saved_item_sources
+
+            migrate_saved_item_sources(
+                profile, admission=admission, clock=resolved_clock,
+                checkpoint=checkpoint, target=schema.version + 1
             )
             schema = inspect_phase1_state(profile)
     if schema.state != "current" or schema.version != target:

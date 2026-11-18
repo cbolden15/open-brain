@@ -111,8 +111,8 @@ is a trial, not a place to keep personal notes or configure a lasting agent conn
 
 ## Current source compatibility
 
-The current source candidate uses local state schema **23**, runtime session **16**, and Portable
-metadata **18**. These coordinates do not identify the published Homebrew release and do not
+The current source candidate uses local state schema **28**, runtime session **16**, and Portable
+metadata **23**. These coordinates do not identify the published Homebrew release and do not
 establish public acceptance. On candidates that offer it, compare
 `catalog --schema-version 2 --json` with the [compatibility matrix](core-v01-features.md#compatibility-coordinates).
 
@@ -120,7 +120,7 @@ establish public acceptance. On candidates that offer it, compare
 
 The marked runnable blocks below are the preserved **10/5/5 historical candidate fixture**, bound
 by the documentation gate to its exact executable and example hashes. They are not a runnable
-acceptance guide for the current 23/16/18 candidate: the initial coordinate assertions deliberately
+acceptance guide for the current 28/16/23 candidate: the initial coordinate assertions deliberately
 reject a different runtime. Do not remove those assertions to make a newer binary pass. Current
 candidate certification requires a separately reviewed executable and matching guide receipt.
 
