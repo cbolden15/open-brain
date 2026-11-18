@@ -10,18 +10,36 @@ from contextlib import closing
 from datetime import date, datetime
 from hashlib import sha256
 from typing import cast
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .browser_annotations import operation_row, uuid4_id
 from .browser_filing import filing_row
 from .browser_mutation import require_child_write
 from .browser_pages import BrowserPages, BrowserResult, _operation, _operation_key
-from .contracts import LocalEngineContext
+from .contracts import LocalEngineContext, project_public_result_text
 from .local_schema import open_local_database_read_only
 from .local_store import _LocalStore
 from .records import RecordProjector
 from .saved_item_identity import SavedItemSource
 from .t03_contracts import EffectiveAuthority, T03Error
+
+
+def safe_revisit_url(url: object) -> bool:
+    if not isinstance(url, str) or not url.startswith("https://") or "#" in url or "\\" in url:
+        return False
+    try:
+        parts = urlsplit(url)
+        return bool(
+            parts.hostname
+            and parts.username is None
+            and parts.password is None
+            and len(json.dumps(url)) <= 4000
+            and project_public_result_text(url) == url
+            and all(not c.isspace() and ord(c) >= 32 for c in url)
+        )
+    except ValueError:
+        return False
 
 
 def validate_calendar(day: str, zone: str, *, require_installed: bool) -> None:
@@ -278,6 +296,17 @@ class BrowserRevisits(BrowserPages):
             rows = list(
                 islice(_due_rows(db, now, visible, source=source), offset, offset + limit + 1)
             )
+            for row in rows[:limit]:
+                title, reference = db.execute(
+                    "SELECT title,source_reference FROM captures WHERE capture_id=?",
+                    (row["capture_id"],),
+                ).fetchone()
+                url = str(reference).partition("#")[0]
+                row["title"] = (
+                    project_public_result_text(title or url.split("?", 1)[0])[:300] or "Saved page"
+                )
+                if safe_revisit_url(url):
+                    row["url"] = url
             return {
                 "revisits": rows[:limit],
                 "next_offset": offset + limit if len(rows) > limit else None,

@@ -32,7 +32,18 @@ export function revisitControls(request, context, refresh) {
     el('due-rows').replaceChildren();
     for (const row of result.revisits) {
       const item = document.createElement('li');
-      item.textContent = row.local_date + ' · ' + row.zone + ' · ' + (row.title || row.capture_id);
+      item.textContent = row.local_date + ' · ' + row.zone + ' · ';
+      let address;
+      try { address = new URL(row.url); } catch { /* A redacted record can omit its address. */ }
+      const label = row.title || row.capture_id;
+      if (address?.protocol === 'https:' && !address.username && !address.password && !address.hash) {
+        const link = document.createElement('a');
+        link.textContent = label;
+        link.href = address.href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        item.append(link);
+      } else item.append(document.createTextNode(label));
       el('due-rows').append(item);
     }
     next = result.next_offset;

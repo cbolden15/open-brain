@@ -83,7 +83,13 @@ def test_page_revisit_mutations_and_current_scope(
     assert dispatch(policy, Request("status", operation, {})) == saved
     clock = datetime(2026, 3, 8, 6, 0, tzinfo=UTC)
     due = service.due(token, now=clock, limit=1, offset=0)
-    assert due == {"revisits": [{"capture_id": capture, **calendar}], "next_offset": None}
+    [entry] = due["revisits"]  # type: ignore[misc]
+    assert entry["title"] and entry["url"] == url
+    assert {k: v for k, v in entry.items() if k not in {"title", "url"}} == {
+        "capture_id": capture,
+        **calendar,
+    }
+    assert due["next_offset"] is None
     assert service.get(token, key, capture) == {"revisit": {"state": "scheduled", **calendar}}
     with monkeypatch.context() as missing:
 
@@ -121,7 +127,9 @@ def test_page_revisit_mutations_and_current_scope(
     with pytest.raises(PermissionError, match="browser_operation_denied"):
         service.mutate(narrowed_writer, str(uuid4()), key, capture, "clear")
     with closing(engine._store.connect()) as db:
-        assert due_for_authority(profile, db, owner, now=clock, limit=1) == due["revisits"]
+        assert due_for_authority(profile, db, owner, now=clock, limit=1) == [
+            {"capture_id": capture, **calendar}
+        ]
         assert (
             due_for_authority(profile, db, owner, now=clock, limit=1, space_ids=frozenset()) == []
         )
@@ -146,7 +154,7 @@ def test_page_revisit_mutations_and_current_scope(
     assert mutate("set", str(uuid4()), **changed) == saved
     assert mutate("dismiss", dismiss)["revisit_action"] == "dismiss"
     assert service.due(token, now=clock, limit=1, offset=0)["revisits"] == [
-        {"capture_id": capture, **changed}
+        {"capture_id": capture, **changed, "url": url, "title": url}
     ]
     archive, restored = tmp_path / "archive", tmp_path / "restored"
     assert run_cli(("export", str(archive), "--verify", "--data-dir", str(profile.root))) == 0

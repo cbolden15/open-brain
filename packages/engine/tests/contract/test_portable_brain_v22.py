@@ -122,7 +122,13 @@ def test_revisit_sequence_due_boundary_and_replay_survive_restore(
         == []
     )
     assert revisits.due(fresh, now=at_due, limit=10, offset=0)["revisits"] == [
-        {"capture_id": capture_id, "local_date": DATE, "zone": ZONE}
+        {
+            "capture_id": capture_id,
+            "local_date": DATE,
+            "zone": ZONE,
+            "url": "https://example.test/saved",
+            "title": "https://example.test/saved",
+        }
     ]
     assert (
         revisits.mutate(
@@ -283,5 +289,13 @@ def test_frozen_populated_portable22_retains_due_revisit(tmp_path: Path) -> None
     grant = _bind(restored, source)
     assert BrowserRevisits(restored.profile).due(
         grant, now=datetime(2026, 11, 1, 4, 0, tzinfo=UTC), limit=10, offset=0
-    )["revisits"] == [{"capture_id": row["capture_id"], "local_date": DATE, "zone": ZONE}]
+    )["revisits"] == [
+        {
+            "capture_id": row["capture_id"],
+            "local_date": DATE,
+            "zone": ZONE,
+            "url": "https://example.test/saved",
+            "title": "https://example.test/saved",
+        }
+    ]
     assert restored.retrieval.search("Coppersparrow")

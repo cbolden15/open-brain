@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import BinaryIO, cast
 
+from open_brain_engine.engine.browser_revisits import safe_revisit_url
 from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain_connectors.runtime.saved_item import SavedItemRefusal
@@ -250,7 +251,11 @@ def _calendar(row: object) -> bool:
 def _due_row(row: object) -> bool:
     return (
         isinstance(row, dict)
-        and set(row) == {"capture_id", "zone", "local_date"}
+        and {"capture_id", "zone", "local_date"}
+        <= set(row)
+        <= {"capture_id", "zone", "local_date", "title", "url"}
+        and ("title" not in row or _text(row["title"], 300))
+        and ("url" not in row or safe_revisit_url(row["url"]))
         and _text(row["capture_id"], 128)
         and _calendar(row)
     )
