@@ -23,5 +23,13 @@ test('DOM offsets are UTF-16 while context is bounded in complete code points', 
   const anchor = selectionAnchor(text, 3, 8, 2);
   assert.deepEqual(anchor, {quote:'cafe\u0301', prefix:'😀 ', suffix:' 🐦'});
   assert.deepEqual(locateQuote(text, anchor), {start:3, end:8});
-  assert.equal(locateQuote(text.normalize('NFC'), anchor), null);
+  assert.deepEqual(locateQuote(text.normalize('NFC'), anchor), {start:3, end:7});
+});
+
+test('canonical Unicode maps back to original DOM offsets and identical normalized candidates stay ambiguous', () => {
+  const {locateQuote} = globalThis.openBrainAnchors;
+  const anchor = {quote:'café',prefix:'(',suffix:')'};
+  assert.deepEqual(locateQuote('🍏 (cafe\u0301)',anchor),{start:4,end:9});
+  assert.equal(locateQuote('(café) or (cafe\u0301)',anchor),null);
+  assert.deepEqual(locateQuote('(café)',{...anchor,quote:'cafe\u0301'}),{start:1,end:5});
 });

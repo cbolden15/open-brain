@@ -2,13 +2,39 @@
 (() => {
   const highlightName = 'open-brain-saved-passages';
 
-  function locateQuote(text, {quote, prefix, suffix}) {
+  function normalizedIndex(source) {
+    const text = source.normalize('NFC');
+    if (text === source) return {text, offset:i => i};
+    // Across DOM nodes, one rendered grapheme may occupy several UTF-16 offsets.
+    // Map only boundaries we can identify exactly in the original document.
+    const offsets = new Int32Array(text.length + 1).fill(-1);
+    let index = 0;
+    for (const {segment,index:start} of new Intl.Segmenter('und', {granularity:'grapheme'}).segment(source)) {
+      const normalized = segment.normalize('NFC');
+      offsets[index] = start;
+      if (segment === normalized) {
+        for (let i = 1; i < segment.length; i++) offsets[index+i] = start+i;
+      }
+      index += normalized.length;
+      offsets[index] = start + segment.length;
+    }
+    return {text, offset:i => offsets[i]};
+  }
+
+  function locateInIndex(index, {quote, prefix, suffix}) {
     if (!quote || typeof prefix !== 'string' || typeof suffix !== 'string') return null;
-    const pattern = prefix + quote + suffix;
-    const first = text.indexOf(pattern);
-    if (first === -1 || text.indexOf(pattern, first + 1) !== -1) return null;
-    const start = first + prefix.length;
-    return {start, end:start + quote.length};
+    const before = prefix.normalize('NFC');
+    const passage = quote.normalize('NFC');
+    const pattern = before + passage + suffix.normalize('NFC');
+    const first = index.text.indexOf(pattern);
+    if (first < 0 || index.text.indexOf(pattern, first + 1) !== -1) return null;
+    const start = index.offset(first + before.length);
+    const end = index.offset(first + before.length + passage.length);
+    return start >= 0 && end > start ? {start,end} : null;
+  }
+
+  function locateQuote(text, anchor) {
+    return locateInIndex(normalizedIndex(text), anchor);
   }
 
   function selectionAnchor(text, start, end, limit = 128) {
@@ -79,8 +105,9 @@
     CSS.highlights.delete(highlightName);
     const index = textIndex();
     const ranges = [];
+    const normalized = index && normalizedIndex(index.text);
     const resolved = anchors.map(anchor => {
-      const position = index && locateQuote(index.text, anchor);
+      const position = index && locateInIndex(normalized, anchor);
       if (!position) return false;
       const first = index.nodes.find(part => part.end > position.start);
       const last = index.nodes.find(part => part.end >= position.end);
@@ -88,7 +115,7 @@
       const range = new Range();
       range.setStart(first.node, position.start - first.start);
       range.setEnd(last.node, position.end - last.start);
-      if (range.toString() !== anchor.quote || !range.getClientRects().length) return false;
+      if (range.toString().normalize('NFC') !== anchor.quote.normalize('NFC') || !range.getClientRects().length) return false;
       ranges.push(range);
       return true;
     });
