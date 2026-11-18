@@ -88,6 +88,7 @@ def bookmark_file(home: Path) -> Path:
     <a href="https://fixture.invalid/&lt;em&gt;literal&lt;/em&gt;">&lt;img src="https://probe.invalid/p"&gt;</a>
     <a href="https://fixture.invalid/&lt;em&gt;literal&lt;/em&gt;?utm_source=proof">duplicate</a>
     <a href="http://fixture.invalid/http">insecure</a>
+    <a href="https://fixture.invalid/filing#fixture">already filed in this source</a>
     <img src="https://probe.invalid/bookmark">
     <script>fetch('https://probe.invalid/bookmark-script')</script>
     """
@@ -189,8 +190,8 @@ async def organizer(run: Run, pw: Any) -> dict[str, Any]:
         assert not run.events("import.begin")
 
         rows = await preview(popup, path, reason)
-        assert len(rows) == 9, rows
-        assert "<em>literal</em>" in rows[0] and rows[1:].count("duplicate") == 1, rows
+        assert len(rows) == 10, rows
+        assert "<em>literal</em>" in rows[0] and rows[1:].count("duplicate") == 2, rows
         assert rows.count("skipped") == 1 and len(run.events("import.begin")) == 1
         assert not run.events("import.step") and run.hits(reason) == []
         replace_grant(run, writable=False)
@@ -266,7 +267,8 @@ async def organizer(run: Run, pw: Any) -> dict[str, Any]:
         "bookmarks_at_interruption": len(partial),
         "accepted_bookmarks": len(parent_ids),
         "skipped_rows": 1,
-        "duplicate_rows": 1,
+        "duplicate_rows": 2,
+        "existing_source_duplicates": 1,
         "external_markup_requests": 0,
         "restored_bookmarks": len(parent_ids),
     }
