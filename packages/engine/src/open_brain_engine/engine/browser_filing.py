@@ -11,6 +11,7 @@ from typing import cast
 from uuid import UUID
 
 from .browser_annotations import operation_row, uuid4_id
+from .browser_mutation import require_child_write
 from .browser_pages import BrowserPages, BrowserResult, _operation, _operation_key
 from .contracts import project_public_result_text
 from .local_schema import open_local_database_read_only
@@ -79,6 +80,7 @@ class BrowserRouteAdmission:
         space_id: str,
     ) -> tuple[str, str]:
         grant = self.pages._grant(db, self.token, "save")
+        require_child_write(db, grant)
         source = _source(grant)
         delivery = source.delivery_id(self.item_key)
         page = self.pages._visible(db, grant, delivery)
@@ -89,7 +91,12 @@ class BrowserRouteAdmission:
             or not db.execute("SELECT 1 FROM spaces WHERE space_id=?", (space_id,)).fetchone()
         ):
             raise PermissionError("browser_operation_denied")
-        if _operation(db, grant, self.operation_id) or operation_row(db, grant, self.operation_id):
+        from .browser_revisits import revisit_row
+
+        if (
+            _operation(db, grant, self.operation_id) or operation_row(db, grant, self.operation_id)
+            or revisit_row(db, grant, self.operation_id)
+        ):
             raise ValueError("browser_operation_conflict")
         source.witness(db, self.item_key)
         key = _operation_key(grant, self.operation_id)

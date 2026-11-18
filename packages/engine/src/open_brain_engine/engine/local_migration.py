@@ -113,7 +113,7 @@ def coordinate_local_migration(
             followup_phase,
             saved_item_phase,
             schema.state == "supported_old"
-            and schema.version in {24, 25}
+            and schema.version in {24, 25, 26}
             and target > schema.version,
         )
     ):
@@ -263,7 +263,7 @@ def coordinate_local_migration(
             )
             schema = inspect_phase1_state(profile)
         while (
-            schema.state == "supported_old" and schema.version in {24, 25}
+            schema.state == "supported_old" and schema.version in {24, 25, 26}
             and target > schema.version
         ):
             from .saved_item_schema import migrate_saved_item_sources

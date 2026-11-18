@@ -195,3 +195,35 @@ BROWSER_ANNOTATION_MIGRATION = _migration(
         *tuple(stmt.replace("24", "26") for stmt in SAVED_ITEM_SCHEMA[-3:]),
     ),
 )
+
+
+BROWSER_REVISIT_MIGRATION = _migration(
+    27,
+    "browser-revisits",
+    (
+        """CREATE TABLE browser_revisits (
+ sequence INTEGER PRIMARY KEY CHECK(sequence>0),
+ brain_id TEXT NOT NULL,workflow_principal TEXT NOT NULL,
+ connector_name TEXT NOT NULL,connection_id TEXT NOT NULL,resource_id TEXT NOT NULL,
+ operation_id TEXT NOT NULL,request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64
+ AND request_sha256 NOT GLOB '*[^0-9a-f]*'),delivery_id TEXT NOT NULL,
+ item_key TEXT NOT NULL CHECK(length(item_key)=32 AND item_key NOT GLOB '*[^0-9a-f]*'),
+ capture_id TEXT NOT NULL REFERENCES captures(capture_id),
+ action TEXT NOT NULL CHECK(action IN ('set','dismiss','clear')),local_date TEXT,zone TEXT,
+ state TEXT NOT NULL CHECK(state IN ('accepted','withdrawn')),
+ CHECK((action='set' AND state='accepted' AND local_date IS NOT NULL AND length(local_date)=10
+ AND zone IS NOT NULL AND length(zone) BETWEEN 1 AND 255)
+ OR ((action!='set' OR state='withdrawn') AND local_date IS NULL AND zone IS NULL)),
+ UNIQUE(brain_id,workflow_principal,connector_name,connection_id,resource_id,operation_id),
+ FOREIGN KEY(connector_name,connection_id,resource_id)
+ REFERENCES saved_item_sources(connector_name,connection_id,resource_id)
+)""",
+        "CREATE INDEX browser_revisit_parent ON browser_revisits(capture_id,sequence DESC)",
+        """CREATE TRIGGER browser_revisit_retire AFTER UPDATE OF lifecycle ON logical_sources
+ WHEN NEW.lifecycle='retired' BEGIN
+ UPDATE browser_revisits SET state='withdrawn',local_date=NULL,zone=NULL
+ WHERE capture_id IN (SELECT capture_id FROM source_revisions WHERE source_id=NEW.source_id);
+ END""",
+        *tuple(stmt.replace("24", "27") for stmt in SAVED_ITEM_SCHEMA[-3:]),
+    ),
+)

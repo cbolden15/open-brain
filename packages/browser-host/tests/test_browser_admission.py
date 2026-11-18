@@ -324,7 +324,7 @@ def test_highlight_mutations_search_scope_history_and_retraction(
     import json
     from contextlib import closing
 
-    from open_brain_engine.engine.browser_annotations import BrowserAnnotations
+    from open_brain_engine.engine.browser_annotations import Annotation, BrowserAnnotations
     from open_brain_engine.engine.records import RecordProjector
 
     from open_brain.services.local_entrypoints import run_cli
@@ -412,6 +412,28 @@ def test_highlight_mutations_search_scope_history_and_retraction(
     def read() -> tuple[list[dict[str, str | None]], int | None]:
         return pages.list(limited, key, capture, limit=2, offset=0)
 
+    narrow_writer = BrowserOwnerSetup(profile, owner).bind(
+        binding.source,
+        spaces=[None, visible],
+        tiers=["personal"],
+        operations=["lookup", "save", "status"],
+        workflow_principal=binding.workflow_principal,
+    )
+    for proposed in (operation, str(uuid4())):
+        with pytest.raises(PermissionError, match="browser_operation_denied"):
+            pages.add(
+                narrow_writer,
+                proposed,
+                key,
+                capture,
+                Annotation(
+                    args["annotation_id"],
+                    args["quote"],
+                    args["prefix"],
+                    args["suffix"],
+                    args["note"],
+                ),
+            )
     assert len(read()[0]) == 2 and read()[1] == 2
     second_page = dispatch(
         policy,

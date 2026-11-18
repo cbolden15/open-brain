@@ -51,7 +51,8 @@ def test_scoped_filing_replay_and_revocation(
         )
         return Policy(original.extension_id, root, token, binding_value(pages.binding(token)))
 
-    writer = grant(["lookup", "save", "status"])
+    writer = original
+    partial = grant(["lookup", "save", "status"])
     reader = grant(["lookup", "status"])
     capture = dispatch(
         original, Request("save", str(uuid4()), {"url": URL, "reason": "synthetic"})
@@ -82,7 +83,7 @@ def test_scoped_filing_replay_and_revocation(
             }
         )
 
-    for gr, target in ((reader, visible), (writer, hidden)):
+    for gr, target in ((reader, visible), (partial, visible), (partial, hidden)):
         with pytest.raises((PermissionError, Refused)) as error:
             dispatch(gr, file(target))
         assert str(error.value) in {"operation_denied", "browser_operation_denied"}
@@ -100,6 +101,8 @@ def test_scoped_filing_replay_and_revocation(
     saved = dispatch(writer, file(visible))
     assert saved == {"state": "accepted", "capture_id": capture, "space_id": visible}
     assert dispatch(writer, Request("status", operation, {})) == saved
+    with pytest.raises(PermissionError, match="browser_operation_denied"):
+        dispatch(partial, file(visible))
     engine.inbox.route(capture, other, delivery_id="owner.refile")
     assert dispatch(writer, file(visible)) == saved
     assert dispatch(writer, listing)["current_space"] == {"space_id": other, "name": "B other"}
@@ -124,7 +127,8 @@ def test_scoped_filing_replay_and_revocation(
     token = setup.bind(
         source,
         spaces=[None, visible, other],
-        tiers=["personal"],
+        tiers=["public", "work", "personal"],
+        complete_domain=True,
         operations=["lookup", "save", "status"],
         workflow_principal=binding.workflow_principal,
     )

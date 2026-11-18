@@ -647,7 +647,17 @@ class CaptureLifecycleTasks:
         result = journal.retract(request)
         if journal.eligibility_generation != before:
             self._advance(journal)
-            if journal.connection.execute("PRAGMA user_version").fetchone()[0] >= 26:
+            version = journal.connection.execute("PRAGMA user_version").fetchone()[0]
+            if version >= 27:
+                for (capture_id,) in journal.connection.execute(
+                    "SELECT DISTINCT capture_id FROM browser_revisits WHERE state='accepted'"
+                ).fetchall():
+                    if not journal.permits_capture(capture_id):
+                        journal.connection.execute(
+                            "UPDATE browser_revisits SET state='withdrawn',local_date=NULL,"
+                            "zone=NULL WHERE capture_id=?", (capture_id,),
+                        )
+            if version >= 26:
                 for (capture_id,) in journal.connection.execute(
                     "SELECT DISTINCT capture_id FROM browser_annotations WHERE state='accepted'"
                 ).fetchall():

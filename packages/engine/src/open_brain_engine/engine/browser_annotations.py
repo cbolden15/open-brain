@@ -13,6 +13,7 @@ from uuid import UUID
 
 from open_brain_engine.capture.redaction import has_redaction_finding
 
+from .browser_mutation import require_child_write
 from .browser_pages import BrowserPages, BrowserResult, _operation, _operation_key
 from .contracts import project_public_result_text
 from .local_schema import open_local_database_read_only
@@ -117,6 +118,7 @@ class BrowserAnnotations(BrowserPages):
             raise ValueError("invalid browser identifier")
         with _LocalStore(self.profile, initialize=False).transaction() as db:
             grant = self._grant(db, token, "save")
+            require_child_write(db, grant)
             delivery = self._parent(db, grant, item_key, capture_id)
             reference = db.execute(
                 "SELECT source_reference FROM captures WHERE capture_id=?", (capture_id,)
@@ -147,9 +149,11 @@ class BrowserAnnotations(BrowserPages):
                     return BrowserResult("refused")
             else:
                 from .browser_filing import filing_row
+                from .browser_revisits import revisit_row
 
                 if (
                     filing_row(db, grant, operation_id)
+                    or revisit_row(db, grant, operation_id)
                     or _operation(db, grant, operation_id)
                     or db.execute(
                         "SELECT 1 FROM browser_annotations WHERE annotation_id=?",

@@ -23,6 +23,7 @@ from open_brain_engine.engine.browser_pages import (
     BrowserResult,
     _operation,
 )
+from open_brain_engine.engine.browser_revisits import BrowserRevisits, validate_calendar
 from open_brain_engine.engine.local_schema import open_local_database_read_only
 
 from open_brain.profile import open_existing_single_user_local
@@ -50,8 +51,26 @@ OPERATIONS = {
     "annotation.list": "annotation.list",
     "space.list": "space.list",
     "page.file": "page.file",
+    **{
+        name: name
+        for name in (
+            "revisit.set",
+            "revisit.dismiss",
+            "revisit.clear",
+            "revisit.due",
+            "revisit.get",
+        )
+    },
 }
-_RECEIPT_OPERATIONS = {"save", "status", "annotation.add", "page.file"}
+_RECEIPT_OPERATIONS = {
+    "save",
+    "status",
+    "annotation.add",
+    "page.file",
+    "revisit.set",
+    "revisit.dismiss",
+    "revisit.clear",
+}
 
 
 def _text(value: object, limit: int) -> str:
@@ -110,6 +129,36 @@ class Request:
             if binding_id is None:
                 raise Refused("invalid_request")
             return cls(operation, "", bookmark_import.parse_arguments(operation, args), binding_id)
+        if operation.startswith("revisit."):
+            if operation == "revisit.due":
+                if set(args) != {"limit", "offset"}:
+                    raise Refused("invalid_request")
+                limit, offset = args["limit"], args["offset"]
+                if (
+                    type(limit) is not int
+                    or not 1 <= limit <= 20
+                    or type(offset) is not int
+                    or not 0 <= offset < 2**31
+                ):
+                    raise Refused("invalid_request")
+                return cls(operation, "", dict(limit=limit, offset=offset), binding_id)
+            fields = {"url", "capture_id"}
+            if operation == "revisit.set":
+                fields.update(("local_date", "zone"))
+            if set(args) != fields:
+                raise Refused("invalid_request")
+            revisit_args = {
+                "url": _text(args["url"], 8192),
+                "capture_id": _text(args["capture_id"], 128),
+            }
+            if operation == "revisit.set":
+                day, zone = _text(args["local_date"], 10), _text(args["zone"], 255)
+                try:
+                    validate_calendar(day, zone, require_installed=False)
+                except ValueError:
+                    raise Refused("invalid_request") from None
+                revisit_args.update(local_date=day, zone=zone)
+            return cls(operation, operation_id, revisit_args, binding_id)
         if operation in {"describe", "status"} and not args:
             return cls(operation, operation_id, {}, binding_id)
         if operation == "lookup" and set(args) == {"url"}:
@@ -299,11 +348,36 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
         "annotation.list": "lookup",
         "space.list": "lookup",
         "page.file": "save",
+        "revisit.set": "save",
+        "revisit.clear": "save",
+        "revisit.dismiss": "save",
+        "revisit.due": "lookup",
+        "revisit.get": "lookup",
     }.get(request.operation, request.operation)
     if required_operation not in binding.operations:
         raise Refused("operation_denied")
     if request.operation == "status":
         result = pages.status(policy.token, request.operation_id)
+    elif request.operation.startswith("revisit."):
+        revisits = BrowserRevisits(profile)
+        args = request.args
+        if request.operation == "revisit.due":
+            return revisits.due(
+                policy.token, now=datetime.now(UTC), limit=args["limit"], offset=args["offset"]
+            )
+        identity, _ = identity_url(args["url"])
+        key = item_key(identity)
+        if request.operation == "revisit.get":
+            return revisits.get(policy.token, key, args["capture_id"])
+        result = revisits.mutate(
+            policy.token,
+            request.operation_id,
+            key,
+            args["capture_id"],
+            request.operation.removeprefix("revisit."),
+            local_date=args.get("local_date"),
+            zone=args.get("zone"),
+        )
     elif request.operation in {"space.list", "page.file"}:
         filing = BrowserFiling(profile)
         args = request.args
@@ -356,6 +430,8 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     response: dict[str, object] = {"state": result.state}
     if result.capture_id is not None:
         response["capture_id"] = result.capture_id
+    if result.revisit_action is not None:
+        response["revisit_action"] = result.revisit_action
     if result.space_id is not None:
         response["space_id"] = result.space_id
     if result.annotation_id is not None:
