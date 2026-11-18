@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -15,7 +16,13 @@ from open_brain_engine.engine.browser_annotations import (
     MaskedAnnotation,
     uuid4_id,
 )
-from open_brain_engine.engine.browser_pages import BrowserBinding, BrowserPages
+from open_brain_engine.engine.browser_pages import (
+    BrowserBinding,
+    BrowserPages,
+    BrowserResult,
+    _operation,
+)
+from open_brain_engine.engine.local_schema import open_local_database_read_only
 
 from open_brain.profile import open_existing_single_user_local
 from open_brain_connectors.runtime.saved_item import (
@@ -28,10 +35,12 @@ from open_brain_connectors.runtime.saved_item import (
 )
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
 
+from . import bookmark_import
 from .policy import Policy, Refused, encoded
 
 VERSION = "browser.v1"
 OPERATIONS = {
+    **{operation: operation for operation in bookmark_import.OPERATIONS},
     "binding.describe": "describe",
     "page.lookup": "lookup",
     "page.save": "save",
@@ -94,6 +103,10 @@ class Request:
             is None
         ):
             raise Refused("invalid_request")
+        if operation in bookmark_import.OPERATIONS:
+            if binding_id is None:
+                raise Refused("invalid_request")
+            return cls(operation, "", bookmark_import.parse_arguments(operation, args), binding_id)
         if operation in {"describe", "status"} and not args:
             return cls(operation, operation_id, {}, binding_id)
         if operation == "lookup" and set(args) == {"url"}:
@@ -184,6 +197,45 @@ def _binding_id(binding: BrowserBinding) -> str:
     return sha256(encoded(identity)).hexdigest()
 
 
+def _save_page(
+    policy: Policy,
+    pages: BrowserPages,
+    binding: BrowserBinding,
+    args: dict[str, Any],
+    operation_id: str,
+) -> BrowserResult:
+    value: dict[str, object] = {
+        "schema_version": 1,
+        "url": args["url"],
+        "why": args["reason"],
+        "received_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "fetch_status": "not_attempted",
+    }
+    if "title" in args:
+        value["title"] = args["title"]
+    if "passage" in args:
+        value["shared_text"] = args["passage"]
+    record = parse_record(encoded(value))
+    intake = SavedItemSourceAdapter(
+        SourceResourceSelection(*binding.source.values(), "folder")
+    ).intake(record)
+    submission = CaptureSubmission.for_public_job(
+        context=_capture_context(pages.profile, binding.workflow_principal),
+        payload=intake.payload(),
+        delivery_id=intake.key.delivery_id(),
+        source_origin="third_party",
+        source_reference=intake.source_reference,
+        provenance=intake.provenance(),
+        privacy=intake.privacy,
+        intent="reference",
+        title=intake.title,
+    )
+    digest = sha256(encoded({**args, "url": record.identity_url})).hexdigest()
+    return pages.save(
+        policy.token, operation_id, submission, record.item_key, request_digest=digest
+    )
+
+
 def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     profile = open_existing_single_user_local(policy.brain_root)
     pages = BrowserPages(profile)
@@ -193,6 +245,45 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
         return {"binding_id": _binding_id(binding), "destination": "This computer"}
     if request.binding_id is not None and request.binding_id != _binding_id(binding):
         raise Refused("binding_changed")
+    if request.operation in bookmark_import.OPERATIONS:
+        assert request.binding_id is not None
+
+        def authorize_import() -> None:
+            current = pages.binding(policy.token)
+            policy.require(current)
+            if _binding_id(current) != request.binding_id:
+                raise Refused("binding_changed")
+            if "save" not in current.operations or not current.complete_domain:
+                raise Refused("operation_denied")
+
+        def save_bookmark(url: str, reason: str, operation_id: str) -> str:
+            try:
+                return _save_page(
+                    policy, pages, binding, {"url": url, "reason": reason}, operation_id
+                ).state
+            except PermissionError:
+                authorize_import()
+                return "refused"
+
+        def reconcile_bookmark(operation_id: str) -> str | None:
+            with closing(open_local_database_read_only(profile)) as db:
+                if not db.in_transaction:
+                    db.execute("BEGIN")
+                grant = pages._grant(db, policy.token, "save")
+                if not grant["complete_domain"]:
+                    raise Refused("operation_denied")
+                outcome = _operation(db, grant, operation_id)
+                return None if outcome is None else str(outcome["state"])
+
+        return bookmark_import.execute(
+            request.operation,
+            request.args,
+            binding_id=request.binding_id,
+            principal=binding.workflow_principal,
+            authorize=authorize_import,
+            save_row=save_bookmark,
+            reconcile_row=reconcile_bookmark,
+        )
     # The token came from the same policy snapshot as the pin. Every engine
     # operation rechecks that immutable grant inside its transaction, so a
     # concurrent setup cannot substitute different authority or redirect it.
@@ -239,36 +330,7 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
             return {"state": "absent"}
         return {"state": "saved", "capture_id": page.capture_id, "space_id": page.space_id}
     else:
-        value: dict[str, object] = {
-            "schema_version": 1,
-            "url": request.args["url"],
-            "why": request.args["reason"],
-            "received_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "fetch_status": "not_attempted",
-        }
-        if "title" in request.args:
-            value["title"] = request.args["title"]
-        if "passage" in request.args:
-            value["shared_text"] = request.args["passage"]
-        record = parse_record(encoded(value))
-        intake = SavedItemSourceAdapter(
-            SourceResourceSelection(*binding.source.values(), "folder")
-        ).intake(record)
-        submission = CaptureSubmission.for_public_job(
-            context=_capture_context(profile, binding.workflow_principal),
-            payload=intake.payload(),
-            delivery_id=intake.key.delivery_id(),
-            source_origin="third_party",
-            source_reference=intake.source_reference,
-            provenance=intake.provenance(),
-            privacy=intake.privacy,
-            intent="reference",
-            title=intake.title,
-        )
-        digest = sha256(encoded({**request.args, "url": record.identity_url})).hexdigest()
-        result = pages.save(
-            policy.token, request.operation_id, submission, record.item_key, request_digest=digest
-        )
+        result = _save_page(policy, pages, binding, request.args, request.operation_id)
     response: dict[str, object] = {"state": result.state}
     if result.capture_id is not None:
         response["capture_id"] = result.capture_id
