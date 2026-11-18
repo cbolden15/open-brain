@@ -1,3 +1,4 @@
+import {revisitControls} from './revisits.mjs';
 import {organizer} from './organize.mjs';
 
 const el = id => document.getElementById(id);
@@ -11,7 +12,7 @@ const descriptions = {
   full:'Resolve or abandon an earlier save before starting another.',
   saved:'Page is saved. Repeat saves keep the original reason.', pending:'Pending. The helper has received this save.',
   unknown:'Outcome unknown. Check status before starting another save.',
-  filed:'Page filed.', highlighted:'Highlight saved.', cleared:'This save has already been resolved.'
+  rescheduled:'Revisit updated.', filed:'Page filed.', highlighted:'Highlight saved.', cleared:'This save has already been resolved.'
 };
 let gesture;
 let currentOffset = 0;
@@ -41,7 +42,7 @@ async function listPending(check) {
     if (check) {
       const {state} = await request('status', {id});
       status(state);
-      if (['saved', 'highlighted', 'filed', 'cleared'].includes(state)) continue;
+      if (['saved', 'highlighted', 'filed', 'rescheduled', 'cleared'].includes(state)) continue;
     }
     const item = document.createElement('li');
     const name = document.createElement('span');
@@ -59,7 +60,9 @@ async function listPending(check) {
   }
   el('pending').hidden = !list.children.length;
 }
-const organization = organizer(request, () => ({windowId:gesture.windowId,nonce:gesture.viewNonce}), () => open(false));
+const pageContext = () => ({windowId:gesture.windowId,nonce:gesture.viewNonce});
+const organization = organizer(request, pageContext, () => open(false));
+const revisits = revisitControls(request, pageContext, () => open(false));
 async function open(checkPending = true) {
   const tab = !checkPending && gesture ? {id:gesture.tabId, windowId:gesture.windowId} :
     (await chrome.tabs.query({active:true,currentWindow:true}))[0];
@@ -86,6 +89,8 @@ async function open(checkPending = true) {
   if (el('status').textContent === 'Checking this page…')
     el('status').textContent = page.lookup === 'saved' ? 'Already saved in this source.' : 'No saved page in this scope.';
   el('preview').hidden = false;
+  el('recovery').hidden = false;
+  revisits(page);
   await organization(page);
 }
 el('page-form').addEventListener('submit',async event => {
@@ -170,4 +175,25 @@ el('next-highlights').addEventListener('click', () => {
 el('previous-highlights').addEventListener('click', () => {
   if (previousOffsets.length) showHighlights(previousOffsets.pop()).catch(error => status(error.message));
 });
+let recoveryCursor = null;
+async function recover(after) {
+  const list = el('recovery-list');
+  if (after == null) list.replaceChildren();
+  try {
+    const result = await request('recoverIntents',{binding:gesture.expected.binding,after});
+    for (const intent of result.intents) {
+      const item = document.createElement('li');
+      item.textContent = intent.id + ' · ' + intent.state;
+      list.append(item);
+    }
+    recoveryCursor = result.next_after;
+    el('recovery-next').hidden = !recoveryCursor;
+    el('recovery-status').textContent = list.children.length ? 'Authorized attempts from this Brain.' : 'No recoverable attempts in this scope.';
+  } catch {
+    el('recovery-next').hidden = true;
+    el('recovery-status').textContent = 'Reconnect the original Brain and grant to recover saved attempts.';
+  }
+}
+el('recovery').addEventListener('toggle',() => { if (el('recovery').open) recover(null); });
+el('recovery-next').addEventListener('click',() => { if (recoveryCursor) recover(recoveryCursor); });
 open().catch(error => status(error.message));

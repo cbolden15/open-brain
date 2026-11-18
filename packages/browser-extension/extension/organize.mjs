@@ -5,6 +5,7 @@ export function organizer(request, context, refresh) {
   const announce = text => { el('import-status').textContent = text; };
   let binding, job, digest, state, next, offset, history = [], busy = false;
   let nextSpace = null;
+  let processing = false, stopRequested = false;
   const describeError = error => ({
     size:'Choose a file from 1 byte to 1 MiB. Split larger lists into text files with at most 1,000 URLs each and reuse the same reason.',
     reason:'Enter a reason of up to 280 characters.',
@@ -65,20 +66,35 @@ export function organizer(request, context, refresh) {
       result.state + ' · ' + result.processed + ' of ' + result.total + ' rows processed.');
   }
   async function run() {
-    let progress;
-    do {
-      progress = await call('stepImport');
-      mode(progress.state);
-      announce(progress.processed + ' of ' + progress.total + ' rows processed.');
-      // Closing the popup stops requesting work. The canonical job can resume later.
-    } while (progress.state === 'active');
-    await report();
-    el('import-done').focus();
+    processing = true;
+    stopRequested = false;
+    let lastProcessed = -1;
+    try {
+      while (!stopRequested) {
+        const progress = await call('stepImport');
+        mode(progress.state);
+        announce(progress.processed + ' of ' + progress.total + ' rows processed.');
+        if (progress.state !== 'active' || progress.processed === lastProcessed) break;
+        lastProcessed = progress.processed;
+      }
+      if (stopRequested) await call('cancelImport');
+      await report();
+      if (state === 'active') {
+        announce('Some rows are still pending. Resume later to check them or cancel the remaining rows.');
+        el('import-resume').focus();
+      } else el('import-done').focus();
+    } finally { processing = false; }
   }
   function handle(id, type, action) {
     el(id).addEventListener(type, async event => {
       event.preventDefault();
-      if (busy) return;
+      if (busy) {
+        if (id === 'import-cancel' && processing) {
+          stopRequested = true;
+          announce('Canceling after the current rows finish…');
+        }
+        return;
+      }
       busy = true;
       el('import-panel').setAttribute('aria-busy','true');
       try { await action(); }

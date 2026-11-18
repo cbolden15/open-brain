@@ -161,7 +161,7 @@ async function mutation(gesture, operation, args) {
     }
   }
   const state = receiptState(result);
-  if (['saved','highlighted','filed'].includes(state)) await forget(row.id);
+  if (['saved','highlighted','filed','rescheduled'].includes(state)) await forget(row.id);
   return {state:result?.state === 'refused' ? 'refused' : state};
 }
 
@@ -255,7 +255,7 @@ async function reconcile(id) {
   if (!row) return {state:'cleared'};
   const result = await sendNative('operation.status', {}, row.binding, row.id).catch(() => null);
   const state = receiptState(result);
-  if (['saved','highlighted','filed'].includes(state)) await forget(id);
+  if (['saved','highlighted','filed','rescheduled'].includes(state)) await forget(id);
   return {state};
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
@@ -264,6 +264,20 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     switch (message.action) {
       case 'begin': return begin(message.tabId, message.windowId, message.expected);
       case 'save': return serialize(() => save(message));
+      case 'revisitGet': {
+        const g = currentGesture(message.windowId,message.nonce,'view');
+        const result = await sendNative('revisit.get',{url:g.page.url,capture_id:g.captureId},g.binding);
+        await validateBeforeDispatch(g.page); requireIntent(g.intent);
+        return result;
+      }
+      case 'revisitDue': return sendNative('revisit.due',{offset:message.offset,limit:20},message.binding);
+      case 'revisitChange': return serialize(async () => {
+        const g = currentGesture(message.windowId,message.nonce,'view');
+        if (!['set','clear','dismiss'].includes(message.actionName)) throw new Error('invalid');
+        gestures.delete(message.windowId);
+        return mutation(g,'revisit.'+message.actionName,{...message.args,url:g.page.url,capture_id:g.captureId});
+      });
+      case 'recoverIntents': return sendNative('operation.list',{after:message.after ?? null,limit:10},message.binding);
       case 'spaces': return spaces(message);
       case 'file': return serialize(() => filePage(message));
       case 'boundImport': case 'startImport': case 'chunkImport': case 'previewImport':

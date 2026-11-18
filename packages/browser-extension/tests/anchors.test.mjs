@@ -33,3 +33,19 @@ test('canonical Unicode maps back to original DOM offsets and identical normaliz
   assert.equal(locateQuote('(café) or (cafe\u0301)',anchor),null);
   assert.deepEqual(locateQuote('(café)',{...anchor,quote:'cafe\u0301'}),{start:1,end:5});
 });
+
+test('rejected sibling nodes count toward the foreground traversal limit', () => {
+  let visited = 0;
+  globalThis.NodeFilter = {SHOW_ELEMENT:1, SHOW_TEXT:4, FILTER_REJECT:2, FILTER_ACCEPT:1};
+  globalThis.Node = {ELEMENT_NODE:1,TEXT_NODE:3};
+  globalThis.CSS = {highlights:new Map()};
+  globalThis.document = {body:{},createTreeWalker(_root,_flags,filter) {
+    return {nextNode() {
+      while (++visited <= 65000)
+        filter.acceptNode({nodeType:1,matches:() => true});
+      return null;
+    }};
+  }};
+  assert.deepEqual(globalThis.openBrainAnchors.restore([{quote:'example',prefix:'',suffix:''}]),[false]);
+  assert.equal(visited,60001);
+});

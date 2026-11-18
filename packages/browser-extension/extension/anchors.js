@@ -55,24 +55,30 @@
     const chunks = [];
     let length = 0;
     let visited = 0;
+    const traversalLimit = Symbol();
     const excluded = 'script,style,noscript,template,input,textarea,select,[hidden],[inert],' +
                      '[aria-hidden="true"],[contenteditable]:not([contenteditable="false"])';
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
       acceptNode(node) {
+        if (++visited > 60000) throw traversalLimit;
         if (node.nodeType === Node.ELEMENT_NODE && node.matches(excluded)) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
       },
     });
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (++visited > 60000) return null;
-      if (node.nodeType !== Node.TEXT_NODE || !node.length) continue;
-      const start = length;
-      length += node.length;
-      if (length > 1024 * 1024) return null;
-      nodes.push({node, start, end: length});
-      chunks.push(node.data);
+    try {
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.nodeType !== Node.TEXT_NODE || !node.length) continue;
+        const start = length;
+        length += node.length;
+        if (length > 1024 * 1024) return null;
+        nodes.push({node, start, end: length});
+        chunks.push(node.data);
+      }
+    } catch (error) {
+      if (error === traversalLimit) return null;
+      throw error;
     }
     return {text: chunks.join(''), nodes};
   }
@@ -126,7 +132,8 @@
         CSS.highlights.delete(highlightName);
         observer.disconnect();
       });
-      observer.observe(document.documentElement, {subtree:true, childList:true, characterData:true});
+      observer.observe(document.documentElement, {subtree:true, childList:true, characterData:true,
+        attributes:true, attributeFilter:['hidden','inert','aria-hidden','contenteditable']});
       globalThis.openBrainHighlightObserver = observer;
     }
     return resolved;

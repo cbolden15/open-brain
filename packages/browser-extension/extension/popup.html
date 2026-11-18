@@ -16,6 +16,15 @@
 <textarea id="note" rows="2" maxlength="2048"></textarea>
 <button id="add-highlight" type="submit">Save highlight</button>
 </form>
+<details id="revisit-edit" hidden><summary>Revisit this page</summary>
+<p id="revisit-status" role="status" aria-live="polite"></p>
+<form id="revisit-form"><label for="revisit-date">Revisit date</label>
+<input id="revisit-date" type="date" required>
+<label for="revisit-zone">Time zone (for example, America/Chicago)</label>
+<input id="revisit-zone" required maxlength="128">
+<button type="submit" id="revisit-set">Save revisit date</button></form>
+<button type="button" id="revisit-dismiss" hidden>Dismiss revisit</button>
+<button type="button" id="revisit-clear" hidden>Clear revisit date</button></details>
 <section id="filing" hidden aria-label="Filing">
 <p id="current-space"></p><button id="show-spaces" type="button">Choose filing space</button>
 <form id="space-form" hidden><label for="space">File saved page in</label>
@@ -31,6 +40,10 @@
 </div>
 </section>
 </section>
+<details id="due-panel" hidden><summary>Due revisits</summary>
+<p id="due-status" role="status" aria-live="polite"></p><ol id="due-rows"></ol>
+<button id="due-back" type="button" hidden>Previous revisits</button>
+<button id="due-more" type="button" hidden>More revisits</button></details>
 <details id="import-panel" hidden><summary>Import bookmarks</summary>
 <p id="import-status" role="status" aria-live="polite"></p>
 <form id="import-form"><label for="bookmarks">Bookmark file</label>
@@ -48,5 +61,8 @@
 <button id="import-cancel" type="button">Cancel import</button>
 <button id="import-done" type="button" hidden>Close results</button>
 </div></details>
+<details id="recovery" hidden><summary>Recover saved attempts</summary>
+<p id="recovery-status" role="status" aria-live="polite"></p><ol id="recovery-list"></ol>
+<button type="button" id="recovery-next" hidden>More attempts</button></details>
 <section id="pending" hidden><h2>Unresolved saves</h2><ul></ul></section>
 </main></body></html>
