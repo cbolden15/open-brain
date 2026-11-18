@@ -231,10 +231,74 @@ def _rows_page(
     )
 
 
+def _calendar(row: object) -> bool:
+    from open_brain_engine.engine.browser_revisits import validate_calendar
+
+    if (
+        not isinstance(row, dict)
+        or not isinstance(row.get("local_date"), str)
+        or not isinstance(row.get("zone"), str)
+    ):
+        return False
+    try:
+        validate_calendar(row["local_date"], row["zone"], require_installed=False)
+    except ValueError:
+        return False
+    return True
+
+
+def _due_row(row: object) -> bool:
+    return (
+        isinstance(row, dict)
+        and set(row) == {"capture_id", "zone", "local_date"}
+        and _text(row["capture_id"], 128)
+        and _calendar(row)
+    )
+
+
+def _recovery_page(args: Mapping[str, object], result: dict[str, object]) -> bool:
+    if set(result) != {"intents", "next_after"}:
+        return False
+    rows, limit = result["intents"], args["limit"]
+    if type(limit) is not int or not isinstance(rows, list) or len(rows) > limit:
+        return False
+    after = args.get("after") or ""
+    if not isinstance(after, str):
+        return False
+    for row in rows:
+        if (
+            not isinstance(row, dict)
+            or set(row) != {"id", "state"}
+            or not _uuid(row["id"])
+            or row["id"] <= after
+            or row["state"] not in ("pending", "accepted")
+        ):
+            return False
+        after = row["id"]
+    return result["next_after"] is None or (len(rows) == limit and result["next_after"] == after)
+
+
 def validate_result(operation: str, args: Mapping[str, object], result: object) -> bool:
     """Validate terminal data from the pinned handler before acknowledging a browser operation."""
     if not isinstance(result, dict):
         return False
+    if operation == "operation.list":
+        return _recovery_page(args, result)
+    if operation == "revisit.get":
+        if set(result) != {"revisit"}:
+            return False
+        row = result["revisit"]
+        return (
+            row is None
+            or isinstance(row, dict)
+            and set(row) == {"zone", "local_date", "state"}
+            and row["state"] in ("scheduled", "dismissed", "zone_unavailable")
+            and _calendar(row)
+        )
+    if operation == "revisit.due":
+        return set(result) == {"revisits", "next_offset"} and _rows_page(
+            args, result["revisits"], result["next_offset"], "capture_id", _due_row
+        )
     if operation.startswith("import."):
         from .bookmark_import import validate_import_result
 
@@ -259,12 +323,32 @@ def validate_result(operation: str, args: Mapping[str, object], result: object) 
             and _text(result["capture_id"], 128)
             and (result["space_id"] is None or _text(result["space_id"], 128))
         )
-    if operation not in {"page.save", "annotation.add", "page.file", "operation.status"}:
+    if operation not in {
+        "page.save",
+        "annotation.add",
+        "page.file",
+        "operation.status",
+        "revisit.set",
+        "revisit.dismiss",
+        "revisit.clear",
+    }:
         return False
     if state in ("pending", "refused"):
         return set(result) == {"state"}
     if state != "accepted" or not _text(result.get("capture_id"), 128):
         return False
+    if operation.startswith("revisit.") or (
+        operation == "operation.status" and "revisit_action" in result
+    ):
+        if set(result) != {"state", "capture_id", "revisit_action"}:
+            return False
+        action = result["revisit_action"]
+        if operation == "operation.status":
+            return action in ("set", "clear", "dismiss")
+        return bool(
+            action == operation.removeprefix("revisit.")
+            and result["capture_id"] == args["capture_id"]
+        )
     if operation == "annotation.add":
         return (
             set(result) == {"state", "capture_id", "annotation_id"}

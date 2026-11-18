@@ -257,3 +257,25 @@ def test_filing_and_import_remote_results() -> None:
     assert not remote.validate_result("page.file", args, {**accepted, "space_id": "other"})
     assert remote.validate_result("import.begin", {}, {"batch_id": str(uuid4())})
     assert not remote.validate_result("import.begin", {}, {"batch_id": 5})
+
+
+def test_revisit_and_recovery_remote_results() -> None:
+    parent = {"capture_id": "capture_parent"}
+    valid = {"state": "accepted", "revisit_action": "dismiss", **parent}
+    for operation in ("revisit.dismiss", "operation.status"):
+        assert remote.validate_result(operation, parent, valid)
+    assert not remote.validate_result("revisit.set", parent, valid)
+    calendar = {"zone": "America/Chicago", "local_date": "2028-02-29"}
+    read = {"revisit": {**calendar, "state": "zone_unavailable"}}
+    assert remote.validate_result("revisit.get", parent, read)
+    page = {"revisits": [{**parent, **calendar}], "next_offset": None}
+    bounds = {"limit": 1, "offset": 0}
+    assert remote.validate_result("revisit.due", bounds, page)
+    invalid = {**page, "revisits": [{**parent, **calendar, "local_date": "2027-02-29"}]}
+    assert not remote.validate_result("revisit.due", bounds, invalid)
+    op = str(uuid4())
+    cursor = {"limit": 1, "after": None}
+    intents = {"intents": [{"id": op, "state": "accepted"}], "next_after": op}
+    assert remote.validate_result("operation.list", cursor, intents)
+    assert not remote.validate_result("operation.list", {**cursor, "after": op}, intents)
+    assert not remote.validate_result("operation.list", cursor, {**intents, "next_after": "bad"})
