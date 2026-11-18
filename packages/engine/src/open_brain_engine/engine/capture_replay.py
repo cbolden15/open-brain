@@ -29,6 +29,7 @@ from open_brain_engine.portable.v16_catalog import PORTABLE_V16_SCHEMA_CATALOG_D
 from open_brain_engine.portable.v17_catalog import PORTABLE_V17_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v18_catalog import PORTABLE_V18_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.portable.v19_catalog import PORTABLE_V19_SCHEMA_CATALOG_DIGEST
+from open_brain_engine.portable.v20_catalog import PORTABLE_V20_SCHEMA_CATALOG_DIGEST
 from open_brain_engine.storage.filesystem import read_confined
 
 from .capture_recovery import CaptureRecoveryPlan
@@ -98,8 +99,8 @@ def _baseline_manifest(engine: BrainEngine, baseline: RecoveryBaseline) -> set[s
 
     manifest = read_json("portable-manifest.json", 16 * 1024 * 1024)
     version = manifest.get("schema_version")
-    if type(version) is not int or version not in range(8, 20):
-        raise ValueError("capture recovery requires a Portable8 through Portable19 baseline")
+    if type(version) is not int or version not in range(8, 21):
+        raise ValueError("capture recovery requires a Portable8 through Portable20 baseline")
     catalog = {
         8: PORTABLE_V8_SCHEMA_CATALOG_DIGEST,
         9: PORTABLE_V9_SCHEMA_CATALOG_DIGEST,
@@ -113,6 +114,7 @@ def _baseline_manifest(engine: BrainEngine, baseline: RecoveryBaseline) -> set[s
         17: PORTABLE_V17_SCHEMA_CATALOG_DIGEST,
         18: PORTABLE_V18_SCHEMA_CATALOG_DIGEST,
         19: PORTABLE_V19_SCHEMA_CATALOG_DIGEST,
+        20: PORTABLE_V20_SCHEMA_CATALOG_DIGEST,
     }[version]
     paths = _manifest(manifest, version=version, catalog=catalog)
     ready = read_json(".open-brain/state/portability-ready.json", 65536)

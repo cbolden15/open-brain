@@ -21,10 +21,11 @@ def serialize_portable_v19_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    _expected_schema: int = 24,
 ) -> PortableV5StateEvidence:
     base = serialize_portable_v18_state(
         connection, profile, relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=24,
+        _expected_schema=_expected_schema,
     )
     sources = tuple(
         SavedItemSource(*row)

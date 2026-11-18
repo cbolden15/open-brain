@@ -203,7 +203,7 @@ def test_missing_family_refuses(tmp_path: Path) -> None:
         validated_portable_snapshot(tmp_path / "archive")
 
 
-@pytest.mark.parametrize("destination_schema", [22, 23, 24])
+@pytest.mark.parametrize("destination_schema", [22, 23, 24, 25])
 def test_portable16_input_restores_with_no_shareable_tier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, destination_schema: int
 ) -> None:
@@ -215,7 +215,7 @@ def test_portable16_input_restores_with_no_shareable_tier(
         work = _capture(old, PrivacyTier.WORK)
         files = _export(old, tmp_path / "archive", version=16)
     assert OWNER_EGRESS_POLICY_PATH not in files
-    # The frozen recipe and both successor schemas restore the predecessor.
+    # The frozen recipe and successor schemas restore the predecessor.
     monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", destination_schema)
     monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", destination_schema)
     current = _engine(tmp_path / "current")

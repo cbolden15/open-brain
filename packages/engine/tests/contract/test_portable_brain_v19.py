@@ -8,9 +8,11 @@ from pathlib import Path
 
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
+from open_brain_engine.engine import local_schema, paging
 from open_brain_engine.engine.contracts import PortabilityFault
 from open_brain_engine.engine.local import BrainEngine
 from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
+from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.portability import restore_portable_clean
 from open_brain_engine.engine.saved_item_schema import SAVED_ITEM_MIGRATION
 from open_brain_engine.portable.v1 import PortableValidationError
@@ -26,6 +28,14 @@ SOURCE = ("saved_item", "folder:" + "a" * 32, "items:" + "b" * 32)
 OTHER_SOURCE = ("saved_item", SOURCE[1], "items:" + "c" * 32)
 EXPORT_ID = "export_00000000-0000-4000-8000-000000000001"
 IMPORT_ID = "import_00000000-0000-4000-8000-000000000002"
+
+@pytest.fixture(autouse=True)
+def _portable19_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep Portable19 producer and original clean-restore recipe frozen at schema24."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 24)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:24])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 24)
+
 
 
 def _export(tmp_path: Path, *, populate: bool = True) -> tuple[BrainEngine, Path, str]:
