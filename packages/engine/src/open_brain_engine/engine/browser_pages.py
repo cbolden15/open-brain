@@ -309,43 +309,45 @@ class BrowserPages:
             if not db.in_transaction:
                 db.execute("BEGIN")
             grant = self._grant(db, token, operation)
-            if operation == "status" and db.execute("PRAGMA user_version").fetchone()[0] >= 26:
-                from .browser_annotations import operation_row
-                from .browser_filing import filing_status
-                from .browser_revisits import result_for, revisit_row
+            return self._result_in_snapshot(db, grant, operation_id, operation)
 
-                revisit = revisit_row(db, grant, operation_id)
-                if revisit is not None:
-                    return result_for(self, db, grant, revisit)
+    def _result_in_snapshot(
+        self, db: sqlite3.Connection, grant: sqlite3.Row, operation_id: str, operation: str
+    ) -> BrowserResult:
+        if operation == "status" and db.execute("PRAGMA user_version").fetchone()[0] >= 26:
+            from .browser_annotations import operation_row
+            from .browser_filing import filing_status
+            from .browser_revisits import result_for, revisit_row
 
-                route = filing_status(self, db, grant, operation_id)
-                if route is not None:
-                    return route
-                child = operation_row(db, grant, operation_id)
-                if child is not None:
-                    page = self._visible(db, grant, child["delivery_id"])
-                    if (
-                        child["state"] == "accepted" and page
-                        and page.capture_id == child["capture_id"]
-                    ):
-                        return BrowserResult("accepted", page.capture_id, child["annotation_id"])
-                    return BrowserResult("refused")
-            row = _operation(db, grant, operation_id)
-            if row is None:
+            revisit = revisit_row(db, grant, operation_id)
+            if revisit is not None:
+                return result_for(self, db, grant, revisit)
+
+            route = filing_status(self, db, grant, operation_id)
+            if route is not None:
+                return route
+            child = operation_row(db, grant, operation_id)
+            if child is not None:
+                page = self._visible(db, grant, child["delivery_id"])
+                if child["state"] == "accepted" and page and page.capture_id == child["capture_id"]:
+                    return BrowserResult("accepted", page.capture_id, child["annotation_id"])
                 return BrowserResult("refused")
-            visible = (
-                self._visible(db, grant, row["delivery_id"]) if row["state"] == "accepted" else None
-            )
-            if visible:
-                return BrowserResult("accepted", visible.capture_id)
-            if row["state"] == "pending" and grant["complete_domain"]:
-                source = SavedItemSource(
-                    grant["connector_name"], grant["connection_id"], grant["resource_id"]
-                )
-                with suppress(PermissionError):
-                    _require_complete_write_domain(db, source)
-                    return BrowserResult("pending")
+        row = _operation(db, grant, operation_id)
+        if row is None:
             return BrowserResult("refused")
+        visible = (
+            self._visible(db, grant, row["delivery_id"]) if row["state"] == "accepted" else None
+        )
+        if visible:
+            return BrowserResult("accepted", visible.capture_id)
+        if row["state"] == "pending" and grant["complete_domain"]:
+            source = SavedItemSource(
+                grant["connector_name"], grant["connection_id"], grant["resource_id"]
+            )
+            with suppress(PermissionError):
+                _require_complete_write_domain(db, source)
+                return BrowserResult("pending")
+        return BrowserResult("refused")
 
 
 def _operation(db: sqlite3.Connection, grant: sqlite3.Row, operation_id: str) -> sqlite3.Row | None:

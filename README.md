@@ -86,6 +86,8 @@ after the owner acknowledges the eligible managed-note scope. Claude subscriptio
 with `subscription_isolation_unproven`; Open Brain does not add privileges or broader host access to
 make that transport work.
 
+The [optional Chrome saved-items candidate](docs/integrations/browser-saved-items.md) saves pages, highlights and revisit dates to a local Brain.
+
 [Agent setup for Claude Code and Codex](docs/agent-setup.md) runs from the command line. Optional
 source/collector implementations are source-only; continuously updating connected sources and
 production provider onboarding remain outside Core v0.1. See the

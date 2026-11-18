@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -273,9 +274,79 @@ def _chrome_directory() -> tuple[str, ...]:
     raise ValueError("unsupported Chrome platform")
 
 
+def _registration_directory(user_data_dir: Path | None) -> tuple[str, ...]:
+    if user_data_dir is None:
+        return _chrome_directory()
+    if not user_data_dir.is_absolute() or ".." in user_data_dir.parts:
+        raise ValueError("Chrome user data directory must be absolute")
+    return (*user_data_dir.relative_to(Path.home()).parts, "NativeMessagingHosts")
+
+
+def _registration_path(parts: tuple[str, ...]) -> Path:
+    return Path.home().joinpath(*parts, HOST_NAME + ".json")
+
+
+def _receipt_name(parts: tuple[str, ...]) -> str:
+    return "registration-" + hashlib.sha256(encoded(parts)).hexdigest() + ".json"
+
+
+def _registration_hashes(directory: int, parts: tuple[str, ...]) -> list[str]:
+    try:
+        hashes = strict_json(_read_private(directory, _receipt_name(parts)))
+    except FileNotFoundError:
+        return []
+    if not (
+        isinstance(hashes, list)
+        and 1 <= len(hashes) <= 2
+        and all(
+            isinstance(digest, str) and re.fullmatch("[0-9a-f]{64}", digest) for digest in hashes
+        )
+    ):
+        raise ValueError("invalid registration receipt")
+    return hashes
+
+
+def registration_status(directory: int, user_data_dir: Path | None) -> dict[str, str]:
+    parts = _registration_directory(user_data_dir)
+    path = _registration_path(parts)
+    try:
+        with _home_directory(parts, create=False, private=False) as fd:
+            current = _read_private(fd, path.name)
+    except FileNotFoundError:
+        return {"state": "absent", "manifest": str(path)}
+    owned = hashlib.sha256(current).hexdigest() in _registration_hashes(directory, parts)
+    return {"state": "registered" if owned else "foreign", "manifest": str(path)}
+
+
+def unregister(directory: int, user_data_dir: Path | None) -> dict[str, str]:
+    parts = _registration_directory(user_data_dir)
+    path = _registration_path(parts)
+    status = registration_status(directory, user_data_dir)
+    if status["state"] == "foreign":
+        raise ValueError("native registration belongs to a different installation")
+    if status["state"] == "registered":
+        with _home_directory(parts, create=False, private=False) as fd:
+            os.unlink(path.name, dir_fd=fd)
+            os.fsync(fd)
+        status["state"] = "removed"
+    with suppress(FileNotFoundError):
+        os.unlink(_receipt_name(parts), dir_fd=directory)
+        os.fsync(directory)
+    return status
+
+
 def install(
-    policy: Policy | RemotePolicy, executable: Path, *, user_data_dir: Path | None = None
+    policy: Policy | RemotePolicy,
+    executable: Path,
+    *,
+    user_data_dir: Path | None = None,
+    setup_directory: int | None = None,
 ) -> Path:
+    if setup_directory is None:
+        with lock_setup(create=True) as directory:
+            return install(
+                policy, executable, user_data_dir=user_data_dir, setup_directory=directory
+            )
     executable = executable.resolve(strict=True)
     if not executable.is_file() or not os.access(executable, os.X_OK):
         raise ValueError("browser host executable unavailable")
@@ -288,14 +359,23 @@ def install(
             "allowed_origins": [extension_origin(policy.extension_id)],
         }
     )
-    if user_data_dir is None:
-        directory = _chrome_directory()
-    else:
-        home = Path.home()
-        if not user_data_dir.is_absolute() or ".." in user_data_dir.parts:
-            raise ValueError("Chrome user data directory must be absolute")
-        directory = (*user_data_dir.relative_to(home).parts, "NativeMessagingHosts")
-    filename = HOST_NAME + ".json"
-    with _home_directory(directory, create=True, private=False) as fd:
-        _replace(fd, filename, payload)
-    return Path.home().joinpath(*directory, filename)
+    parts = _registration_directory(user_data_dir)
+    path = _registration_path(parts)
+    receipt = _receipt_name(parts)
+    digest = hashlib.sha256(payload).hexdigest()
+    with _home_directory(parts, create=True, private=False) as fd:
+        allowed = [digest]
+        try:
+            current = hashlib.sha256(_read_private(fd, path.name)).hexdigest()
+            if current != digest:
+                if current not in _registration_hashes(setup_directory, parts):
+                    raise ValueError("native registration belongs to a different installation")
+                allowed.append(current)
+        except FileNotFoundError:
+            pass
+        # Either manifest can be present if an upgrade is interrupted.
+        _replace(setup_directory, receipt, encoded(allowed))
+        _replace(fd, path.name, payload)
+        if len(allowed) > 1:
+            _replace(setup_directory, receipt, encoded([digest]))
+    return path

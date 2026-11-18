@@ -47,6 +47,7 @@ OPERATIONS = {
     "page.lookup": "lookup",
     "page.save": "save",
     "operation.status": "status",
+    "operation.list": "operation.list",
     "annotation.add": "annotation.add",
     "annotation.list": "annotation.list",
     "space.list": "space.list",
@@ -161,6 +162,19 @@ class Request:
             return cls(operation, operation_id, revisit_args, binding_id)
         if operation in {"describe", "status"} and not args:
             return cls(operation, operation_id, {}, binding_id)
+        if operation == "operation.list":
+            if (
+                set(args) != {"after", "limit"}
+                or type(args["limit"]) is not int
+                or not 1 <= args["limit"] <= 20
+            ):
+                raise Refused("invalid_request")
+            if args["after"] is not None:
+                try:
+                    uuid4_id(_text(args["after"], 36))
+                except ValueError:
+                    raise Refused("invalid_request") from None
+            return cls(operation, "", args, binding_id)
         if operation == "lookup" and set(args) == {"url"}:
             return cls(operation, "", {"url": _text(args["url"], 8192)}, binding_id)
         if operation in {"annotation.add", "annotation.list", "space.list", "page.file"}:
@@ -344,6 +358,7 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     # operation rechecks that immutable grant inside its transaction, so a
     # concurrent setup cannot substitute different authority or redirect it.
     required_operation = {
+        "operation.list": "status",
         "annotation.add": "save",
         "annotation.list": "lookup",
         "space.list": "lookup",
@@ -356,6 +371,10 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     }.get(request.operation, request.operation)
     if required_operation not in binding.operations:
         raise Refused("operation_denied")
+    if request.operation == "operation.list":
+        from open_brain_engine.engine.browser_recovery import list_intents
+
+        return list_intents(pages, policy.token, request.args["after"], request.args["limit"])
     if request.operation == "status":
         result = pages.status(policy.token, request.operation_id)
     elif request.operation.startswith("revisit."):

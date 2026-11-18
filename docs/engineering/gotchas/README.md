@@ -4924,3 +4924,11 @@ as a code failure. Never write into the worktree during a full verify: the harne
 fail with `source_changed_during_run`.
 
 Discovered: 2026-10-17, G4 gate 5.
+
+### BROWSER-BUILD-001: Native host builds need the pinned PyInstaller wheel
+
+Category: Build pipeline.
+
+A cold uv cache does not contain the optional native-build group. Use the frozen lock with download access on the first build, or prewarm that group before building offline. A separate uv project environment lets the core and browser artifact checks run without replacing the contributor test environment.
+
+Discovered: 2026-11-18, browser saved-items candidate.

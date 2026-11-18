@@ -29,10 +29,14 @@ from .policy import (
     install,
     lock_setup,
     read,
+    registration_status,
     save,
+    unregister,
 )
 
-OWNER_COMMANDS = frozenset({"setup", "setup-remote", "sources", "revoke", "install"})
+OWNER_COMMANDS = frozenset(
+    {"setup", "setup-remote", "sources", "revoke", "install", "diagnose", "unregister"}
+)
 
 
 def _owner(profile: LocalEngineContext) -> BrowserOwnerSetup:
@@ -78,14 +82,20 @@ def _parser() -> argparse.ArgumentParser:
     sources.add_argument("--data-dir")
     sources.add_argument("--offset", type=int, default=0)
     sub.add_parser("revoke", help="Revoke the configured grant in the Brain.")
-    register = sub.add_parser(
-        "install", help="Register this executable for the configured Chrome extension."
-    )
-    register.add_argument(
-        "--chrome-user-data-dir",
-        type=Path,
-        help="An absolute Chrome user data directory under HOME.",
-    )
+    for name, help_text in (
+        ("install", "Register this executable for the configured Chrome extension."),
+        ("diagnose", "Show the native registration and configured destination."),
+        (
+            "unregister",
+            "Remove the verified registration. Browser recovery IDs and Brain data are preserved.",
+        ),
+    ):
+        register = sub.add_parser(name, help=help_text)
+        register.add_argument(
+            "--chrome-user-data-dir",
+            type=Path,
+            help="An absolute Chrome user data directory under HOME.",
+        )
     return parser
 
 
@@ -186,7 +196,16 @@ def main(argv: Sequence[str]) -> int:
                     result = {"state": "configured", "destination": remote.destination}
                 else:
                     policy = read(directory)
-                    if args.command == "revoke":
+                    if args.command in {"diagnose", "unregister"}:
+                        change = unregister if args.command == "unregister" else registration_status
+                        result = {
+                            **change(directory, args.chrome_user_data_dir),
+                            "extension_id": policy.extension_id,
+                            "destination": policy.destination
+                            if isinstance(policy, RemotePolicy)
+                            else str(policy.brain_root),
+                        }
+                    elif args.command == "revoke":
                         if isinstance(policy, RemotePolicy):
                             raise ValueError("revoke on the canonical host")
                         _revoke(policy)
@@ -196,9 +215,18 @@ def main(argv: Sequence[str]) -> int:
                             profile = open_existing_single_user_local(policy.brain_root)
                             policy.require(BrowserPages(profile).binding(policy.token))
                         manifest = install(
-                            policy, Path(sys.argv[0]), user_data_dir=args.chrome_user_data_dir
+                            policy,
+                            Path(sys.argv[0]),
+                            user_data_dir=args.chrome_user_data_dir,
+                            setup_directory=directory,
                         )
-                        result = {"manifest": str(manifest)}
+                        result = {
+                            "manifest": str(manifest),
+                            "destination": policy.destination
+                            if isinstance(policy, RemotePolicy)
+                            else str(policy.brain_root),
+                            "extension_id": policy.extension_id,
+                        }
     except Refused, OSError, RuntimeError, SavedItemRefusal, ValueError:
         print("Browser setup refused. Check the local Brain, source and grant.", file=sys.stderr)
         return 2
