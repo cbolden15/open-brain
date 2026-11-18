@@ -647,6 +647,18 @@ class CaptureLifecycleTasks:
         result = journal.retract(request)
         if journal.eligibility_generation != before:
             self._advance(journal)
+            if journal.connection.execute("PRAGMA user_version").fetchone()[0] >= 26:
+                for (capture_id,) in journal.connection.execute(
+                    "SELECT DISTINCT capture_id FROM browser_annotations WHERE state='accepted'"
+                ).fetchall():
+                    if not journal.permits_capture(capture_id):
+                        journal.connection.execute(
+                            "UPDATE browser_annotations SET state='withdrawn',quote=NULL,"
+                            "prefix=NULL,suffix=NULL,note=NULL WHERE capture_id=?", (capture_id,),
+                        )
+                        journal.connection.execute(
+                            "DELETE FROM search_documents WHERE capture_id=?", (capture_id,),
+                        )
             if journal.connection.execute("PRAGMA user_version").fetchone()[0] >= 19:
                 # Current readers enforce the authoritative marker before using
                 # projections. The decision/receipt never waits on row cleanup.

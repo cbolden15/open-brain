@@ -162,3 +162,36 @@ BROWSER_OPERATION_MIGRATION = _migration(
         *tuple(stmt.replace("24", "25") for stmt in SAVED_ITEM_SCHEMA[-3:]),
     ),
 )
+
+BROWSER_ANNOTATION_MIGRATION = _migration(
+    26,
+    "browser-annotations",
+    (
+        """CREATE TABLE browser_annotations (
+ brain_id TEXT NOT NULL,workflow_principal TEXT NOT NULL,
+ connector_name TEXT NOT NULL,connection_id TEXT NOT NULL,resource_id TEXT NOT NULL,
+ operation_id TEXT NOT NULL,request_sha256 TEXT NOT NULL CHECK(length(request_sha256)=64
+ AND request_sha256 NOT GLOB '*[^0-9a-f]*'),delivery_id TEXT NOT NULL,
+ item_key TEXT NOT NULL CHECK(length(item_key)=32 AND item_key NOT GLOB '*[^0-9a-f]*'),
+ capture_id TEXT NOT NULL REFERENCES captures(capture_id),annotation_id TEXT NOT NULL UNIQUE,
+ state TEXT NOT NULL CHECK(state IN ('accepted','withdrawn')),
+ quote TEXT,prefix TEXT,suffix TEXT,note TEXT,
+ CHECK(operation_id != annotation_id),
+ CHECK((state='withdrawn' AND quote IS NULL AND prefix IS NULL AND suffix IS NULL AND note IS NULL)
+ OR (state='accepted' AND quote IS NOT NULL AND length(quote) BETWEEN 1 AND 4096
+ AND prefix IS NOT NULL AND length(prefix)<=128 AND suffix IS NOT NULL AND length(suffix)<=128
+ AND (note IS NULL OR length(note) BETWEEN 1 AND 1024))),
+ PRIMARY KEY(brain_id,workflow_principal,connector_name,connection_id,resource_id,operation_id),
+ FOREIGN KEY(connector_name,connection_id,resource_id)
+ REFERENCES saved_item_sources(connector_name,connection_id,resource_id)
+)""",
+        "CREATE INDEX browser_annotation_parent "
+        "ON browser_annotations(capture_id,state,annotation_id)",
+        """CREATE TRIGGER browser_annotation_retire AFTER UPDATE OF lifecycle ON logical_sources
+ WHEN NEW.lifecycle='retired' BEGIN
+ UPDATE browser_annotations SET state='withdrawn',quote=NULL,prefix=NULL,suffix=NULL,note=NULL
+ WHERE capture_id IN (SELECT capture_id FROM source_revisions WHERE source_id=NEW.source_id);
+ END""",
+        *tuple(stmt.replace("24", "26") for stmt in SAVED_ITEM_SCHEMA[-3:]),
+    ),
+)

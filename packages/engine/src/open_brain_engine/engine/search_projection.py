@@ -268,6 +268,9 @@ def project_search_document(
     captures: tuple[sqlite3.Row, ...] = (capture,)
     capture_ids: tuple[str, ...] = (capture_id,)
     if record_type == "source":
+        from .browser_annotations import annotation_text
+
+        body = annotation_text(connection, capture_id, body)
         trust = source_trust(origin)
         canonical_frontmatter_trust = None
         if is_harness_source_reference(source_reference):

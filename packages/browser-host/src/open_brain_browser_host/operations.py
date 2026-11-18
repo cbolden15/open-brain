@@ -6,8 +6,15 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
+from typing import Any
 
 from open_brain_engine.engine import CaptureSubmission, LocalEngineContext, PublicJobCaptureContext
+from open_brain_engine.engine.browser_annotations import (
+    Annotation,
+    BrowserAnnotations,
+    MaskedAnnotation,
+    uuid4_id,
+)
 from open_brain_engine.engine.browser_pages import BrowserBinding, BrowserPages
 
 from open_brain.profile import open_existing_single_user_local
@@ -29,8 +36,10 @@ OPERATIONS = {
     "page.lookup": "lookup",
     "page.save": "save",
     "operation.status": "status",
+    "annotation.add": "annotation.add",
+    "annotation.list": "annotation.list",
 }
-_RECEIPT_OPERATIONS = {"save", "status"}
+_RECEIPT_OPERATIONS = {"save", "status", "annotation.add"}
 
 
 def _text(value: object, limit: int) -> str:
@@ -47,7 +56,7 @@ def _text(value: object, limit: int) -> str:
 class Request:
     operation: str
     operation_id: str
-    args: dict[str, str]
+    args: dict[str, Any]
     binding_id: str | None = None
 
     @classmethod
@@ -89,6 +98,47 @@ class Request:
             return cls(operation, operation_id, {}, binding_id)
         if operation == "lookup" and set(args) == {"url"}:
             return cls(operation, "", {"url": _text(args["url"], 8192)}, binding_id)
+        if operation in {"annotation.add", "annotation.list"}:
+            common = {"url", "capture_id"}
+            if not common <= args.keys():
+                raise Refused("invalid_request")
+            clean: dict[str, Any] = {
+                "url": _text(args["url"], 8192),
+                "capture_id": _text(args["capture_id"], 128),
+            }
+            if operation == "annotation.list":
+                if set(args) != common | {"limit", "offset"}:
+                    raise Refused("invalid_request")
+                limit, offset = args["limit"], args["offset"]
+                if (
+                    type(limit) is not int
+                    or not 1 <= limit <= 10
+                    or type(offset) is not int
+                    or not 0 <= offset < 2**31
+                ):
+                    raise Refused("invalid_request")
+                clean.update(limit=limit, offset=offset)
+            else:
+                required_child = common | {"annotation_id", "quote", "prefix", "suffix"}
+                if not required_child <= args.keys() <= required_child | {"note"}:
+                    raise Refused("invalid_request")
+                try:
+                    clean["annotation_id"] = uuid4_id(_text(args["annotation_id"], 36))
+                except ValueError:
+                    raise Refused("invalid_request") from None
+                clean["quote"] = _text(args["quote"], 4096)
+                for key in ("prefix", "suffix"):
+                    raw = args[key]
+                    if not isinstance(raw, str) or len(raw) > 128 or "\x00" in raw:
+                        raise Refused("invalid_request")
+                    try:
+                        raw.encode("utf-8")
+                    except UnicodeError:
+                        raise Refused("invalid_request") from None
+                    clean[key] = raw
+                if "note" in args:
+                    clean["note"] = _text(args["note"], 1024)
+            return cls(operation, operation_id, clean, binding_id)
         required = {"url", "reason"}
         limits = {
             "url": 8192,
@@ -146,10 +196,42 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     # The token came from the same policy snapshot as the pin. Every engine
     # operation rechecks that immutable grant inside its transaction, so a
     # concurrent setup cannot substitute different authority or redirect it.
-    if request.operation not in binding.operations:
+    required_operation = {"annotation.add": "save", "annotation.list": "lookup"}.get(
+        request.operation, request.operation
+    )
+    if required_operation not in binding.operations:
         raise Refused("operation_denied")
     if request.operation == "status":
         result = pages.status(policy.token, request.operation_id)
+    elif request.operation in {"annotation.add", "annotation.list"}:
+        annotations = BrowserAnnotations(profile)
+        identity, _ = identity_url(request.args["url"])
+        args = request.args
+        if request.operation == "annotation.list":
+            items, continuation = annotations.list(
+                policy.token,
+                item_key(identity),
+                args["capture_id"],
+                limit=args["limit"],
+                offset=args["offset"],
+            )
+            return {"annotations": items, "next_offset": continuation}
+        try:
+            result = annotations.add(
+                policy.token,
+                request.operation_id,
+                item_key(identity),
+                args["capture_id"],
+                Annotation(
+                    args["annotation_id"],
+                    args["quote"],
+                    args["prefix"],
+                    args["suffix"],
+                    args.get("note"),
+                ),
+            )
+        except MaskedAnnotation:
+            raise Refused("annotation_masked") from None
     elif request.operation == "lookup":
         identity, _ = identity_url(request.args["url"])
         page = pages.lookup(policy.token, item_key(identity))
@@ -190,4 +272,6 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     response: dict[str, object] = {"state": result.state}
     if result.capture_id is not None:
         response["capture_id"] = result.capture_id
+    if result.annotation_id is not None:
+        response["annotation_id"] = result.annotation_id
     return response

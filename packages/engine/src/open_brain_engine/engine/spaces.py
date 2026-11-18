@@ -311,6 +311,14 @@ class SpaceOperations(_LocalEngineOperations):
                 connection.execute(
                     "UPDATE captures SET space_id = ? WHERE capture_id = ?", (space_id, capture_id)
                 )
+                if connection.execute("PRAGMA user_version").fetchone()[0] >= 26:
+                    # Highlight snippets must leave the former scope in this commit,
+                    # including when the subsequent portable routing write is interrupted.
+                    connection.execute(
+                        "UPDATE search_documents SET space_id=?,updated_at=? "
+                        "WHERE capture_id=? AND record_type='source'",
+                        (space_id, now, capture_id),
+                    )
                 created = True
         if conflict is not None:
             self._quarantine(delivery_id, expected=conflict[0], actual=conflict[1])
@@ -352,11 +360,14 @@ class SpaceOperations(_LocalEngineOperations):
             stage = 1
         if stage < 2:
             with self._store.transaction() as connection:
-                connection.execute(
-                    "UPDATE search_documents SET space_id = ?, updated_at = ? "
-                    "WHERE capture_id = ? AND record_type = 'source'",
-                    (row["space_id"], row["recorded_at"], row["capture_id"]),
-                )
+                # Schema26 publishes the route in the reservation transaction. A
+                # delayed replay of an earlier route must not replace a newer scope.
+                if connection.execute("PRAGMA user_version").fetchone()[0] < 26:
+                    connection.execute(
+                        "UPDATE search_documents SET space_id = ?, updated_at = ? "
+                        "WHERE capture_id = ? AND record_type = 'source'",
+                        (row["space_id"], row["recorded_at"], row["capture_id"]),
+                    )
                 connection.execute(
                     "UPDATE route_operations SET stage = 2 WHERE delivery_id = ?",
                     (row["delivery_id"],),

@@ -314,3 +314,147 @@ def test_saved_admission_preserves_general_delivery_conflicts(
     with sqlite3.connect(root / ".open-brain/state/phase1.sqlite3") as db:
         assert db.execute("SELECT count(*) FROM saved_item_admissions").fetchone()[0] == 0
         assert db.execute("SELECT count(*) FROM browser_operations").fetchone()[0] == 0
+
+
+def test_highlight_mutations_search_scope_history_and_retraction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import json
+    from contextlib import closing
+
+    from open_brain_engine.engine.browser_annotations import BrowserAnnotations
+    from open_brain_engine.engine.records import RecordProjector
+
+    from open_brain.services.local_entrypoints import run_cli
+    from open_brain_browser_host.policy import Refused
+
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    monkeypatch.setenv("HOME", str(home))
+    root = tmp_path / "brain"
+    _grant(home, root, "--new-source", "--initialize-brain")
+    policy = load()
+    capture = _save(policy, str(uuid4()), URL)["capture_id"]
+    assert isinstance(capture, str)
+    operation = str(uuid4())
+    args = dict(
+        url=URL,
+        capture_id=capture,
+        annotation_id=str(uuid4()),
+        quote="syntheticquartz",
+        prefix="",
+        suffix=" ",
+        note="syntheticamethyst",
+    )
+
+    def add(operation: str, args: dict[str, str]) -> dict[str, object]:
+        return dispatch(
+            policy,
+            Request.parse(
+                dict(
+                    version="browser.v1",
+                    operation="annotation.add",
+                    operation_id=operation,
+                    args=args,
+                )
+            ),
+        )
+
+    with pytest.raises(Refused, match="annotation_masked"):
+        add(str(uuid4()), {**args, "quote": "synthetic@example.org"})
+    first = add(operation, args)
+    with pytest.raises(ValueError, match="browser_operation_conflict"):
+        _save(policy, operation, URL)
+    assert first == {
+        "state": "accepted",
+        "capture_id": capture,
+        "annotation_id": args["annotation_id"],
+    }
+    assert add(operation, args) == first
+    assert dispatch(policy, Request("status", operation, {})) == first
+    for mutation, changed in [(operation, {"quote": "changed"}), (str(uuid4()), {})]:
+        with pytest.raises(ValueError, match="browser_operation_conflict"):
+            add(mutation, {**args, **changed})
+    with pytest.raises(PermissionError):
+        add(str(uuid4()), {**args, "url": URL + "/stale"})
+    second = add(str(uuid4()), {**args, "annotation_id": str(uuid4())})
+    assert second["annotation_id"] != first["annotation_id"]
+    add(str(uuid4()), {**args, "annotation_id": str(uuid4()), "quote": "syntheticgarnet"})
+    profile = compile_single_user_local(root)
+    engine = BrainEngine.open(profile, recover_on_open=False)
+    pages = BrowserAnnotations(profile)
+    binding = pages.binding(policy.token)
+    owner = owner_authority_for_principal(principal_id=profile.owner_actor_id, session_id="test")
+    for query in ("syntheticquartz", "syntheticamethyst", "syntheticgarnet"):
+        assert len(engine.retrieval.search(query)) == 1
+    with closing(engine._store.connect()) as db:
+        record = RecordProjector(profile, db, owner)
+        assert "syntheticamethyst" in record.source(capture).text
+        assert (
+            "syntheticamethyst" not in record.source(capture, expected=capture, history=True).text
+        )
+    visible = engine.inbox.create_space("Visible", delivery_id="synthetic.visible").space_id
+    hidden = engine.inbox.create_space("Hidden", delivery_id="synthetic.hidden").space_id
+    limited = BrowserOwnerSetup(profile, owner).bind(
+        binding.source,
+        spaces=[None, visible],
+        tiers=["personal"],
+        operations=["lookup", "status"],
+        workflow_principal=binding.workflow_principal,
+    )
+    key = item_key(identity_url(URL)[0])
+    capsys.readouterr()
+    assert run_cli(("search", "syntheticamethyst", "--data-dir", str(root), "--json")) == 0
+    assert json.loads(capsys.readouterr().out)["results"][0]["capture_id"] == capture
+
+    def read() -> tuple[list[dict[str, str | None]], int | None]:
+        return pages.list(limited, key, capture, limit=2, offset=0)
+
+    assert len(read()[0]) == 2 and read()[1] == 2
+    second_page = dispatch(
+        policy,
+        Request.parse(
+            {
+                "version": "browser.v1",
+                "operation": "annotation.list",
+                "args": {"url": URL, "capture_id": capture, "limit": 2, "offset": 2},
+            }
+        ),
+    )
+    assert isinstance(second_page["annotations"], list)
+    assert len(second_page["annotations"]) == 1 and second_page["next_offset"] is None
+    engine.inbox.route(capture, visible, delivery_id="synthetic.file.initial")
+
+    def interrupt_route(self: BrainEngine, point: object) -> None:
+        if point == CaptureFault.AFTER_ROUTE_RESERVATION:
+            raise RuntimeError("interrupted route")
+
+    with monkeypatch.context() as m:
+        m.setattr(BrainEngine, "_fault", interrupt_route)
+        with pytest.raises(RuntimeError, match="interrupted route"):
+            engine.inbox.route(capture, hidden, delivery_id="synthetic.file.hidden")
+    assert engine.retrieval.search("syntheticamethyst", space_id=visible) == ()
+    engine.inbox.route(capture, hidden, delivery_id="synthetic.file.hidden")
+    with pytest.raises(PermissionError):
+        read()
+    assert pages.status(limited, operation).state == "refused"
+    assert engine.retrieval.search("syntheticquartz", space_id=visible) == ()
+    engine.inbox.route(capture, visible, delivery_id="synthetic.file.visible")
+    assert len(read()[0]) == 2
+    assert len(engine.retrieval.search("syntheticquartz", space_id=visible)) == 1
+    preview = engine.lifecycle.preview_retraction(capture_id=capture, authority=owner)
+    engine.lifecycle.commit_retraction(str(preview["preview_id"]), str(uuid4()), authority=owner)
+    assert pages.status(limited, operation).state == "refused"
+    assert engine.retrieval.search("syntheticquartz") == ()
+    with pytest.raises(PermissionError):
+        add(operation, args)
+    with closing(engine._store.connect()) as db:
+        assert (
+            db.execute(
+                "SELECT count(*) FROM browser_annotations WHERE state='withdrawn' "
+                "AND quote IS NULL AND prefix IS NULL AND suffix IS NULL AND note IS NULL"
+            ).fetchone()[0]
+            == 3
+        )

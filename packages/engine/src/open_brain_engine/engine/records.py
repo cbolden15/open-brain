@@ -185,6 +185,11 @@ class RecordProjector:
             payload_family=record["payload"]["family"],
             stored_title=None if row is None else row["title"],
         )
+        if not history:
+            from .browser_annotations import annotation_text
+
+            body = annotation_text(self.connection, head, body)
+            indexed_body = annotation_text(self.connection, head, indexed_body)
         origin = self._origin(record)
         summary = {
             "record_id": head,

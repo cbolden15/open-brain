@@ -46,6 +46,7 @@ def _accepted(connection: sqlite3.Connection, delivery: str) -> str | None:
 class BrowserResult:
     state: str
     capture_id: str | None = None
+    annotation_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,7 +304,21 @@ class BrowserPages:
 
     def _result(self, token: str, operation_id: str, operation: str) -> BrowserResult:
         with closing(open_local_database_read_only(self.profile)) as db:
+            if not db.in_transaction:
+                db.execute("BEGIN")
             grant = self._grant(db, token, operation)
+            if operation == "status" and db.execute("PRAGMA user_version").fetchone()[0] >= 26:
+                from .browser_annotations import operation_row
+
+                child = operation_row(db, grant, operation_id)
+                if child is not None:
+                    page = self._visible(db, grant, child["delivery_id"])
+                    if (
+                        child["state"] == "accepted" and page
+                        and page.capture_id == child["capture_id"]
+                    ):
+                        return BrowserResult("accepted", page.capture_id, child["annotation_id"])
+                    return BrowserResult("refused")
             row = _operation(db, grant, operation_id)
             if row is None:
                 return BrowserResult("refused")
@@ -367,6 +382,11 @@ class BrowserSaveAdmission:
         ):
             raise PermissionError("browser_operation_denied")
         key = _operation_key(grant, self.operation_id)
+        if db.execute("PRAGMA user_version").fetchone()[0] >= 26:
+            from .browser_annotations import operation_row
+
+            if operation_row(db, grant, self.operation_id):
+                raise ValueError("browser_operation_conflict")
         prior = _operation(db, grant, self.operation_id)
         if prior:
             if prior["request_sha256"] != self.digest or prior["delivery_id"] != delivery_id:

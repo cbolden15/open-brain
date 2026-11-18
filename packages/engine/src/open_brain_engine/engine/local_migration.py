@@ -112,7 +112,9 @@ def coordinate_local_migration(
             owner_egress_policy_phase,
             followup_phase,
             saved_item_phase,
-            schema.state == "supported_old" and schema.version == 24 and target >= 25,
+            schema.state == "supported_old"
+            and schema.version in {24, 25}
+            and target > schema.version,
         )
     ):
         return
@@ -260,11 +262,15 @@ def coordinate_local_migration(
                 profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint
             )
             schema = inspect_phase1_state(profile)
-        if schema.state == "supported_old" and schema.version == 24 and target >= 25:
+        while (
+            schema.state == "supported_old" and schema.version in {24, 25}
+            and target > schema.version
+        ):
             from .saved_item_schema import migrate_saved_item_sources
 
             migrate_saved_item_sources(
-                profile, admission=admission, clock=resolved_clock, checkpoint=checkpoint, target=25
+                profile, admission=admission, clock=resolved_clock,
+                checkpoint=checkpoint, target=schema.version + 1
             )
             schema = inspect_phase1_state(profile)
     if schema.state != "current" or schema.version != target:
