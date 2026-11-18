@@ -467,3 +467,88 @@ def test_owner_mutations_serialize_per_installation(installation: tuple[Path, Pa
         os.close(directory)
     _call(home, ["revoke"])
     assert _request(home, "page.lookup", {"url": URL}) == {"error": {"code": "browser_unbound"}}
+
+
+def test_owner_retraction_withholds_browser_receipts_across_restore(
+    installation: tuple[Path, Path], tmp_path: Path
+) -> None:
+    home, root = installation
+    cli = str(Path(sys.executable).with_name("open-brain"))
+    operation = str(uuid4())
+    args = {"url": URL, "reason": "Cinnabarwren reason", "passage": "Moonreed passage"}
+    saved = cast(dict[str, str], _request(home, "page.save", args, operation)["result"])
+    policy = json.loads((home / ".open-brain-browser" / "policy.json").read_bytes())
+
+    def owner(*arguments: str) -> dict[str, object]:
+        result = subprocess.run(
+            [cli, *arguments, "--json"],
+            capture_output=True,
+            check=True,
+            env={**os.environ, "HOME": str(home)},
+            timeout=20,
+        )
+        return cast(dict[str, object], json.loads(result.stdout))
+
+    preview = owner("retract", "preview", "--capture", saved["capture_id"], "--data-dir", str(root))
+    owner(
+        "retract",
+        "commit",
+        "--preview-id",
+        str(preview["preview_id"]),
+        "--operation-id",
+        str(uuid4()),
+        "--data-dir",
+        str(root),
+    )
+
+    def withheld(path: Path) -> None:
+        assert _request(path, "page.lookup", {"url": URL}) == {"result": {"state": "absent"}}
+        assert _request(path, "operation.status", {}, operation) == {"result": {"state": "refused"}}
+        assert _request(path, "page.save", args, operation) == {"result": {"state": "refused"}}
+
+    withheld(home)
+    archive = tmp_path / "portable"
+    owner("export", str(archive), "--verify", "--data-dir", str(root))
+    # Core Portable preserves immutable owner history. Browser reconciliation
+    # evidence contains only opaque identity and dispositions.
+    evidence = (archive / "history/saved-item-admission/admissions-v1.json").read_bytes()
+    for marker in (*args.values(), policy["token"]):
+        assert marker.encode() not in evidence
+    destination = tmp_path / "restored"
+    owner("restore", str(archive), str(destination), "--import-id", "import_" + str(uuid4()))
+    restored_home = tmp_path / "restored-home"
+    restored_home.mkdir(mode=0o700)
+    binding = policy["binding"]
+    _setup(
+        restored_home,
+        destination,
+        "--source",
+        *binding["source"][1:],
+        "--workflow-principal",
+        binding["workflow_principal"],
+        "--tier",
+        "public",
+        "--tier",
+        "work",
+        "--complete-domain",
+    )
+    withheld(restored_home)
+    # Fresh intent cannot resurrect a withdrawn page. A separate current
+    # page remains writable in this source under the full grant.
+    assert _request(restored_home, "page.save", args, str(uuid4())) == {
+        "result": {"state": "refused"}
+    }
+    other = _request(
+        restored_home,
+        "page.save",
+        {**args, "url": URL + "/new", "reason": "Unrelated", "passage": "Other"},
+        str(uuid4()),
+    )
+    assert cast(dict[str, object], other["result"])["state"] == "accepted"
+    limited = tmp_path / "restricted-home"
+    limited.mkdir(mode=0o700)
+    _setup(limited, destination, "--source", *binding["source"][1:])
+    assert _request(limited, "page.save", args, str(uuid4())) == _request(
+        limited, "page.save", {**args, "url": URL + "/absent"}, str(uuid4())
+    )
+    assert owner("search", "Cinnabarwren", "--data-dir", str(destination))["results"] == []
