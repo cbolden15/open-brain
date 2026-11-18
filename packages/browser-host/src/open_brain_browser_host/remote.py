@@ -25,6 +25,9 @@ from .policy import Policy, Refused, RemotePolicy, encoded, load, strict_json
 _HEADER = struct.Struct("!4sI")
 _MAGIC = b"OBR1"
 _LIMIT = 256 * 1024
+_IMPORT_MUTATIONS = frozenset(
+    {"import.begin", "import.chunk", "import.confirm", "import.step", "import.cancel"}
+)
 
 
 def _frame(value: object) -> bytes:
@@ -425,10 +428,12 @@ async def exchange(
                 raise ValueError("invalid remote response")
             return cast(dict[str, object], reply["result"])
     except TimeoutError, OSError, EOFError, ValueError, RecursionError:
+        operation = value["operation"]
+        mutation = operation in _IMPORT_MUTATIONS or (
+            "operation_id" in value and operation != "operation.status"
+        )
         raise Refused(
-            "outcome_unknown"
-            if submitted and "operation_id" in value and value["operation"] != "operation.status"
-            else "remote_unavailable"
+            "outcome_unknown" if submitted and mutation else "remote_unavailable"
         ) from None
     finally:
         if child.returncode is None:

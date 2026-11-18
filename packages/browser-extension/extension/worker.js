@@ -51,7 +51,9 @@ async function sendNative(operation, args, binding, operationId) {
     const code = reply.error?.code;
     const known = preAdmissionErrors.get(code);
     const importError = ['import_not_found','import_too_large','import_preview_limit','import_invalid_encoding','import_not_ready','import_digest_mismatch','import_incomplete'].includes(code) ? code : null;
-    const error = new Error(importError ?? known ?? (code === 'browser_unbound' ? 'refused' : 'unavailable'));
+    const uncertainImport = code === 'outcome_unknown' && operation.startsWith('import.');
+    const error = new Error(importError ?? known ?? (uncertainImport ? 'outcome_unknown' :
+      code === 'browser_unbound' ? 'refused' : 'unavailable'));
     error.beforeAdmission = Boolean(known);
     throw error;
   }
@@ -293,7 +295,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     }
   }
   handle().then(value => reply({value}), error => reply({error:
-    ['changed','unsupported','reason','unavailable','refused','full','selection','invalid','import_not_found','import_too_large','import_preview_limit','import_invalid_encoding','import_not_ready','import_digest_mismatch','import_incomplete'].includes(error.message)
+    ['changed','unsupported','reason','unavailable','outcome_unknown','refused','full','selection','invalid','import_not_found','import_too_large','import_preview_limit','import_invalid_encoding','import_not_ready','import_digest_mismatch','import_incomplete'].includes(error.message)
       ? error.message : 'restricted'}));
   return true;
 });

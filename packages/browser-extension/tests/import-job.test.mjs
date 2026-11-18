@@ -49,3 +49,12 @@ test('cancel during processing takes effect after the in-flight step',async () =
   assert.equal(f.calls.filter(c => c === 'cancelImport').length,1);
   assert.equal(f.element('import-done').hidden,false);
 });
+
+test('an uncertain remote step checks original batch status before offering resume',async () => {
+  const f = fixture(async () => { throw new Error('outcome_unknown'); });
+  await f.open();
+  await f.click('import-resume');
+  assert.deepEqual(f.calls,['boundImport','statusImport','stepImport','statusImport']);
+  assert.equal(f.element('import-resume').hidden,false);
+  assert.match(f.element('import-status').textContent,/active/);
+});

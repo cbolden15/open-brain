@@ -246,14 +246,20 @@ test('an import preserves only its opaque destination and job ID across restart'
     if (message.operation.startsWith('import.')) {
       assert.equal(message.binding_id,binding);
       f.calls.push(message);
+      if (message.operation === 'import.confirm')
+        return {version:'browser.v1',error:{code:'outcome_unknown'}};
       return {version:'browser.v1',result:message.operation === 'import.begin' ? {batch_id:batch} : {state:'active'}};
     }
     return original(host,message);
   };
   await f.request('startImport',{binding,header:{reason:'example',digest:'fake'}});
+  const confirmation = await f.request('confirmImport',{id:batch,binding,args:{digest:'fake'}});
+  assert.equal(confirmation.error,'outcome_unknown');
   assert.deepEqual(f.storage.bookmarkJob,{id:batch,binding});
   await f.restart();
   assert.deepEqual((await f.request('boundImport')).value,{id:batch,binding});
+  assert.equal((await f.request('statusImport',{id:batch,binding,args:{offset:0,limit:1}})).value.state,'active');
+  assert.equal(f.calls.filter(c => c.operation === 'import.confirm').length,1);
   assert.equal((await f.request('stepImport',{id:batch,binding:'wrong'})).error,'changed');
   assert.equal((await f.request('stepImport',{id:batch,binding,args:{}})).value.state,'active');
   assert.equal(f.calls.filter(c => c.operation === 'import.step').length,1);

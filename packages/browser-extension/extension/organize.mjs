@@ -14,6 +14,8 @@ export function organizer(request, context, refresh) {
     import_digest_mismatch:'The uploaded bytes did not match the selected file. Cancel and choose the file again.',
     import_too_large:'Split the list into files with at most 1,000 URLs and 1 MiB each. Use the same batch reason.',
     unavailable:'The helper is unavailable. Reopen to check this import.',
+    outcome_unknown:job ? 'The helper may have applied this change. Reopen to check the original import’s status before retrying.' :
+      'The helper may have opened an upload. It expires without confirmation. Choose the file again to start a new preview.',
     refused:'This grant cannot perform the import.',
     changed:'The destination changed. Reopen with the original grant.'
   })[error.message] ?? 'The helper could not complete this import. Check its status before trying again.';
@@ -98,7 +100,13 @@ export function organizer(request, context, refresh) {
       busy = true;
       el('import-panel').setAttribute('aria-busy','true');
       try { await action(); }
-      catch (error) { announce(describeError(error)); }
+      catch (error) {
+        if (error.message === 'outcome_unknown' && job) {
+          mode('checking');
+          try { await report(); }
+          catch { announce(describeError(error)); }
+        } else announce(describeError(error));
+      }
       finally {
         busy = false;
         el('import-panel').removeAttribute('aria-busy');

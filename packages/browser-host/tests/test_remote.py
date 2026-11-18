@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import sqlite3
@@ -191,6 +192,48 @@ def test_remote_reconciliation(
     assert remote.forward(policy, save) == saved
     assert remote.forward(policy, lookup)["capture_id"] == saved["capture_id"]
     assert count(canonical / "brain") == 1 and count(laptop / "brain") == 0
+    data = URL.encode()
+    batch = remote.forward(
+        policy,
+        {
+            **base,
+            "operation": "import.begin",
+            "args": {
+                "format": "urls",
+                "reason": "Synthetic import",
+                "bytes": len(data),
+                "digest": hashlib.sha256(data).hexdigest(),
+                "chunks": 1,
+            },
+        },
+    )["batch_id"]
+    assert remote.forward(
+        policy,
+        {
+            **base,
+            "operation": "import.chunk",
+            "args": {"batch_id": batch, "index": 0, "data": base64.b64encode(data).decode()},
+        },
+    ) == {"state": "preview"}
+    page = {"batch_id": batch, "offset": 0, "limit": 1}
+    preview = remote.forward(policy, {**base, "operation": "import.preview", "args": page})
+    mode = "drop"
+    with pytest.raises(Refused, match="^outcome_unknown$"):
+        remote.forward(
+            policy,
+            {
+                **base,
+                "operation": "import.confirm",
+                "args": {"batch_id": batch, "digest": preview["digest"]},
+            },
+        )
+    with pytest.raises(Refused, match="^remote_unavailable$"):
+        remote.forward(policy, {**base, "operation": "import.status", "args": page})
+    mode = "normal"
+    assert (
+        remote.forward(policy, {**base, "operation": "import.status", "args": page})["state"]
+        == "active"
+    )
     monkeypatch.setenv("HOME", str(canonical))
     assert (
         setup.main(
