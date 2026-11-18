@@ -4,18 +4,11 @@
 
   function locateQuote(text, {quote, prefix, suffix}) {
     if (!quote || typeof prefix !== 'string' || typeof suffix !== 'string') return null;
-    let found = null;
-    let position = text.indexOf(quote);
-    while (position !== -1) {
-      const end = position + quote.length;
-      if (text.slice(Math.max(0, position - prefix.length), position) === prefix &&
-          text.startsWith(suffix, end)) {
-        if (found) return null;
-        found = {start: position, end};
-      }
-      position = text.indexOf(quote, position + 1);
-    }
-    return found;
+    const pattern = prefix + quote + suffix;
+    const first = text.indexOf(pattern);
+    if (first === -1 || text.indexOf(pattern, first + 1) !== -1) return null;
+    const start = first + prefix.length;
+    return {start, end:start + quote.length};
   }
 
   function selectionAnchor(text, start, end, limit = 128) {
@@ -82,6 +75,7 @@
   }
 
   function restore(anchors) {
+    globalThis.openBrainHighlightObserver?.disconnect();
     CSS.highlights.delete(highlightName);
     const index = textIndex();
     const ranges = [];
@@ -105,8 +99,7 @@
         CSS.highlights.delete(highlightName);
         observer.disconnect();
       });
-      observer.observe(document.body, {subtree:true, childList:true, characterData:true});
-      globalThis.openBrainHighlightObserver?.disconnect();
+      observer.observe(document.documentElement, {subtree:true, childList:true, characterData:true});
       globalThis.openBrainHighlightObserver = observer;
     }
     return resolved;
