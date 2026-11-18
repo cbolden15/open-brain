@@ -345,6 +345,27 @@ def test_saved_page_identity_round_trip(tmp_path: Path) -> None:
         brain, epoch = db.execute("SELECT brain_id,issuer_epoch FROM brain_identity").fetchone()
     tasks = open_local_engine(profile)
     assert tasks.sources is not None
+    from open_brain_engine.engine.t03_contracts import SourceRouteRequest
+
+    destination = tasks.inbox.create_space("Synthetic filing", delivery_id="saved-page-space")
+    tasks.sources.route(
+        SourceRouteRequest(
+            source_id=logical,
+            space_id=destination.space_id,
+            expected_head=different.capture_id,
+            expected_route_version=0,
+            operation_id="operation_11111111-1111-4111-8111-111111111112",
+        ),
+        authority=owner,
+    )
+    assert pages_api.lookup(other, first_key) is None
+    filed = setup.bind(sources[1], tiers=("personal",), spaces=(destination.space_id,))
+    visible = pages_api.lookup(filed, first_key)
+    assert (
+        visible
+        and visible.capture_id == different.capture_id
+        and visible.space_id == destination.space_id
+    )
     tasks.sources.withdraw(
         SourceWithdrawRequest(
             operation_id="withdraw.synthetic-test",
@@ -358,3 +379,4 @@ def test_saved_page_identity_round_trip(tmp_path: Path) -> None:
         authority=owner,
     )
     assert pages_api.lookup(other, first_key) is None
+    assert pages_api.lookup(filed, first_key) is None
