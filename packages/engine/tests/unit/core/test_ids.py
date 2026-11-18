@@ -182,6 +182,8 @@ def _outcome(normalize: object, value: object) -> str:
 
 @pytest.mark.parametrize("innermost", [[], {1: 0}])
 def test_portable_normalizer_has_the_reference_recursion_boundary(innermost: object) -> None:
+    # Container nesting only: exact int, bool, None and str leaves are inlined, so at
+    # the exact limit a leaf uses one frame fewer than 0.2.4 did.
     import inspect
     import sys
 

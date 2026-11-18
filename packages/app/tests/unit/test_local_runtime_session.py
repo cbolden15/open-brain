@@ -317,7 +317,8 @@ def test_writer_lease_busy_at_close_is_not_retryable_busy(tmp_path: Path) -> Non
     ):
         pass
     assert not isinstance(raised.value, LocalRuntimeBusyError)
-    assert raised.value.__context__ is None or raised.value.__suppress_context__
+    # The CLI's busy check follows __context__, so nothing busy may ride along.
+    assert raised.value.__context__ is None
 
 
 def test_body_error_wins_over_a_busy_close(tmp_path: Path) -> None:

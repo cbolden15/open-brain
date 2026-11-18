@@ -234,6 +234,15 @@ def test_registry_wait_must_be_finite(seconds: object, tmp_path: Path) -> None:
             os.close(descriptor)
 
 
+def test_registry_wait_checks_the_converted_value() -> None:
+    class Sneaky(float):
+        def __float__(self) -> float:
+            return float("nan")
+
+    with pytest.raises(ValueError, match="finite"):
+        runtime_admission.require_registry_wait(Sneaky(1.0))
+
+
 def test_registry_wait_accepts_numeric_subclasses(tmp_path: Path) -> None:
     import enum
 

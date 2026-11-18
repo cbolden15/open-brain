@@ -175,6 +175,7 @@ def hold_local_runtime_session(
     except OSError:
         raise LocalRuntimeSessionError("runtime session registry operation failed") from None
     finally:
+        close_busy = False
         try:
             try:
                 if registry_fd >= 0 and session_created and body_entered:
@@ -199,10 +200,10 @@ def hold_local_runtime_session(
                 # already ran: after success it may have committed, so never report a
                 # retryable busy; after a failure keep the body's own error. The marker
                 # stays for the next opener's abandoned-session recovery.
-                if body_completed:
-                    raise LocalRuntimeSessionError(
-                        "runtime session registry is busy at close"
-                    ) from None
+                close_busy = body_completed
+            if close_busy:
+                # Raised outside the handler so no busy error rides along as __context__.
+                raise LocalRuntimeSessionError("runtime session registry is busy at close")
         finally:
             admission_stack.close()
             if registry_locked and held_admission is None:
