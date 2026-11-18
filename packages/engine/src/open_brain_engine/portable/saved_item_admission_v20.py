@@ -83,6 +83,7 @@ def validate_saved_item_admission(files: Mapping[str, bytes]) -> dict[str, list[
     custody = validate_capture_custody(files)
     capture_rows = validate_capture_metadata(files)
     captures = {row["delivery_id"]: row["request_sha256"] for row in capture_rows}
+    # Retraction can hide a committed capture while its opaque delivery remains accepted.
     accepted = {row["delivery_id"] for row in capture_rows if row["stage"] == 3}
     journal = {
         row["delivery_id"]: row["request_sha256"] for row in custody["capture_ingestion_items"]
@@ -90,11 +91,20 @@ def validate_saved_item_admission(files: Mapping[str, bytes]) -> dict[str, list[
     tombstones = {
         row["delivery_id"]: row["request_sha256"] for row in custody["capture_ingestion_tombstones"]
     }
-    refused = {
-        row["delivery_id"]
-        for row in custody["capture_ingestion_events"]
-        if row["event_kind"] in {"quarantined", "discarded"}
+    disposition_by_event = {
+        "queued": "pending",
+        "attempt_failed": "pending",
+        "quarantined": "refused",
+        "discarded": "refused",
+        "accepted": "accepted",
+        "duplicate": "accepted",
     }
+    # Custody events arrive in validated sequence order. A stage-3 capture can
+    # precede its terminal event, so retained custody takes precedence.
+    expected_states = {delivery: "accepted" for delivery in accepted}
+    for event in custody["capture_ingestion_events"]:
+        expected_states[event["delivery_id"]] = disposition_by_event[event["event_kind"]]
+    expected_states.update(dict.fromkeys(tombstones, "refused"))
     admissions = {row["delivery_id"]: row for row in rows["saved_item_admissions"]}
     retained = journal | captures | tombstones
     for delivery, row in admissions.items():
@@ -124,11 +134,8 @@ def validate_saved_item_admission(files: Mapping[str, bytes]) -> dict[str, list[
             or source_delivery != delivery
             or row["operation_kind"] != "page.save"
             or delivery not in admissions
-            or not (
-                (row["state"] == "pending" and delivery in journal)
-                or (row["state"] == "accepted" and delivery in accepted)
-                or (row["state"] == "refused" and (delivery in tombstones or delivery in refused))
-            )
+            or row["state"] != expected_states.get(delivery)
+            or (row["state"] == "accepted" and delivery not in accepted)
         ):
             raise PortableValidationError("invalid browser operation evidence binding")
         operation_deliveries.add(delivery)

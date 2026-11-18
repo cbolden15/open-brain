@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 from open_brain_engine.core.ids import portable_canonical_json_bytes as canonical
 from open_brain_engine.engine import BrainEngine, TextPayload, local_schema, paging
-from open_brain_engine.engine.contracts import CaptureAction, CaptureSubmission
+from open_brain_engine.engine.contracts import (
+    CaptureAction,
+    CaptureFault,
+    CaptureSubmission,
+    InjectedFault,
+)
 from open_brain_engine.engine.local_schema import PHASE1_STATE_DATABASE
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.saved_item_identity import SavedItemSource
@@ -36,10 +41,14 @@ def _export(
 ) -> tuple[BrainEngine, Path]:
     tmp_path.chmod(0o700)
     profile = compile_single_user_local(tmp_path / "brain", starter_spaces=())
-    engine = BrainEngine.open(profile)
+    fault = {
+        "preterminal": CaptureFault.AFTER_CANONICAL_COMPLETION,
+        "terminal": CaptureFault.AFTER_JOURNAL_TERMINAL_EVENT,
+    }.get(scenario)
+    engine = BrainEngine.open(profile, faults=set() if fault is None else {fault})
     if scenario != "empty":
         payload = TextPayload("Synthetic page with saved evidence")
-        refused = scenario in {"refused", "discarded"}
+        refused = scenario in {"refused", "discarded", "requeued"}
         space = (
             engine.inbox.create_space("Temporary queue destination", delivery_id="fixture.space")
             if refused
@@ -88,6 +97,9 @@ def _export(
                     ITEM_KEY,
                 ),
             )
+        if fault is not None:
+            with pytest.raises(InjectedFault):
+                engine.recover()
         if space is not None:
             with closing(sqlite3.connect(profile.root / PHASE1_STATE_DATABASE)) as conn, conn:
                 previous = conn.execute(
@@ -108,12 +120,23 @@ def _export(
                 conn.execute(
                     f"INSERT INTO spaces VALUES ({','.join('?' for _ in previous)})", previous
                 )
+            if scenario == "requeued":
+                journal = engine.tasks.journal
+                assert journal is not None
+                journal.retry(
+                    DELIVERY,
+                    authority=owner_authority(engine.tasks, session_id="portable-browser-test"),
+                )
+                assert engine.ingestion.status()[0].state == "queued"
     archive = tmp_path / "archive"
     assert engine.tasks.portability.export(archive, export_id=EXPORT_ID).schema_version == version
     return engine, archive
 
 
-@pytest.mark.parametrize("scenario", ["empty", "accepted", "pending", "refused", "discarded"])
+@pytest.mark.parametrize(
+    "scenario",
+    ["empty", "accepted", "pending", "refused", "discarded", "requeued", "preterminal", "terminal"],
+)
 def test_browser_operation_archive_round_trip(tmp_path: Path, scenario: str) -> None:
     engine, archive = _export(tmp_path, scenario=scenario)
     snapshot = validated_portable_snapshot(archive)
@@ -125,7 +148,12 @@ def test_browser_operation_archive_round_trip(tmp_path: Path, scenario: str) -> 
         == (scenario != "empty")
     )
     if scenario != "empty":
-        expected_state = "refused" if scenario == "discarded" else scenario
+        expected_state = {
+            "discarded": "refused",
+            "requeued": "pending",
+            "preterminal": "pending",
+            "terminal": "accepted",
+        }.get(scenario, scenario)
         assert payload["browser_operations"][0]["state"] == expected_state
     with pytest.raises(PortableValidationError):
         validated_portable_snapshot_v19(archive)
@@ -145,17 +173,39 @@ def test_browser_operation_archive_round_trip(tmp_path: Path, scenario: str) -> 
 
 
 @pytest.mark.parametrize(
-    "defect", ["destination", "source", "authority", "delivery", "digest", "duplicate", "missing"]
+    "defect",
+    [
+        "destination",
+        "source",
+        "authority",
+        "delivery",
+        "digest",
+        "duplicate",
+        "missing",
+        "pending_after_refusal",
+        "pending_after_acceptance",
+        "refused_after_requeue",
+        "accepted_before_journal_commit",
+    ],
 )
 def test_invalid_browser_operation_bindings_refuse_restore(tmp_path: Path, defect: str) -> None:
-    engine, archive = _export(tmp_path)
+    state_mutations = {
+        "pending_after_refusal": ("refused", "pending"),
+        "pending_after_acceptance": ("terminal", "pending"),
+        "refused_after_requeue": ("requeued", "refused"),
+        "accepted_before_journal_commit": ("preterminal", "accepted"),
+    }
+    scenario, corrupt_state = state_mutations.get(defect, ("accepted", None))
+    engine, archive = _export(tmp_path, scenario=scenario)
     manifest_path = archive / "portable-manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
     entry = next(entry for entry in manifest["files"] if entry["path"] == PATH)
     body = archive / PATH
     contents = json.loads(body.read_bytes())
     row = contents["browser_operations"][0]
-    if defect == "destination":
+    if corrupt_state is not None:
+        row["state"] = corrupt_state
+    elif defect == "destination":
         row["brain_id"] = "brn_a" + "1" * 25
     elif defect == "source":
         row["resource_id"] = OTHER_SOURCE.resource_id
