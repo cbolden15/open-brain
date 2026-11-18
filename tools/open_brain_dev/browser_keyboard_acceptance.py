@@ -8,7 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from tools.open_brain_dev.browser_acceptance import ROOT, Run, Target, until
+from tools.open_brain_dev.browser_acceptance import ROOT, Run, Target, command, until
+from tools.open_brain_dev.browser_organizer_acceptance import chooser
 
 
 async def press(target: Target, key: str, *, shift: bool = False) -> None:
@@ -57,6 +58,18 @@ async def check(target: Target, expression: str, label: str) -> None:
 
 
 async def keyboard(run: Run, pw: Any) -> dict[str, object]:
+    command(
+        run.cli,
+        "space",
+        "create",
+        "Keyboard shelf",
+        "--data-dir",
+        str(run.brain),
+        "--json",
+        home=run.home,
+    )
+    bookmarks = run.home / "keyboard-bookmarks.html"
+    bookmarks.write_text('<a href="https://fixture.invalid/read-later">Read later</a>')
     run.insert_relay()
     async with run.browser(pw):
         popup = await run.passage("first", navigate=True)
@@ -83,6 +96,24 @@ async def keyboard(run: Run, pw: Any) -> dict[str, object]:
             "document.querySelector('#status').textContent.includes('Located 1 of 1')",
             "restored highlight",
         )
+        await activate(popup, "#show-spaces")
+        await check(popup, "document.querySelector('#space').options.length===1", "filing choices")
+        await activate(popup, "#file-page")
+        await check(
+            popup, "document.querySelector('#status').textContent==='Page filed.'", "filed page"
+        )
+        await activate(popup, "#import-panel summary")
+        await tab_to(popup, "#bookmarks")
+        await chooser(popup, bookmarks)
+        await tab_to(popup, "#import-reason")
+        await popup.send("Input.insertText", text="keyboardshelf")
+        await activate(popup, "#import-form button")
+        await check(popup, "!document.querySelector('#import-confirm').hidden", "import preview")
+        await activate(popup, "#import-confirm")
+        await check(popup, "!document.querySelector('#import-done').hidden", "imported file")
+        assert len(run.hits("keyboardshelf")) == 1
+        await activate(popup, "#import-done")
+        await activate(popup, "#import-panel summary")
         await activate(popup, "#revisit-edit summary")
         await check(
             popup, "document.querySelector('#revisit-zone').value.length>0", "revisit settings"
@@ -101,6 +132,9 @@ async def keyboard(run: Run, pw: Any) -> dict[str, object]:
         )
         await activate(popup, "#due-panel summary")
         await check(popup, "document.querySelectorAll('#due-rows li').length===1", "due on demand")
+        assert await popup.evaluate(
+            "document.querySelector('#due-rows a').href === 'https://fixture.invalid/passages'"
+        )
         ax = (await popup.send("Accessibility.getFullAXTree"))["nodes"]
         assert any(
             n.get("role", {}).get("value") == "status"
@@ -138,6 +172,8 @@ async def keyboard(run: Run, pw: Any) -> dict[str, object]:
         "chrome": run.version,
         "extension_id": run.id,
         "keyboard_capture": True,
+        "keyboard_import": True,
+        "keyboard_filing": True,
         "keyboard_highlight": True,
         "restored_due_date": day,
         "dismissed": True,
