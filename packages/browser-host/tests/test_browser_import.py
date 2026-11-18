@@ -5,6 +5,7 @@ from base64 import b64encode
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from open_brain_engine.engine.browser_pages import BrowserOwnerSetup, BrowserPages
@@ -14,7 +15,7 @@ from open_brain.services.t03_adapters import owner_authority_for_principal
 from open_brain_browser_host import operations, setup
 from open_brain_browser_host.bookmark_import import CHUNK_BYTES, MAX_BYTES
 from open_brain_browser_host.operations import Request, dispatch
-from open_brain_browser_host.policy import Policy, Refused, load
+from open_brain_browser_host.policy import Policy, Refused, binding_value, load
 
 
 @pytest.fixture
@@ -149,6 +150,94 @@ def test_html_decodes_entities_and_previews_only_safe_urls(installation: Policy)
         assert db.execute("SELECT reason FROM batches").fetchone() == (None,)
 
 
+def test_preview_freezes_visible_duplicates_in_the_selected_source(installation: Policy) -> None:
+    existing = "https://example.test/item#first"
+    other = "https://example.test/item#second"
+    dispatch(
+        installation, Request("save", str(uuid4()), {"url": existing, "reason": "Original reason"})
+    )
+    data = f"https://example.test/item?utm_source=copy#first\n{other}".encode()
+    batch = _upload(installation, data)
+    preview = _call(installation, "import.preview", batch_id=batch, offset=0, limit=2)
+    assert preview["rows"] == [
+        {"index": 0, "state": "duplicate", "url": ""},
+        {"index": 1, "state": "ready", "url": "https://example.test/item"},
+    ]
+    _confirm(installation, batch)
+    _call(installation, "import.step", batch_id=batch)
+    result = _call(installation, "import.status", batch_id=batch, offset=0, limit=2)
+    assert result["rows"] == [
+        {"index": 0, "state": "duplicate"},
+        {"index": 1, "state": "accepted"},
+    ]
+    with sqlite3.connect(installation.brain_root / ".open-brain/state/phase1.sqlite3") as db:
+        assert db.execute("SELECT count(*) FROM browser_operations").fetchone() == (2,)
+        assert db.execute(
+            "SELECT count(*) FROM captures WHERE search_text LIKE '%Original reason%'"
+        ).fetchone() == (1,)
+
+
+def test_import_cannot_classify_records_outside_its_lookup_grant(installation: Policy) -> None:
+    profile = open_existing_single_user_local(installation.brain_root)
+    pages = BrowserPages(profile)
+    authority = owner_authority_for_principal(
+        principal_id=profile.owner_actor_id, session_id="test"
+    )
+    owner = BrowserOwnerSetup(profile, authority)
+    original = pages.binding(installation.token)
+    url = "https://example.test/saved-in-one-source"
+    dispatch(installation, Request("save", str(uuid4()), {"url": url, "reason": "Original reason"}))
+    original_batch = _upload(installation, url.encode())
+    for source, allowed in [
+        (original.source, ["save"]),
+        (owner.create_source(), ["save", "lookup"]),
+    ]:
+        token = owner.bind(
+            source,
+            operations=allowed,
+            tiers=["public", "work", "personal"],
+            spaces=[None],
+            complete_domain=True,
+            workflow_principal=original.workflow_principal,
+        )
+        policy = Policy(
+            installation.extension_id, profile.root, token, binding_value(pages.binding(token))
+        )
+        refusal = "operation_denied" if source == original.source else "import_not_found"
+        with pytest.raises(Refused, match=refusal):
+            _call(policy, "import.preview", batch_id=original_batch, offset=0, limit=1)
+        batch = _upload(policy, url.encode())
+        expected = [{"index": 0, "state": "ready", "url": url}]
+        assert (
+            _call(policy, "import.preview", batch_id=batch, offset=0, limit=1)["rows"] == expected
+        )
+
+
+def test_protected_domain_blocks_preview_and_confirmation_uniformly(installation: Policy) -> None:
+    url = "https://example.test/protected"
+    saved = dispatch(
+        installation, Request("save", str(uuid4()), {"url": url, "reason": "Original reason"})
+    )
+    batches = [_upload(installation, candidate.encode()) for candidate in (url, url + "/absent")]
+    digests = [
+        _call(installation, "import.preview", batch_id=batch, offset=0, limit=1)["digest"]
+        for batch in batches
+    ]
+    with sqlite3.connect(installation.brain_root / ".open-brain/state/phase1.sqlite3") as db:
+        db.execute(
+            "UPDATE source_revision_privacy SET effective_privacy_json="
+            "json_set(effective_privacy_json,'$.tier','secret') WHERE capture_id=?",
+            (saved["capture_id"],),
+        )
+    for batch, digest in zip(batches, digests, strict=True):
+        for operation, args in (
+            ("import.preview", {"offset": 0, "limit": 1}),
+            ("import.confirm", {"digest": digest}),
+        ):
+            with pytest.raises(PermissionError, match="browser_operation_denied"):
+                _call(installation, operation, batch_id=batch, **args)
+
+
 def test_chunk_authorization_limits_and_exact_replay(installation: Policy) -> None:
     data = b"<!--" + b"x" * CHUNK_BYTES + b'--><a href="https://example.test">'
     begin = {
@@ -207,9 +296,9 @@ def test_revoked_grant_cannot_confirm_read_or_cancel(installation: Policy) -> No
             _call(installation, operation, batch_id=batch, **args)
 
 
-@pytest.mark.parametrize("resume", [True, False])
+@pytest.mark.parametrize(("resume", "retired"), [(True, False), (False, False), (False, True)])
 def test_admitted_job_survives_expiry_and_lost_terminal_acknowledgment(
-    installation: Policy, monkeypatch: pytest.MonkeyPatch, resume: bool
+    installation: Policy, monkeypatch: pytest.MonkeyPatch, resume: bool, retired: bool
 ) -> None:
     data = b"".join(f"https://example.test/item-{index}\n".encode() for index in range(5))
     batch = _upload(installation, data)
@@ -241,7 +330,15 @@ def test_admitted_job_survives_expiry_and_lost_terminal_acknowledgment(
             _call(installation, "import.step", batch_id=batch)
     status = _call(installation, "import.status", batch_id=batch, offset=0, limit=30)
     assert status["processed"] == 4
-    assert _call(installation, "page.lookup", url="https://example.test/item-4")["state"] == "saved"
+    last = _call(installation, "page.lookup", url="https://example.test/item-4")
+    assert last["state"] == "saved"
+    if retired:
+        with sqlite3.connect(installation.brain_root / ".open-brain/state/phase1.sqlite3") as db:
+            db.execute(
+                "UPDATE logical_sources SET lifecycle='retired',availability='missing' "
+                "WHERE head_capture_id=?",
+                (last["capture_id"],),
+            )
     if resume:
         assert _call(installation, "import.step", batch_id=batch) == {
             "state": "complete",
@@ -251,7 +348,7 @@ def test_admitted_job_survives_expiry_and_lost_terminal_acknowledgment(
     else:
         assert _call(installation, "import.cancel", batch_id=batch) == {"state": "canceled"}
         status = _call(installation, "import.status", batch_id=batch, offset=4, limit=1)
-        assert status["rows"] == [{"index": 4, "state": "accepted"}]
+        assert status["rows"] == [{"index": 4, "state": "refused" if retired else "accepted"}]
     with sqlite3.connect(installation.brain_root / ".open-brain/state/phase1.sqlite3") as db:
         assert db.execute("SELECT count(*) FROM captures").fetchone() == (5,)
         assert db.execute("SELECT count(*) FROM browser_operations").fetchone() == (5,)

@@ -51,6 +51,9 @@ CREATE TABLE IF NOT EXISTS batches (
  created INTEGER NOT NULL, touched INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS imports_quota ON batches(principal,state);
+CREATE TABLE IF NOT EXISTS lookup_batches (
+ batch_id TEXT PRIMARY KEY REFERENCES batches(batch_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS chunks (
  batch_id TEXT NOT NULL REFERENCES batches(batch_id) ON DELETE CASCADE, idx INTEGER NOT NULL,
  digest TEXT NOT NULL, body BLOB, PRIMARY KEY(batch_id,idx)
@@ -210,12 +213,25 @@ def _staging() -> Iterator[sqlite3.Connection]:
             os.close(fd)
 
 
-def _finalize(db: sqlite3.Connection, batch: sqlite3.Row, chunks: list[sqlite3.Row]) -> None:
+def _finalize(
+    db: sqlite3.Connection,
+    batch: sqlite3.Row,
+    chunks: list[sqlite3.Row],
+    visible_urls: Callable[[list[str]], set[str]] | None,
+) -> None:
     raw = b"".join(chunk["body"] for chunk in chunks)
     if len(raw) != batch["declared_size"] or sha256(raw).hexdigest() != batch["upload_digest"]:
         raise Refused("import_digest_mismatch")
     rows = _input_rows(raw, batch["format"], batch["reason"])
     batch_id = batch["batch_id"]
+    if visible_urls is not None:
+        existing = visible_urls([url for url, _, _ in rows if url is not None])
+        rows = [
+            (None, "", "duplicate") if url in existing else (url, display, state)
+            for url, display, state in rows
+        ]
+        # A later write-only grant must not read a lookup-informed snapshot.
+        db.execute("INSERT INTO lookup_batches VALUES (?)", (batch_id,))
     manifest = {
         "batch_id": batch_id,
         "binding_id": batch["binding_id"],
@@ -234,7 +250,13 @@ def _finalize(db: sqlite3.Connection, batch: sqlite3.Row, chunks: list[sqlite3.R
     )
 
 
-def _put_chunk(db: sqlite3.Connection, batch: sqlite3.Row, index: int, data: bytes) -> None:
+def _put_chunk(
+    db: sqlite3.Connection,
+    batch: sqlite3.Row,
+    index: int,
+    data: bytes,
+    visible_urls: Callable[[list[str]], set[str]] | None,
+) -> None:
     batch_id = batch["batch_id"]
     count = batch["chunk_count"]
     if index >= count:
@@ -257,7 +279,7 @@ def _put_chunk(db: sqlite3.Connection, batch: sqlite3.Row, index: int, data: byt
         "SELECT body FROM chunks WHERE batch_id=? ORDER BY idx", (batch_id,)
     ).fetchall()
     if len(chunks) == count:
-        _finalize(db, batch, chunks)
+        _finalize(db, batch, chunks, visible_urls)
 
 
 def _progress(db: sqlite3.Connection, batch_id: str) -> dict[str, object]:
@@ -319,6 +341,7 @@ def execute(
     binding_id: str,
     principal: str,
     authorize: Callable[[], None],
+    visible_urls: Callable[[list[str]], set[str]] | None,
     save_row: Callable[[str, str, str], str],
     reconcile_row: Callable[[str], str | None],
 ) -> dict[str, object]:
@@ -368,11 +391,17 @@ def execute(
         ).fetchone()
         if batch is None:
             raise Refused("import_not_found")
+        if (
+            visible_urls is None
+            and operation != "import.cancel"
+            and db.execute("SELECT 1 FROM lookup_batches WHERE batch_id=?", (batch_id,)).fetchone()
+        ):
+            raise Refused("operation_denied")
         state = batch["state"]
         if state in {"upload", "preview"}:
             db.execute("UPDATE batches SET touched=? WHERE batch_id=?", (now, batch_id))
         if operation == "import.chunk":
-            _put_chunk(db, batch, args["index"], args["data"])
+            _put_chunk(db, batch, args["index"], args["data"], visible_urls)
             return {"state": _progress(db, batch_id)["state"]}
         if operation == "import.preview":
             if state != "preview":

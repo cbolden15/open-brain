@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -17,6 +18,7 @@ from open_brain_engine.engine.browser_annotations import (
     uuid4_id,
 )
 from open_brain_engine.engine.browser_filing import BrowserFiling
+from open_brain_engine.engine.browser_mutation import require_child_write
 from open_brain_engine.engine.browser_pages import (
     BrowserBinding,
     BrowserPages,
@@ -317,14 +319,27 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
         raise Refused("binding_changed")
     if request.operation in bookmark_import.OPERATIONS:
         assert request.binding_id is not None
+        if "save" not in binding.operations or not binding.complete_domain:
+            raise Refused("operation_denied")
+
+        def import_grant(db: sqlite3.Connection) -> sqlite3.Row:
+            grant = pages._grant(db, policy.token, "save")
+            require_child_write(db, grant)
+            return grant
 
         def authorize_import() -> None:
-            current = pages.binding(policy.token)
-            policy.require(current)
-            if _binding_id(current) != request.binding_id:
-                raise Refused("binding_changed")
-            if "save" not in current.operations or not current.complete_domain:
-                raise Refused("operation_denied")
+            with closing(open_local_database_read_only(profile)) as db:
+                import_grant(db)
+
+        def visible_urls(urls: list[str]) -> set[str]:
+            with closing(open_local_database_read_only(profile)) as db:
+                grant = import_grant(db)
+                pages._grant(db, policy.token, "lookup")
+                return {
+                    url
+                    for url in urls
+                    if pages._visible(db, grant, binding.source.delivery_id(item_key(url)))
+                }
 
         def save_bookmark(url: str, reason: str, operation_id: str) -> str:
             try:
@@ -337,13 +352,10 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
 
         def reconcile_bookmark(operation_id: str) -> str | None:
             with closing(open_local_database_read_only(profile)) as db:
-                if not db.in_transaction:
-                    db.execute("BEGIN")
-                grant = pages._grant(db, policy.token, "save")
-                if not grant["complete_domain"]:
-                    raise Refused("operation_denied")
-                outcome = _operation(db, grant, operation_id)
-                return None if outcome is None else str(outcome["state"])
+                grant = import_grant(db)
+                if _operation(db, grant, operation_id) is None:
+                    return None
+                return pages._result_in_snapshot(db, grant, operation_id, "save").state
 
         return bookmark_import.execute(
             request.operation,
@@ -351,6 +363,7 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
             binding_id=request.binding_id,
             principal=binding.workflow_principal,
             authorize=authorize_import,
+            visible_urls=visible_urls if "lookup" in binding.operations else None,
             save_row=save_bookmark,
             reconcile_row=reconcile_bookmark,
         )
