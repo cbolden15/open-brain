@@ -116,6 +116,6 @@ browser-test:
 
 browser-candidate:
 	mkdir -p build/browser
-	uv run --frozen --all-packages --group native-build python -m PyInstaller --noconfirm --distpath build/browser --workpath build/browser/work release/open-brain-browser-host/open-brain-browser-host.spec
+	uv run --frozen --all-packages --group native-build python -m PyInstaller --noconfirm --distpath build/browser/native --workpath build/browser/work release/open-brain-browser-host/open-brain-browser-host.spec
 	uv run --frozen python -m tools.open_brain_dev.browser_distribution build/browser/open-brain-bookmarks.zip
-	uv run --frozen python -m tools.open_brain_dev.browser_host_archive build/browser/open-brain-browser-host build/browser
+	uv run --frozen python -m tools.open_brain_dev.browser_host_archive build/browser/native/open-brain-browser-host build/browser

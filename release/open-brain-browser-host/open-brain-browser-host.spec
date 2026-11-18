@@ -10,6 +10,11 @@ analysis = Analysis(
     excludes=["pytest", "open_brain_collector", "open_brain.integrations", "open_brain.cli"],
 )
 executable = EXE(
-    PYZ(analysis.pure), analysis.scripts, analysis.binaries, analysis.datas,
+    PYZ(analysis.pure), analysis.scripts, [], exclude_binaries=True,
     name="open-brain-browser-host", console=True, strip=False, upx=False,
+)
+
+collection = COLLECT(
+    executable, analysis.binaries, analysis.datas,
+    name="open-brain-browser-host", strip=False, upx=False,
 )

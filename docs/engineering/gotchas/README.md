@@ -4932,3 +4932,11 @@ Category: Build pipeline.
 A cold uv cache does not contain the optional native-build group. Use the frozen lock with download access on the first build, or prewarm that group before building offline. A separate uv project environment lets the core and browser artifact checks run without replacing the contributor test environment.
 
 Discovered: 2026-11-18, browser saved-items candidate.
+
+### BROWSER-BUILD-002: Chrome needs the native host’s colocated runtime
+
+Category: Build pipeline / macOS.
+
+The PyInstaller one-file host ran from a shell but stalled in the dynamic loader when launched by Chrome. Build the optional host in one-folder mode. Install its executable and `_internal` directory together under `libexec` and link the executable from `bin`. Preserve the runtime’s relative library links.
+
+Discovered: 2026-11-18, real Chrome launch and isolated formula installation.
