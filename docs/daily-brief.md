@@ -52,6 +52,7 @@ A brief never carries quote text, summaries or titles. To read what a follow-up 
 
 | Kind | Appears when | Reason codes |
 |---|---|---|
+| `revisit_due` | A visible saved page has reached its scheduled date in its stored time zone | `revisit_date_reached` |
 | `followup_due` | A suggested or confirmed follow-up has a due date today or in the past | `overdue`, `due_today` |
 | `followup_new_evidence` | A dismissed or resolved follow-up gained evidence after the decision | `new_evidence` |
 | `followup_open` | A suggested or confirmed follow-up you own has no due date today or past | `open_owned` |
@@ -75,10 +76,11 @@ state and is judged by that state.
 The order is fixed, so you can tell why an item is where it is:
 
 1. `followup_due`, by due date, then by creation time
-2. `source_unavailable`, most unavailable captures first
-3. `followup_new_evidence`, newest evidence first
-4. `followup_open`, oldest first
-5. `source_stale`, longest silence first
+2. `revisit_due`, by the scheduled local date and capture ID
+3. `source_unavailable`, most unavailable captures first
+4. `followup_new_evidence`, newest evidence first
+5. `followup_open`, oldest first
+6. `source_stale`, longest silence first
 
 Within one level, items that are new since the previous brief rank above items that were already
 there. At most 2 family items appear in one brief, so source health cannot push out your work.

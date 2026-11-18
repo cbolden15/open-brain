@@ -3,6 +3,7 @@
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 from zoneinfo import ZoneInfoNotFoundError
 
@@ -83,7 +84,7 @@ def test_page_revisit_mutations_and_current_scope(
     assert dispatch(policy, Request("status", operation, {})) == saved
     clock = datetime(2026, 3, 8, 6, 0, tzinfo=UTC)
     due = service.due(token, now=clock, limit=1, offset=0)
-    [entry] = due["revisits"]  # type: ignore[misc]
+    [entry] = cast(list[dict[str, str]], due["revisits"])
     assert entry["title"] and entry["url"] == url
     assert {k: v for k, v in entry.items() if k not in {"title", "url"}} == {
         "capture_id": capture,
