@@ -4376,7 +4376,7 @@ def _verified_export_state(session: LocalBrainSession) -> str:
                 "schema_version",
             }
             or type(value["schema_version"]) is not int
-            or value["schema_version"] not in set(range(1, 19))
+            or value["schema_version"] not in range(1, 20)
             or canonical_json_bytes(value) != payload
             or not isinstance(value["created_at"], str)
             or not isinstance(value["export_id"], str)

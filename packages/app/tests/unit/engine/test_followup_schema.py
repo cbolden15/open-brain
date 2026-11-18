@@ -36,6 +36,12 @@ _SHA = sha256(b"quote").hexdigest()
 _AT = "2026-10-23T00:00:00.000000Z"
 
 
+@pytest.fixture(autouse=True)
+def _schema23_recipe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 23)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:23])
+
+
 def test_runtime_session_coordinate_stays_sixteen() -> None:
     """The follow-up store changes no session registry or handshake contract (Task 1)."""
     assert local_runtime_session.RUNTIME_SESSION_VERSION == 16
@@ -366,8 +372,8 @@ def test_fresh_schema23_has_an_empty_follow_up_store(tmp_path: Path) -> None:
         "current", 23
     )
     assert LOCAL_MIGRATIONS[22] == FOLLOWUP_MIGRATION
-    assert len(LOCAL_MIGRATIONS) == 23
     with _connect(engine.profile) as connection:
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 23
         assert [
             tuple(row) for row in connection.execute("SELECT * FROM runtime_compatibility")
         ] == [(1, 16, 23)]

@@ -1,4 +1,5 @@
-"""The engine exposes source_freshness beside followups; brief grants work; 23/16/18 holds."""
+"""Brief wiring, grants and current compatibility coordinates."""
+
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ from open_brain_engine.engine import BrainEngine, local_schema
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.source_freshness import FreshnessReport, SourceFreshnessTasks
 from open_brain_engine.engine.t03_contracts import EffectiveAuthority, T03Error
-from open_brain_engine.portable.v18_catalog import PORTABLE_V18_SCHEMA_CATALOG
+from open_brain_engine.portable.v19_catalog import PORTABLE_V19_SCHEMA_CATALOG
 
 import open_brain.services.plugin_bridge as bridge
 from open_brain.profile import compile_single_user_local
@@ -58,12 +59,12 @@ def test_brief_grants_are_valid_capabilities_and_gate_the_task(tmp_path: Path) -
     assert refused.value.code == "unsupported_capability"
 
 
-def test_coordinates_stay_23_16_18() -> None:
-    """The brief adds no schema, Portable or runtime-session change (spec, Compatibility)."""
-    assert local_schema.PHASE1_STATE_SCHEMA_VERSION == 23
-    assert len(LOCAL_MIGRATIONS) == 23
+def test_brief_wiring_agrees_with_current_coordinates() -> None:
+    """The advertised compatibility coordinates agree with the engine and Portable catalog."""
+    assert local_schema.PHASE1_STATE_SCHEMA_VERSION == 24
+    assert len(LOCAL_MIGRATIONS) == 24
     assert local_runtime_session.RUNTIME_SESSION_VERSION == 16
-    assert PORTABLE_V18_SCHEMA_CATALOG["state_schema_version"] == 23
+    assert PORTABLE_V19_SCHEMA_CATALOG["state_schema_version"] == 24
     # Same call `_catalog()` makes in packages/app/tests/unit/test_catalog.py:34-49.
     catalog = build_catalog(
         {"schema_version": 2},
@@ -82,7 +83,7 @@ def test_coordinates_stay_23_16_18() -> None:
     compatibility = catalog["compatibility"]
     assert compatibility == {
         **compatibility,  # type: ignore[dict-item]
-        "state_schema": 23,
+        "state_schema": 24,
         "runtime_session": 16,
-        "portable_metadata": 18,
+        "portable_metadata": 19,
     }
