@@ -17,6 +17,10 @@ from open_brain_engine.engine.browser_recovery import list_intents
 from open_brain_engine.engine.local_migration import coordinate_local_migration
 from open_brain_engine.engine.local_schema_catalog import LOCAL_MIGRATIONS
 from open_brain_engine.engine.saved_item_identity import SavedItemSource
+from open_brain_engine.portable.browser_annotations_v21 import (
+    ANNOTATION_KEY,
+    BROWSER_ANNOTATIONS_PATH,
+)
 from open_brain_engine.portable.browser_filing_v23 import FILING_WITNESS_COLUMNS
 from open_brain_engine.portable.v1 import PortableValidationError
 from open_brain_engine.portable.v23_catalog import PORTABLE_V23_SCHEMA_CATALOG
@@ -28,7 +32,7 @@ from open_brain_collector.lifecycle import EngineCaptureSink
 from open_brain_collector.runner import collector_capture_sink
 from open_brain_connectors.runtime.saved_item import SavedItemSourceAdapter, parse_record
 from open_brain_connectors.runtime.source_registry import SourceResourceSelection
-from packages.engine.tests.contract.test_portable_brain_v21 import _brain, _retract
+from packages.engine.tests.contract.test_portable_brain_v21 import _annotations, _brain, _retract
 from packages.engine.tests.contract.test_portable_brain_v22 import EXPORT_ID, IMPORT_ID, _bind
 
 PATH = "history/browser-filing/witnesses-v1.json"
@@ -42,7 +46,7 @@ def test_filing_witness_family_is_present_without_browser_setup(tmp_path: Path) 
     assert json.loads(validated_portable_snapshot(archive).files[PATH])["witnesses"] == []
 
 
-def _file_folder_page(engine: BrainEngine) -> tuple[SavedItemSource, str, str, str]:
+def _file_folder_page(engine: BrainEngine) -> tuple[SavedItemSource, str, str, str, str]:
     setup = BrowserOwnerSetup(engine.profile, owner_authority(engine.tasks, session_id="setup"))
     source = setup.create_source()
     grant = _bind(engine, source)
@@ -72,7 +76,7 @@ def _file_folder_page(engine: BrainEngine) -> tuple[SavedItemSource, str, str, s
         grant, operation, record.item_key, parent.capture_id, target
     )
     assert result.state == "accepted" and result.space_id == target
-    return source, grant, operation, parent.capture_id
+    return source, grant, operation, parent.capture_id, record.item_key
 
 
 @pytest.mark.parametrize("withdrawn", [False, True])
@@ -80,7 +84,7 @@ def test_filing_witness_only_recovers_for_fresh_grant_on_original_scope(
     tmp_path: Path, withdrawn: bool
 ) -> None:
     engine = _brain(tmp_path)
-    source, grant, operation, capture_id = _file_folder_page(engine)
+    source, grant, operation, capture_id, _ = _file_folder_page(engine)
     setup = BrowserOwnerSetup(engine.profile, owner_authority(engine.tasks, session_id="cleanup"))
     other = setup.create_source()
     if withdrawn:
@@ -135,7 +139,7 @@ def test_schema27_migration_recovers_populated_filing(
         old.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:27])
         old.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 27)
         engine = _brain(tmp_path)
-        _, grant, _, _ = _file_folder_page(engine)
+        _, grant, _, _, _ = _file_folder_page(engine)
     coordinate_local_migration(engine.profile)
     setup = BrowserOwnerSetup(engine.profile, owner_authority(engine.tasks, session_id="cleanup"))
     setup.revoke(grant)
@@ -146,33 +150,41 @@ def test_schema27_migration_recovers_populated_filing(
     assert PORTABLE_V23_SCHEMA_CATALOG["migration28_sha256"] == LOCAL_MIGRATIONS[27].checksum
 
 
-@pytest.mark.parametrize("kind", ["source", "principal", "authority", "duplicate", "item"])
+@pytest.mark.parametrize(
+    "kind", ["source", "principal", "authority", "duplicate", "item", "collision"]
+)
 def test_invalid_filing_witness_refuses_before_destination_setup(tmp_path: Path, kind: str) -> None:
     engine = _brain(tmp_path)
-    _file_folder_page(engine)
+    _, grant, operation, capture_id, key = _file_folder_page(engine)
+    if kind == "collision":
+        _annotations(engine, grant, key, capture_id)
     setup = BrowserOwnerSetup(engine.profile, owner_authority(engine.tasks, session_id="setup"))
     other = setup.create_source()
     archive = tmp_path / "archive"
     engine.tasks.portability.export(archive, export_id=EXPORT_ID)
-    sidecar = archive / PATH
+    sidecar_path = BROWSER_ANNOTATIONS_PATH if kind == "collision" else PATH
+    sidecar = archive / sidecar_path
     value = json.loads(sidecar.read_bytes())
-    witness = value["witnesses"][0]
-    if kind == "source":
+    if kind == "collision":
+        value["annotations"][0]["operation_id"] = operation
+        value["annotations"].sort(key=lambda row: tuple(row[field] for field in ANNOTATION_KEY))
+    elif kind == "source":
+        witness = value["witnesses"][0]
         witness["connection_id"], witness["resource_id"] = other.values()[1:]
         witness["delivery_id"] = other.delivery_id(witness["item_key"])
     elif kind == "principal":
-        witness["workflow_principal"] = str(uuid4())
+        value["witnesses"][0]["workflow_principal"] = str(uuid4())
     elif kind == "authority":
-        witness["token"] = "synthetic-forged-token"
+        value["witnesses"][0]["token"] = "synthetic-forged-token"
     elif kind == "item":
-        witness["item_key"] = "0" * 32
+        value["witnesses"][0]["item_key"] = "0" * 32
     else:
-        value["witnesses"].append(witness.copy())
+        value["witnesses"].append(value["witnesses"][0].copy())
     raw = canonical(value)
     sidecar.write_bytes(raw)
     manifest_path = archive / "portable-manifest.json"
     manifest = json.loads(manifest_path.read_bytes())
-    next(entry for entry in manifest["files"] if entry["path"] == PATH)["sha256"] = sha256(
+    next(entry for entry in manifest["files"] if entry["path"] == sidecar_path)["sha256"] = sha256(
         raw
     ).hexdigest()
     manifest_path.write_bytes(canonical(manifest))

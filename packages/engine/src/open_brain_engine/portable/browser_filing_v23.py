@@ -6,7 +6,10 @@ from uuid import UUID
 
 from open_brain_engine.engine.saved_item_identity import SavedItemSource
 
+from .browser_annotations_v21 import ANNOTATION_KEY, BROWSER_ANNOTATIONS_PATH
+from .browser_revisits_v22 import BROWSER_REVISITS_PATH
 from .lifecycle_v15 import lifecycle_evidence_value
+from .saved_item_admission_v20 import SAVED_ITEM_ADMISSION_PATH
 from .saved_item_sources_v19 import validate_saved_item_sources
 from .v1 import PortableValidationError, _portable_record
 from .v4 import SOURCE_METADATA_PATH
@@ -27,7 +30,7 @@ FILING_WITNESS_COLUMNS = (
 
 
 def validate_filing_witnesses(files: Mapping[str, bytes]) -> list[dict[str, str]]:
-    from open_brain_engine.engine.browser_filing import recover_filing_operation_for_scope
+    from open_brain_engine.engine.browser_filing import _id, recover_filing_operation_for_scope
 
     try:
         payload = _portable_record(files.get(BROWSER_FILING_PATH, b""), "browser filing witnesses")
@@ -57,6 +60,15 @@ def validate_filing_witnesses(files: Mapping[str, bytes]) -> list[dict[str, str]
             if path.startswith("history/routes/")
             for route in (json.loads(raw),)
         }
+        other_operation_routes = {
+            _id("route", tuple(row[name] for name in ANNOTATION_KEY))
+            for path, family in (
+                (SAVED_ITEM_ADMISSION_PATH, "browser_operations"),
+                (BROWSER_ANNOTATIONS_PATH, "annotations"),
+                (BROWSER_REVISITS_PATH, "revisits"),
+            )
+            for row in json.loads(files[path])[family]
+        }
         previous = ""
         for row in rows:
             if (
@@ -75,7 +87,8 @@ def validate_filing_witnesses(files: Mapping[str, bytes]) -> list[dict[str, str]
             capture = captures[capture_id]
             revision = revisions[capture_id]
             if (
-                str(UUID(principal)) != principal
+                route_id in other_operation_routes
+                or str(UUID(principal)) != principal
                 or source not in registered
                 or source.delivery_id(item_key) != delivery
                 or capture["delivery_id"] != delivery
