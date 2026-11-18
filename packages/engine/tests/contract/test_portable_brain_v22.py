@@ -40,6 +40,14 @@ DATE = "2026-11-01"
 ZONE = "America/New_York"
 
 
+@pytest.fixture(autouse=True)
+def _portable22_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the Portable22 producer and its historical restore recipe on schema27."""
+    monkeypatch.setattr(local_schema, "PHASE1_STATE_SCHEMA_VERSION", 27)
+    monkeypatch.setattr(local_schema, "LOCAL_MIGRATIONS", LOCAL_MIGRATIONS[:27])
+    monkeypatch.setattr(paging, "PHASE1_STATE_SCHEMA_VERSION", 27)
+
+
 def _export(engine: BrainEngine, tmp_path: Path) -> Path:
     archive = tmp_path / "archive"
     assert engine.tasks.portability.export(archive, export_id=EXPORT_ID).schema_version == 22

@@ -43,15 +43,69 @@ def recover_filing_operation(
     grant: sqlite3.Row, row: sqlite3.Row, parent_delivery: str
 ) -> str | None:
     """Recover a candidate ID from portable history. Call filing_status before exposing it."""
-    scope = _operation_key(grant, "")[:-1]
-    op = _receipt_uuid(
-        row["receipt_id"].removeprefix("receipt_"),
-        scope,
+    return recover_filing_operation_for_scope(
+        _operation_key(grant, "")[:-1],
+        row["route_id"],
+        row["receipt_id"],
         parent_delivery,
         row["capture_id"],
         row["space_id"],
     )
-    return op if row["route_id"] == _id("route", (*scope, op)) else None
+
+
+def recover_filing_operation_for_scope(
+    scope: tuple[str, ...],
+    route_id: str,
+    receipt_id: str,
+    delivery_id: str,
+    capture_id: str,
+    space_id: str,
+) -> str | None:
+    operation_id = _receipt_uuid(
+        receipt_id.removeprefix("receipt_"), scope, delivery_id, capture_id, space_id
+    )
+    return operation_id if route_id == _id("route", (*scope, operation_id)) else None
+
+
+def backfill_filing_witnesses(db: sqlite3.Connection) -> None:
+    """Recover legacy filing witnesses whose retained binding verifies the receipt."""
+    from .capture_lifecycle_policy import lifecycle_permits_capture
+
+    candidates = db.execute(
+        """SELECT r.route_id,r.receipt_id,r.capture_id,r.space_id,w.*,
+                  g.brain_id,b.workflow_principal
+           FROM route_operations r JOIN captures c ON c.capture_id=r.capture_id
+           JOIN saved_item_local_witnesses w ON w.delivery_id=c.delivery_id
+           JOIN source_revisions v ON v.capture_id=c.capture_id
+           JOIN logical_sources s ON s.source_id=v.source_id
+           JOIN browser_grants g ON (g.connector_name,g.connection_id,g.resource_id)
+                                  =(w.connector_name,w.connection_id,w.resource_id)
+           JOIN browser_grant_bindings b ON b.token_hash=g.token_hash
+           JOIN browser_installation i ON i.generation=g.generation
+           JOIN brain_identity bi ON bi.brain_id=g.brain_id AND bi.issuer_epoch=b.issuer_epoch
+           WHERE r.stage=2 AND s.lifecycle='active' AND c.stage=3
+             AND c.source_origin='third_party' AND c.submission_path='public_job'
+             AND (r.delivery_id GLOB 'browser.file.route_*'
+                  OR r.delivery_id GLOB 'import.route.*')"""
+    )
+    for row in candidates:
+        source = _source(row)
+        if (
+            source.delivery_id(row["item_key"]) == row["delivery_id"]
+            and recover_filing_operation(row, row, row["delivery_id"]) is not None
+            and lifecycle_permits_capture(db, row["capture_id"])
+        ):
+            db.execute(
+                "INSERT INTO browser_filing_witnesses VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT(route_id) DO NOTHING",
+                (
+                    row["route_id"],
+                    row["workflow_principal"],
+                    *source.values(),
+                    row["item_key"],
+                    row["delivery_id"],
+                ),
+            )
 
 
 def _permits(grant: sqlite3.Row, space: str) -> bool:
@@ -94,13 +148,21 @@ class BrowserRouteAdmission:
         from .browser_revisits import revisit_row
 
         if (
-            _operation(db, grant, self.operation_id) or operation_row(db, grant, self.operation_id)
+            _operation(db, grant, self.operation_id)
+            or operation_row(db, grant, self.operation_id)
             or revisit_row(db, grant, self.operation_id)
         ):
             raise ValueError("browser_operation_conflict")
         source.witness(db, self.item_key)
         key = _operation_key(grant, self.operation_id)
-        return _id("route", key), "receipt_" + _receipt_uuid(
+        route_id = _id("route", key)
+        if db.execute("PRAGMA user_version").fetchone()[0] >= 28:
+            db.execute(
+                "INSERT INTO browser_filing_witnesses VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT(route_id) DO NOTHING",
+                (route_id, grant["workflow_principal"], *source.values(), self.item_key, delivery),
+            )
+        return route_id, "receipt_" + _receipt_uuid(
             self.operation_id, key[:-1], delivery, capture_id, space_id
         )
 

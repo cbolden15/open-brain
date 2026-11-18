@@ -238,7 +238,7 @@ def test_reference_docs_bind_followup_commands_and_grants() -> None:
     assert "Nine independent grants" not in matrix
     index = (root / "docs/README.md").read_text(encoding="utf-8")
     assert "[follow-ups](followups.md)" in index
-    assert "Portable 22 is current (local schema 27, runtime session 16)" in index
+    assert "Portable 23 is current (local schema 28, runtime session 16)" in index
 
 
 def test_reference_docs_bind_brief_commands_and_grants() -> None:
@@ -258,7 +258,7 @@ def test_reference_docs_bind_brief_commands_and_grants() -> None:
         "daily-brief.md",
     ):
         assert token in cli, token
-    assert cli.count("27/16/22") == 1
+    assert cli.count("28/16/23") == 1
     for path in ("CLAUDE.md", "packages/app/CLAUDE.md", "README.md", "docs/agent-setup.md"):
         text = (root / path).read_text(encoding="utf-8")
         assert "brief-read" in text and "brief-ack" in text, path
@@ -267,8 +267,8 @@ def test_reference_docs_bind_brief_commands_and_grants() -> None:
     assert "Independent grants" in matrix
     index = (root / "docs/README.md").read_text(encoding="utf-8")
     assert "[daily brief](daily-brief.md)" in index
-    assert "Portable 22 is current (local schema 27, runtime session 16)" in index
+    assert "Portable 23 is current (local schema 28, runtime session 16)" in index
     for path in ("CLAUDE.md", "packages/app/CLAUDE.md"):
         text = (root / path).read_text(encoding="utf-8")
         assert "docs/daily-brief.md" in text, path
-    assert "27/16/22" in (root / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "28/16/23" in (root / "CLAUDE.md").read_text(encoding="utf-8")

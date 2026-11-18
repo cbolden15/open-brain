@@ -203,7 +203,7 @@ def test_missing_family_refuses(tmp_path: Path) -> None:
         validated_portable_snapshot(tmp_path / "archive")
 
 
-@pytest.mark.parametrize("destination_schema", [22, 23, 24, 25, 26, 27])
+@pytest.mark.parametrize("destination_schema", [22, 23, 24, 25, 26, 27, 28])
 def test_portable16_input_restores_with_no_shareable_tier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, destination_schema: int
 ) -> None:

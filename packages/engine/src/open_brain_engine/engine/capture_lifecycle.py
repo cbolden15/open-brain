@@ -648,6 +648,16 @@ class CaptureLifecycleTasks:
         if journal.eligibility_generation != before:
             self._advance(journal)
             version = journal.connection.execute("PRAGMA user_version").fetchone()[0]
+            if version >= 28:
+                for route in journal.connection.execute(
+                    "SELECT r.route_id,r.capture_id FROM browser_filing_witnesses w "
+                    "JOIN route_operations r USING (route_id)"
+                ).fetchall():
+                    if not journal.permits_capture(route["capture_id"]):
+                        journal.connection.execute(
+                            "DELETE FROM browser_filing_witnesses WHERE route_id=?",
+                            (route["route_id"],),
+                        )
             if version >= 27:
                 for (capture_id,) in journal.connection.execute(
                     "SELECT DISTINCT capture_id FROM browser_revisits WHERE state='accepted'"

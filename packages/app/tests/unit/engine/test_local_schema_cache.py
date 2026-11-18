@@ -54,7 +54,7 @@ def test_expected_shape_tracks_historical_catalog_and_flags(
 
 
 @pytest.mark.parametrize(
-    "version", [6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+    "version", [6, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]
 )
 def test_classifier_builds_only_requested_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: int

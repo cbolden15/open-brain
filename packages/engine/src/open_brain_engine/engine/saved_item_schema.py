@@ -94,6 +94,10 @@ def migrate_saved_item_sources(
             migrations=LOCAL_MIGRATIONS[:target],
             schema_version=target,
         )
+        if target == 28:
+            from .browser_filing import backfill_filing_witnesses
+
+            backfill_filing_witnesses(connection)
         upgraded = classify_local_schema(connection)
         if upgraded.state not in {"current", "supported_old"} or upgraded.version != target:
             raise T03Error("operation_pending")
@@ -225,5 +229,30 @@ BROWSER_REVISIT_MIGRATION = _migration(
  WHERE capture_id IN (SELECT capture_id FROM source_revisions WHERE source_id=NEW.source_id);
  END""",
         *tuple(stmt.replace("24", "27") for stmt in SAVED_ITEM_SCHEMA[-3:]),
+    ),
+)
+
+
+BROWSER_FILING_WITNESS_MIGRATION = _migration(
+    28,
+    "browser-filing-witnesses",
+    (
+        """CREATE TABLE browser_filing_witnesses (
+ route_id TEXT PRIMARY KEY NOT NULL REFERENCES route_operations(route_id)
+ DEFERRABLE INITIALLY DEFERRED,
+ workflow_principal TEXT NOT NULL,
+ connector_name TEXT NOT NULL,connection_id TEXT NOT NULL,resource_id TEXT NOT NULL,
+ item_key TEXT NOT NULL CHECK(length(item_key)=32 AND item_key NOT GLOB '*[^0-9a-f]*'),
+ delivery_id TEXT NOT NULL,
+ FOREIGN KEY(connector_name,connection_id,resource_id)
+ REFERENCES saved_item_sources(connector_name,connection_id,resource_id)
+)""",
+        """CREATE TRIGGER browser_filing_witness_retire AFTER UPDATE OF lifecycle ON logical_sources
+ WHEN NEW.lifecycle='retired' BEGIN
+ DELETE FROM browser_filing_witnesses WHERE route_id IN
+ (SELECT route_id FROM route_operations WHERE capture_id IN
+  (SELECT capture_id FROM source_revisions WHERE source_id=NEW.source_id));
+ END""",
+        *tuple(stmt.replace("24", "28") for stmt in SAVED_ITEM_SCHEMA[-3:]),
     ),
 )

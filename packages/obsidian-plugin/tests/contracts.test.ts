@@ -17,7 +17,7 @@ import {
 describe("plugin result validation", () => {
   it("requires the supported Open Brain client protocol version", () => {
     const handshake = {
-      desktop_only: true, state_schema_version: 27, runtime_session_version: 16,
+      desktop_only: true, state_schema_version: 28, runtime_session_version: 16,
       operations: ["system.handshake"],
       product_version: "0.1.0",
       protocol: OPEN_BRAIN_CLIENT_PROTOCOL,

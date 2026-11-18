@@ -21,12 +21,13 @@ def serialize_portable_v22_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    _expected_schema: int = 27,
 ) -> PortableV5StateEvidence:
     base = serialize_portable_v21_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=27,
+        _expected_schema=_expected_schema,
     )
     rows = connection.execute(
         f"SELECT {', '.join(REVISIT_COLUMNS)} FROM browser_revisits ORDER BY sequence"

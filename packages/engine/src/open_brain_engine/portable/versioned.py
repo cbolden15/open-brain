@@ -42,6 +42,7 @@ from .v19 import validated_portable_snapshot_v19
 from .v20 import validated_portable_snapshot_v20
 from .v21 import validated_portable_snapshot_v21
 from .v22 import validated_portable_snapshot_v22
+from .v23 import validated_portable_snapshot_v23
 
 
 def _validated_portable_snapshot(
@@ -91,6 +92,8 @@ def _validated_portable_snapshot(
         return validated_portable_snapshot_v15(root, expected_root_identity=identity)
     if version == 16:
         return validated_portable_snapshot_v16(root, expected_root_identity=identity)
+    if version == 23:
+        return validated_portable_snapshot_v23(root, expected_root_identity=identity)
     if version == 22:
         return validated_portable_snapshot_v22(root, expected_root_identity=identity)
     if version == 21:
