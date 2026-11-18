@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Open Brain saved items",
+  "version": "0.1.0",
+  "minimum_chrome_version": "127",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2CiXkjapTljJ7WkhlHxXGnie5gnRzFcGnL3SmnsSwiA+IojcTPlL2UUw3G8SZQN4yVD0+3P3m/UgzksEGwI2scUsQ5bhjNB3GLSuNLfTYBV17juGh50EcCZjFn5CuVAH9tyTmF8pLYNmkVn07trNlg5oU0RtHKlbRkdKwjdxx76rq846NBeohtc+PfJYQu/3wtkpPo8NpcMfO1DqGpgBA+MEMFoX8p03dBtoJQgxOeVoh9MEZmJ7Ks6GGtxRE7vzfnXq3GAuhpzTWIXmqzX9Mc+qenuX0XXgNxhIGiHRHHxwVFp9sc7LGyCl3iw8qVuLxLD9gXLasqVYFMCorUZjiwIDAQAB",
+  "permissions": ["activeTab", "scripting", "contextMenus", "nativeMessaging", "storage"],
+  "action": {"default_popup": "popup.html", "default_title": "Save to Open Brain"},
+  "background": {"service_worker": "worker.js", "type": "module"},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'; img-src 'none'; frame-src 'none'; base-uri 'none'"}
+}

@@ -1,0 +1,9 @@
+:root { color-scheme: light dark; font: 15px/1.45 system-ui, sans-serif; }
+body { width: 340px; margin: 16px; overflow-wrap: anywhere; }
+h1 { font-size: 1.35rem; } h2 { font-size: 1rem; }
+blockquote { margin: 12px 0; padding-inline-start: 12px; border-inline-start: 2px solid gray; max-height: 7em; overflow: auto; white-space: pre-wrap; }
+blockquote:empty { display: none; }
+textarea { display: block; box-sizing: border-box; width: 100%; margin-block: 6px 12px; font: inherit; }
+button { padding: 5px 10px; margin: 3px; font: inherit; }
+:focus-visible { outline: 3px solid Highlight; outline-offset: 2px; }
+ul { list-style: none; padding: 0; } li { margin: 8px 0; }
