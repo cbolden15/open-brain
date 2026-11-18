@@ -37,6 +37,7 @@ from .portability_ports import portable_write_port
 from .t03_contracts import EffectiveAuthority, T03Error
 
 if TYPE_CHECKING:
+    from .browser_filing import BrowserRouteAdmission
     from .local import BrainEngine
 
 
@@ -229,7 +230,8 @@ class SpaceOperations(_LocalEngineOperations):
         return f"content/spaces/{space.slug}/notes/{page_id}.md"
 
     def _route_capture(
-        self, capture_id: str, space_id: str, delivery_id: str, *, allow_published: bool = False
+        self, capture_id: str, space_id: str, delivery_id: str, *, allow_published: bool = False,
+        browser: BrowserRouteAdmission | None = None
     ) -> RoutedCapture:
         _portable_id(capture_id, "capture")
         _portable_id(space_id, "space")
@@ -240,6 +242,10 @@ class SpaceOperations(_LocalEngineOperations):
         conflict: tuple[str, str] | None = None
         created = False
         with self._store.transaction() as connection:
+            route_id = receipt_id = None
+            if browser is not None:
+                route_id, receipt_id = browser.admit(connection, capture_id, space_id)
+                delivery_id = "browser.file." + route_id
             if connection.execute("PRAGMA user_version").fetchone()[0] >= 7:
                 current = connection.execute(
                     "SELECT s.head_capture_id,s.historical_only FROM source_revisions r "
@@ -253,9 +259,17 @@ class SpaceOperations(_LocalEngineOperations):
 
                     raise T03Error("revision_changed")
             existing = connection.execute(
-                "SELECT * FROM route_operations WHERE delivery_id = ?", (delivery_id,)
+                "SELECT * FROM route_operations WHERE delivery_id=? OR route_id=?",
+                (delivery_id, route_id)
             ).fetchone()
             if existing is not None:
+                if browser is not None:
+                    if (
+                        existing["receipt_id"] != receipt_id
+                        or existing["request_sha256"] != request_sha
+                    ):
+                        raise ValueError("browser_operation_conflict")
+                    delivery_id = existing["delivery_id"]
                 if cast(str, existing["request_sha256"]) != request_sha:
                     conflict = (cast(str, existing["request_sha256"]), request_sha)
             else:
@@ -300,11 +314,11 @@ class SpaceOperations(_LocalEngineOperations):
                     (
                         delivery_id,
                         request_sha,
-                        _new_id("route"),
+                        route_id or _new_id("route"),
                         None if previous is None else previous["route_id"],
                         capture_id,
                         space_id,
-                        _new_id("receipt"),
+                        receipt_id or _new_id("receipt"),
                         now,
                     ),
                 )

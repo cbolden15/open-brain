@@ -47,6 +47,7 @@ class BrowserResult:
     state: str
     capture_id: str | None = None
     annotation_id: str | None = None
+    space_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,7 +310,11 @@ class BrowserPages:
             grant = self._grant(db, token, operation)
             if operation == "status" and db.execute("PRAGMA user_version").fetchone()[0] >= 26:
                 from .browser_annotations import operation_row
+                from .browser_filing import filing_status
 
+                route = filing_status(self, db, grant, operation_id)
+                if route is not None:
+                    return route
                 child = operation_row(db, grant, operation_id)
                 if child is not None:
                     page = self._visible(db, grant, child["delivery_id"])
@@ -384,8 +389,12 @@ class BrowserSaveAdmission:
         key = _operation_key(grant, self.operation_id)
         if db.execute("PRAGMA user_version").fetchone()[0] >= 26:
             from .browser_annotations import operation_row
+            from .browser_filing import filing_row
 
-            if operation_row(db, grant, self.operation_id):
+            if (
+                filing_row(db, grant, self.operation_id)
+                or operation_row(db, grant, self.operation_id)
+            ):
                 raise ValueError("browser_operation_conflict")
         prior = _operation(db, grant, self.operation_id)
         if prior:

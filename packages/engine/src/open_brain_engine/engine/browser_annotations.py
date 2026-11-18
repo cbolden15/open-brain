@@ -146,8 +146,11 @@ class BrowserAnnotations(BrowserPages):
                 if prior["state"] != "accepted":
                     return BrowserResult("refused")
             else:
+                from .browser_filing import filing_row
+
                 if (
-                    _operation(db, grant, operation_id)
+                    filing_row(db, grant, operation_id)
+                    or _operation(db, grant, operation_id)
                     or db.execute(
                         "SELECT 1 FROM browser_annotations WHERE annotation_id=?",
                         (annotation.annotation_id,),

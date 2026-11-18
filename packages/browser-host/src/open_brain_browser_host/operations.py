@@ -16,6 +16,7 @@ from open_brain_engine.engine.browser_annotations import (
     MaskedAnnotation,
     uuid4_id,
 )
+from open_brain_engine.engine.browser_filing import BrowserFiling
 from open_brain_engine.engine.browser_pages import (
     BrowserBinding,
     BrowserPages,
@@ -47,8 +48,10 @@ OPERATIONS = {
     "operation.status": "status",
     "annotation.add": "annotation.add",
     "annotation.list": "annotation.list",
+    "space.list": "space.list",
+    "page.file": "page.file",
 }
-_RECEIPT_OPERATIONS = {"save", "status", "annotation.add"}
+_RECEIPT_OPERATIONS = {"save", "status", "annotation.add", "page.file"}
 
 
 def _text(value: object, limit: int) -> str:
@@ -111,7 +114,7 @@ class Request:
             return cls(operation, operation_id, {}, binding_id)
         if operation == "lookup" and set(args) == {"url"}:
             return cls(operation, "", {"url": _text(args["url"], 8192)}, binding_id)
-        if operation in {"annotation.add", "annotation.list"}:
+        if operation in {"annotation.add", "annotation.list", "space.list", "page.file"}:
             common = {"url", "capture_id"}
             if not common <= args.keys():
                 raise Refused("invalid_request")
@@ -119,13 +122,17 @@ class Request:
                 "url": _text(args["url"], 8192),
                 "capture_id": _text(args["capture_id"], 128),
             }
-            if operation == "annotation.list":
+            if operation == "page.file":
+                if set(args) != common | {"space_id"}:
+                    raise Refused("invalid_request")
+                clean["space_id"] = _text(args["space_id"], 128)
+            elif operation in {"annotation.list", "space.list"}:
                 if set(args) != common | {"limit", "offset"}:
                     raise Refused("invalid_request")
                 limit, offset = args["limit"], args["offset"]
                 if (
                     type(limit) is not int
-                    or not 1 <= limit <= 10
+                    or not 1 <= limit <= (100 if operation == "space.list" else 10)
                     or type(offset) is not int
                     or not 0 <= offset < 2**31
                 ):
@@ -287,13 +294,28 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     # The token came from the same policy snapshot as the pin. Every engine
     # operation rechecks that immutable grant inside its transaction, so a
     # concurrent setup cannot substitute different authority or redirect it.
-    required_operation = {"annotation.add": "save", "annotation.list": "lookup"}.get(
-        request.operation, request.operation
-    )
+    required_operation = {
+        "annotation.add": "save",
+        "annotation.list": "lookup",
+        "space.list": "lookup",
+        "page.file": "save",
+    }.get(request.operation, request.operation)
     if required_operation not in binding.operations:
         raise Refused("operation_denied")
     if request.operation == "status":
         result = pages.status(policy.token, request.operation_id)
+    elif request.operation in {"space.list", "page.file"}:
+        filing = BrowserFiling(profile)
+        args = request.args
+        identity, _ = identity_url(args["url"])
+        key = item_key(identity)
+        if request.operation == "space.list":
+            return filing.spaces(
+                policy.token, key, args["capture_id"], limit=args["limit"], offset=args["offset"]
+            )
+        result = filing.file(
+            policy.token, request.operation_id, key, args["capture_id"], args["space_id"]
+        )
     elif request.operation in {"annotation.add", "annotation.list"}:
         annotations = BrowserAnnotations(profile)
         identity, _ = identity_url(request.args["url"])
@@ -334,6 +356,8 @@ def dispatch(policy: Policy, request: Request) -> dict[str, object]:
     response: dict[str, object] = {"state": result.state}
     if result.capture_id is not None:
         response["capture_id"] = result.capture_id
+    if result.space_id is not None:
+        response["space_id"] = result.space_id
     if result.annotation_id is not None:
         response["annotation_id"] = result.annotation_id
     return response
