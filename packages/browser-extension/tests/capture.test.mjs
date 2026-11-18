@@ -237,3 +237,40 @@ test('refresh after a save never looks up a replacement document', async () => {
   assert.equal(result.error, 'changed');
   assert.equal(f.calls.length, before);
 });
+
+test('an import preserves only its opaque destination and job ID across restart',async () => {
+  const f = await workerFixture();
+  const batch = crypto.randomUUID();
+  const original = chrome.runtime.sendNativeMessage;
+  chrome.runtime.sendNativeMessage = async (host, message) => {
+    if (message.operation.startsWith('import.')) {
+      assert.equal(message.binding_id,binding);
+      f.calls.push(message);
+      return {version:'browser.v1',result:message.operation === 'import.begin' ? {batch_id:batch} : {state:'active'}};
+    }
+    return original(host,message);
+  };
+  await f.request('startImport',{binding,header:{reason:'example',digest:'fake'}});
+  assert.deepEqual(f.storage.bookmarkJob,{id:batch,binding});
+  await f.restart();
+  assert.deepEqual((await f.request('boundImport')).value,{id:batch,binding});
+  assert.equal((await f.request('stepImport',{id:batch,binding:'wrong'})).error,'changed');
+  assert.equal((await f.request('stepImport',{id:batch,binding,args:{}})).value.state,'active');
+  assert.equal(f.calls.filter(c => c.operation === 'import.step').length,1);
+  assert.deepEqual(f.storage.bookmarkJob,{id:batch,binding});
+});
+test('filing needs a current saved-page gesture and has a separate receipt',async () => {
+  const f = await workerFixture();
+  f.env.lookup = 'saved';
+  const {viewNonce} = await f.begin();
+  const original = chrome.runtime.sendNativeMessage;
+  chrome.runtime.sendNativeMessage = async (host,m) => {
+    if (m.operation !== 'page.file') return original(host,m);
+    f.calls.push(m);
+    return {version:'browser.v1',result:{state:'accepted',capture_id:'fixture',space_id:m.args.space_id}};
+  };
+  assert.equal((await f.request('file',{windowId:1,nonce:viewNonce,spaceId:'space'})).value.state,'filed');
+  assert.equal((await f.request('file',{windowId:1,nonce:viewNonce,spaceId:'space'})).error,'changed');
+  assert.deepEqual(f.calls.filter(c => c.operation === 'page.file').map(c => c.args),
+    [{url:page.url,capture_id:'fixture',space_id:'space'}]);
+});

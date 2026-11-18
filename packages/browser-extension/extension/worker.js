@@ -36,7 +36,7 @@ function serialize(task) {
 // Only these native errors are known to precede admission for a fresh save.
 const preAdmissionErrors = new Map([
   ...['invalid_request','invalid_frame','frame_too_large','invalid_url','url_secret','invalid_why',
-    'invalid_field','file_too_large','payload_too_large'].map(code => [code,'invalid']),
+    'annotation_masked','invalid_field','file_too_large','payload_too_large'].map(code => [code,'invalid']),
   ...['binding_changed','operation_denied','origin_denied','unsupported_version'].map(code => [code,'refused'])
 ]);
 async function sendNative(operation, args, binding, operationId) {
@@ -50,7 +50,8 @@ async function sendNative(operation, args, binding, operationId) {
   if (!reply.result) {
     const code = reply.error?.code;
     const known = preAdmissionErrors.get(code);
-    const error = new Error(known ?? (code === 'browser_unbound' ? 'refused' : 'unavailable'));
+    const importError = ['import_not_found','import_too_large','import_preview_limit','import_invalid_encoding','import_not_ready','import_digest_mismatch','import_incomplete'].includes(code) ? code : null;
+    const error = new Error(importError ?? known ?? (code === 'browser_unbound' ? 'refused' : 'unavailable'));
     error.beforeAdmission = Boolean(known);
     throw error;
   }
@@ -160,7 +161,7 @@ async function mutation(gesture, operation, args) {
     }
   }
   const state = receiptState(result);
-  if (state === 'saved' || state === 'highlighted') await forget(row.id);
+  if (['saved','highlighted','filed'].includes(state)) await forget(row.id);
   return {state:result?.state === 'refused' ? 'refused' : state};
 }
 
@@ -214,12 +215,47 @@ async function highlights({windowId, nonce, offset = 0}, paint) {
   if (frame?.documentId !== gesture.page.documentId) throw new Error('changed');
   return {...rows, resolved:frame.result};
 }
+async function spaces({windowId, nonce, offset = 0}) {
+  const gesture = currentGesture(windowId, nonce, 'view');
+  const result = await sendNative('space.list', {url:gesture.page.url, capture_id:gesture.captureId,
+    limit:20, offset}, gesture.binding);
+  await validateBeforeDispatch(gesture.page);
+  requireIntent(gesture.intent);
+  return result;
+}
+async function filePage({windowId, nonce, spaceId}) {
+  const gesture = currentGesture(windowId, nonce, 'view');
+  gestures.delete(windowId);
+  return mutation(gesture, 'page.file', {url:gesture.page.url, capture_id:gesture.captureId,
+    space_id:spaceId});
+}
+
+async function bookmarkJob(action, message) {
+  await storageReady;
+  const job = (await chrome.storage.local.get('bookmarkJob')).bookmarkJob;
+  if (action === 'boundImport') return job ?? null;
+  if (action === 'startImport') {
+    if (job) throw new Error('full');
+    const result = await sendNative('import.begin', message.header, message.binding);
+    if (typeof result.batch_id !== 'string' || result.batch_id.length > 128) throw new Error('refused');
+    await chrome.storage.local.set({bookmarkJob:{id:result.batch_id, binding:message.binding}});
+    return result;
+  }
+  if (!job || job.id !== message.id || job.binding !== message.binding) throw new Error('changed');
+  const operations = {chunkImport:'chunk', previewImport:'preview', confirmImport:'confirm',
+    stepImport:'step', statusImport:'status', cancelImport:'cancel'};
+  if (action === 'forgetImport') {
+    await chrome.storage.local.remove('bookmarkJob');
+    return {};
+  }
+  return sendNative('import.' + operations[action], {...message.args,batch_id:job.id}, job.binding);
+}
 async function reconcile(id) {
   const row = (await ledger()).find(entry => entry.id === id);
   if (!row) return {state:'cleared'};
   const result = await sendNative('operation.status', {}, row.binding, row.id).catch(() => null);
   const state = receiptState(result);
-  if (state === 'saved' || state === 'highlighted') await forget(id);
+  if (['saved','highlighted','filed'].includes(state)) await forget(id);
   return {state};
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
@@ -228,6 +264,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     switch (message.action) {
       case 'begin': return begin(message.tabId, message.windowId, message.expected);
       case 'save': return serialize(() => save(message));
+      case 'spaces': return spaces(message);
+      case 'file': return serialize(() => filePage(message));
+      case 'boundImport': case 'startImport': case 'chunkImport': case 'previewImport':
+      case 'confirmImport': case 'stepImport': case 'statusImport': case 'cancelImport':
+      case 'forgetImport': return serialize(() => bookmarkJob(message.action, message));
       case 'annotate': return serialize(() => annotate(message));
       case 'highlights': return highlights(message, false);
       case 'restore': return highlights(message, true);
@@ -238,7 +279,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     }
   }
   handle().then(value => reply({value}), error => reply({error:
-    ['changed','unsupported','reason','unavailable','refused','full','selection','invalid'].includes(error.message)
+    ['changed','unsupported','reason','unavailable','refused','full','selection','invalid','import_not_found','import_too_large','import_preview_limit','import_invalid_encoding','import_not_ready','import_digest_mismatch','import_incomplete'].includes(error.message)
       ? error.message : 'restricted'}));
   return true;
 });

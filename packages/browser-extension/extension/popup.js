@@ -1,3 +1,5 @@
+import {organizer} from './organize.mjs';
+
 const el = id => document.getElementById(id);
 const descriptions = {
   changed:'The page or selection changed. Reopen the extension to confirm it again.',
@@ -9,7 +11,7 @@ const descriptions = {
   full:'Resolve or abandon an earlier save before starting another.',
   saved:'Page is saved. Repeat saves keep the original reason.', pending:'Pending. The helper has received this save.',
   unknown:'Outcome unknown. Check status before starting another save.',
-  highlighted:'Highlight saved.', cleared:'This save has already been resolved.'
+  filed:'Page filed.', highlighted:'Highlight saved.', cleared:'This save has already been resolved.'
 };
 let gesture;
 let currentOffset = 0;
@@ -39,7 +41,7 @@ async function listPending(check) {
     if (check) {
       const {state} = await request('status', {id});
       status(state);
-      if (['saved', 'highlighted', 'cleared'].includes(state)) continue;
+      if (['saved', 'highlighted', 'filed', 'cleared'].includes(state)) continue;
     }
     const item = document.createElement('li');
     const name = document.createElement('span');
@@ -57,6 +59,7 @@ async function listPending(check) {
   }
   el('pending').hidden = !list.children.length;
 }
+const organization = organizer(request, () => ({windowId:gesture.windowId,nonce:gesture.viewNonce}), () => open(false));
 async function open(checkPending = true) {
   const tab = !checkPending && gesture ? {id:gesture.tabId, windowId:gesture.windowId} :
     (await chrome.tabs.query({active:true,currentWindow:true}))[0];
@@ -83,6 +86,7 @@ async function open(checkPending = true) {
   if (el('status').textContent === 'Checking this page…')
     el('status').textContent = page.lookup === 'saved' ? 'Already saved in this source.' : 'No saved page in this scope.';
   el('preview').hidden = false;
+  await organization(page);
 }
 el('page-form').addEventListener('submit',async event => {
   event.preventDefault();

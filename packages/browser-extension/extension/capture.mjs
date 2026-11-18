@@ -19,6 +19,6 @@ export function saveArgs(page, input) {
 
 export function receiptState(result) {
   if (result?.state === 'accepted' && typeof result.capture_id === 'string' && result.capture_id)
-    return result.annotation_id ? 'highlighted' : 'saved';
+    return result.annotation_id ? 'highlighted' : Object.hasOwn(result,'space_id') ? 'filed' : 'saved';
   return result?.state === 'pending' ? 'pending' : 'unknown';
 }
