@@ -182,7 +182,7 @@ def _read_only(profile: SingleUserLocalProfile) -> sqlite3.Connection:
 def test_privacy_migration_is_cataloged() -> None:
     from open_brain_engine.engine import local_schema_catalog
 
-    assert [migration.name for migration in local_schema_catalog.LOCAL_MIGRATIONS][-21:] == [
+    assert [migration.name for migration in local_schema_catalog.LOCAL_MIGRATIONS][-22:] == [
         "immutable_source_history",
         "effective_privacy_projection",
         "issuer_identity_and_owner_repair",
