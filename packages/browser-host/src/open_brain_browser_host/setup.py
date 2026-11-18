@@ -19,9 +19,11 @@ from open_brain.services.local_bootstrap import initialize_local_brain
 from open_brain.services.t03_adapters import owner_authority_for_principal
 from open_brain_connectors.runtime.saved_item import SavedItemRefusal, identity_url, item_key
 
+from .operations import Request, dispatch
 from .policy import (
     Policy,
     Refused,
+    RemotePolicy,
     binding_value,
     extension_origin,
     install,
@@ -30,7 +32,7 @@ from .policy import (
     save,
 )
 
-OWNER_COMMANDS = frozenset({"setup", "sources", "revoke", "install"})
+OWNER_COMMANDS = frozenset({"setup", "setup-remote", "sources", "revoke", "install"})
 
 
 def _owner(profile: LocalEngineContext) -> BrowserOwnerSetup:
@@ -67,6 +69,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Grant all current and future spaces, including unassigned, in all three tiers.",
     )
+    remote = sub.add_parser(
+        "setup-remote", help="Bind this laptop to an owner-selected SSH handler."
+    )
+    for field in ("extension-id", "destination", "host-key", "identity-file", "canonical-id"):
+        remote.add_argument("--" + field, required=True)
     sources = sub.add_parser("sources", help="List saved-item source IDs available to the owner.")
     sources.add_argument("--data-dir")
     sources.add_argument("--offset", type=int, default=0)
@@ -135,16 +142,17 @@ def _configure(args: argparse.Namespace, directory: int) -> dict[str, object]:
     try:
         binding = BrowserPages(profile).binding(token)
         policy = Policy(args.extension_id, profile.root, token, binding_value(binding))
+        description = dispatch(policy, Request("describe", "", {}))
         # Publish only after the old authority is withdrawn. If this process dies
         # first, the existing policy contains a revoked token and the new token
         # has not been published.
-        if previous is not None:
+        if isinstance(previous, Policy):
             _revoke(previous)
         save(directory, policy)
     except Exception:
         owner.revoke(token)
         raise
-    return {"state": "configured", **policy.binding}
+    return {"state": "configured", **policy.binding, **description}
 
 
 def main(argv: Sequence[str]) -> int:
@@ -157,17 +165,36 @@ def main(argv: Sequence[str]) -> int:
             owner = _owner(open_existing_single_user_local(selection.brain_root))
             result = {"sources": [source.values() for source in owner.sources(offset=args.offset)]}
         else:
-            with lock_setup(create=args.command == "setup") as directory:
+            with lock_setup(create=args.command in {"setup", "setup-remote"}) as directory:
                 if args.command == "setup":
                     result = _configure(args, directory)
+                elif args.command == "setup-remote":
+                    remote = RemotePolicy(
+                        args.extension_id,
+                        args.destination,
+                        args.host_key,
+                        args.identity_file,
+                        args.canonical_id,
+                    )
+                    try:
+                        previous = read(directory)
+                    except FileNotFoundError:
+                        previous = None
+                    if isinstance(previous, Policy):
+                        _revoke(previous)
+                    save(directory, remote)
+                    result = {"state": "configured", "destination": remote.destination}
                 else:
                     policy = read(directory)
                     if args.command == "revoke":
+                        if isinstance(policy, RemotePolicy):
+                            raise ValueError("revoke on the canonical host")
                         _revoke(policy)
                         result = {"state": "revoked"}
                     else:
-                        profile = open_existing_single_user_local(policy.brain_root)
-                        policy.require(BrowserPages(profile).binding(policy.token))
+                        if isinstance(policy, Policy):
+                            profile = open_existing_single_user_local(policy.brain_root)
+                            policy.require(BrowserPages(profile).binding(policy.token))
                         manifest = install(
                             policy, Path(sys.argv[0]), user_data_dir=args.chrome_user_data_dir
                         )

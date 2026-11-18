@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import fcntl
 import json
 import os
@@ -122,6 +123,44 @@ class Policy:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class RemotePolicy:
+    extension_id: str
+    destination: str
+    host_key: str
+    identity_file: str
+    canonical_id: str
+
+    def __post_init__(self) -> None:
+        extension_origin(self.extension_id)
+        if len(self.destination) > 120 or not re.fullmatch(
+            r"[a-z_][a-z0-9_-]{0,31}@[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}", self.destination
+        ):
+            raise ValueError("invalid SSH destination")
+        if not re.fullmatch(r"[0-9a-f]{64}", self.canonical_id):
+            raise ValueError("invalid canonical binding")
+        if not re.fullmatch(r"/[a-zA-Z0-9_./-]+", self.identity_file):
+            raise ValueError("invalid SSH identity path")
+        prefix = "ssh-ed25519 "
+        if not self.host_key.startswith(prefix):
+            raise ValueError("expected an Ed25519 public host key")
+        key = base64.b64decode(self.host_key[len(prefix) :], validate=True)
+        if len(key) != 51 or key[:19] != b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20":
+            raise ValueError("invalid Ed25519 host key")
+
+    def encode(self) -> bytes:
+        return encoded(
+            {
+                "version": "browser-remote-policy.v1",
+                "extension_id": self.extension_id,
+                "destination": self.destination,
+                "host_key": self.host_key,
+                "identity_file": self.identity_file,
+                "canonical_id": self.canonical_id,
+            }
+        )
+
+
 def _check_directory(fd: int, *, private: bool) -> None:
     metadata = os.fstat(fd)
     invalid_mode = 0o077 if private else 0o022
@@ -193,11 +232,18 @@ def lock_setup(*, create: bool) -> Iterator[int]:
         yield directory
 
 
-def read(directory: int) -> Policy:
-    return Policy.parse(_read_private(directory, _POLICY_NAME))
+def read(directory: int) -> Policy | RemotePolicy:
+    raw = _read_private(directory, _POLICY_NAME)
+    data = strict_json(raw)
+    if isinstance(data, dict) and data.get("version") == "browser-remote-policy.v1":
+        fields = {"extension_id", "destination", "host_key", "identity_file", "canonical_id"}
+        if set(data) != fields | {"version"} or not all(isinstance(data[k], str) for k in fields):
+            raise ValueError("invalid remote policy")
+        return RemotePolicy(**{k: data[k] for k in fields})
+    return Policy.parse(raw)
 
 
-def load() -> Policy:
+def load_installation() -> Policy | RemotePolicy:
     try:
         with _home_directory(_POLICY_DIRECTORY, create=False, private=True) as directory:
             return read(directory)
@@ -205,7 +251,14 @@ def load() -> Policy:
         raise Refused("browser_unbound") from None
 
 
-def save(directory: int, policy: Policy) -> None:
+def load() -> Policy:
+    policy = load_installation()
+    if not isinstance(policy, Policy):
+        raise Refused("browser_unbound")
+    return policy
+
+
+def save(directory: int, policy: Policy | RemotePolicy) -> None:
     payload = policy.encode()
     if len(payload) > _POLICY_LIMIT:
         raise ValueError("oversized policy")
@@ -220,7 +273,9 @@ def _chrome_directory() -> tuple[str, ...]:
     raise ValueError("unsupported Chrome platform")
 
 
-def install(policy: Policy, executable: Path, *, user_data_dir: Path | None = None) -> Path:
+def install(
+    policy: Policy | RemotePolicy, executable: Path, *, user_data_dir: Path | None = None
+) -> Path:
     executable = executable.resolve(strict=True)
     if not executable.is_file() or not os.access(executable, os.X_OK):
         raise ValueError("browser host executable unavailable")

@@ -66,3 +66,39 @@ the operation ID and the same arguments for retry. A pending response
 indicates durable admission with reconciliation still outstanding.
 
 [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
+
+## Remote destination (qualification pending)
+
+The local setup above is the default. The remote transport has a synthetic
+two-installation test. Real Chrome over SSH still requires a separately
+authorized disposable laptop and canonical host. No remote platform has
+qualified for release.
+
+The canonical host runs the same owner setup and holds the grant. Its setup
+output supplies the canonical `binding_id`. The restricted SSH credential
+must be dedicated to one installation and forced on the server to execute
+only the absolute installed host executable with argument `remote-handler`,
+with forwarding, PTY and user startup commands disabled. The owner must
+verify the canonical host's Ed25519 public key out of band.
+
+On the laptop, `setup-remote --help` lists the five owner-supplied fields.
+They identify the extension, fixed SSH user and hostname, complete Ed25519
+public host key, absolute path to the dedicated identity file, and canonical
+binding ID. Setup writes the private installation policy without connecting.
+Switching an existing local installation to remote revokes its local grant.
+Use the ordinary `install` action for Chrome registration. Withdraw a remote
+grant with `revoke` on the canonical host.
+
+The popup can read the configured destination while offline. A remote request
+must carry its pinned binding ID. Before sending page data, the helper checks
+the pinned SSH host key and a ready frame naming the expected canonical
+binding and extension. Each operation checks the canonical grant again.
+Remote frames start with ASCII `OBR1` and a four-byte big-endian body length
+(up to 256 KiB). Each terminal reply identifies the connection's binding,
+request nonce and digest. A failed connection leaves the page on the laptop.
+A missing acknowledgement after submission leaves the outcome unknown. Check
+status and retry with the original operation ID and destination.
+
+Run the synthetic outage, dropped-acknowledgement, replay and scope scenario
+with `uv run --frozen pytest -q packages/browser-host/tests/test_remote.py`.
+It uses two disposable Brain roots and a process-pipe adapter.

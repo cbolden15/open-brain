@@ -13,9 +13,9 @@ from open_brain_engine.engine.t03_contracts import T03Error
 
 from open_brain_connectors.runtime.saved_item import SavedItemRefusal
 
-from . import setup
+from . import remote, setup
 from .operations import VERSION, Request, dispatch
-from .policy import Refused, encoded, extension_origin, load, strict_json
+from .policy import Refused, RemotePolicy, encoded, extension_origin, load_installation, strict_json
 
 _HEADER = struct.Struct("=I")
 _FRAME_LIMIT = 256 * 1024
@@ -49,14 +49,26 @@ def _read(source: BinaryIO) -> object:
 
 
 def _invoke(argv: list[str]) -> dict[str, object]:
-    policy = load()
+    policy = load_installation()
     if argv != [extension_origin(policy.extension_id)]:
         raise Refused("origin_denied")
-    return dispatch(policy, Request.parse(_read(sys.stdin.buffer)))
+    value = _read(sys.stdin.buffer)
+    if isinstance(policy, RemotePolicy):
+        return remote.forward(policy, value)
+    return dispatch(policy, Request.parse(value))
 
 
 def main() -> int:
     argv = sys.argv[1:]
+    if argv == ["remote-handler"]:
+        signal.signal(signal.SIGALRM, _expire)
+        signal.alarm(_FOREGROUND_SECONDS)
+        try:
+            return remote.handler(sys.stdin.buffer, sys.stdout.buffer)
+        except Exception, _Deadline:
+            return 2
+        finally:
+            signal.alarm(0)
     if not argv or argv[0] in setup.OWNER_COMMANDS | {"--help", "-h"}:
         return setup.main(argv)
     response: dict[str, object] = {"version": VERSION}
