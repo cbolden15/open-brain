@@ -90,6 +90,13 @@ def relay(home: Path, executable: Path, origin: str) -> None:
     ):
         (home / "drop").unlink()
         return
+    if (
+        operation == "import.step"
+        and response.get("result", {}).get("state") == "active"
+        and (home / "drop-import-step").exists()
+    ):
+        (home / "drop-import-step").unlink()
+        return
     sys.stdout.buffer.write(result)
 
 
