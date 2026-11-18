@@ -43,6 +43,14 @@ class FaultStream:
                 reply = json.loads(data[8:])
                 reply["nonce"] = "different"
                 data = remote._frame(reply)
+            if self.fault in {"unrecognized_error", "wrong_result"}:
+                reply = json.loads(data[8:])
+                if self.fault == "unrecognized_error":
+                    del reply["result"]
+                    reply["error"] = "unexpected_short_code"
+                else:
+                    reply["result"]["annotation_id"] = str(uuid4())
+                data = remote._frame(reply)
             if self.fault == "marker":
                 data = b"BAD!" + data[4:]
             if self.fault == "size":
@@ -162,7 +170,16 @@ def test_remote_reconciliation(
         with pytest.raises(Refused, match="^" + code + "$"):
             remote.forward(policy, save)
         assert count(canonical / "brain") == count(laptop / "brain") == 0
-    for fault in ("drop", "truncate", "extra", "identity", "marker", "size"):
+    for fault in (
+        "drop",
+        "truncate",
+        "extra",
+        "identity",
+        "marker",
+        "size",
+        "unrecognized_error",
+        "wrong_result",
+    ):
         mode = fault
         with pytest.raises(Refused, match="^outcome_unknown$"):
             remote.forward(policy, save)
@@ -202,3 +219,25 @@ def test_remote_reconciliation(
         with pytest.raises(Refused, match="^operation_denied$"):
             remote.forward(policy, request)
     assert count(canonical / "brain") == 1 and count(laptop / "brain") == 0
+
+
+def test_terminal_results_match_the_operation_and_arguments() -> None:
+    annotation = str(uuid4())
+    parent = "capture_opaque"
+    args = {"capture_id": parent, "annotation_id": annotation}
+    accepted = {"state": "accepted", "capture_id": parent, "annotation_id": annotation}
+    row = {"annotation_id": annotation, "quote": "café", "prefix": "", "suffix": "", "note": None}
+    assert remote.validate_result("annotation.add", args, accepted)
+    assert remote.validate_result("operation.status", {}, accepted)
+    assert not remote.validate_result("page.save", {}, accepted)
+    assert not remote.validate_result("annotation.add", args, {**accepted, "capture_id": "other"})
+    assert not remote.validate_result(
+        "annotation.add", args, {"state": "accepted", "capture_id": parent}
+    )
+    page = {"annotations": [row], "next_offset": 1}
+    paging = {"limit": 1, "offset": 0}
+    assert remote.validate_result("annotation.list", paging, page)
+    assert not remote.validate_result("annotation.list", paging, {**page, "next_offset": True})
+    for bad in ({**row, "note": 1}, {**row, "prefix": "x" * 129}, {**row, "quote": "\ud800"}):
+        assert not remote.validate_result("annotation.list", paging, {**page, "annotations": [bad]})
+    assert not remote.validate_result("unregistered.method", {}, {"state": "accepted"})

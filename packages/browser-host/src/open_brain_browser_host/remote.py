@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import re
 import secrets
 import sqlite3
 import struct
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -132,6 +134,113 @@ async def _read(stream: asyncio.StreamReader) -> object:
     return strict_json(await stream.readexactly(size))
 
 
+_HANDLER_ERRORS = frozenset(
+    {
+        "invalid_request",
+        "unsupported_version",
+        "operation_denied",
+        "binding_changed",
+        "browser_unbound",
+        "host_unavailable",
+        "browser_operation_conflict",
+        "browser_pending_limit",
+        "annotation_masked",
+        "invalid_url",
+        "url_secret",
+        "invalid_field",
+        "invalid_why",
+        "file_too_large",
+        "invalid_json",
+        "unknown_field",
+        "missing_field",
+        "payload_too_large",
+    }
+)
+_UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+
+
+def _text(value: object, limit: int, *, empty: bool = False) -> bool:
+    if not isinstance(value, str) or len(value) > limit or "\x00" in value:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        return False
+    return empty or bool(value.strip())
+
+
+def _uuid(value: object) -> bool:
+    return isinstance(value, str) and bool(_UUID4.fullmatch(value))
+
+
+def _annotation_row(row: object) -> bool:
+    if not isinstance(row, dict) or set(row) != {
+        "annotation_id",
+        "quote",
+        "prefix",
+        "suffix",
+        "note",
+    }:
+        return False
+    return (
+        _uuid(row["annotation_id"])
+        and _text(row["quote"], 4096)
+        and _text(row["prefix"], 128, empty=True)
+        and _text(row["suffix"], 128, empty=True)
+        and (row["note"] is None or _text(row["note"], 1024))
+    )
+
+
+def validate_result(operation: str, args: Mapping[str, object], result: object) -> bool:
+    """Validate terminal data from the pinned handler before acknowledging a browser operation."""
+    if not isinstance(result, dict):
+        return False
+    if operation == "annotation.list":
+        if set(result) != {"annotations", "next_offset"}:
+            return False
+        rows, cursor = result["annotations"], result["next_offset"]
+        limit, offset = args["limit"], args["offset"]
+        if not isinstance(rows, list) or type(limit) is not int or type(offset) is not int:
+            return False
+        return (
+            len(rows) <= limit
+            and all(_annotation_row(row) for row in rows)
+            and len({row["annotation_id"] for row in rows}) == len(rows)
+            and (
+                cursor is None
+                or (type(cursor) is int and bool(rows) and cursor == offset + len(rows))
+            )
+        )
+    state = result.get("state")
+    if operation == "page.lookup":
+        if state == "absent":
+            return set(result) == {"state"}
+        return (
+            set(result) == {"state", "capture_id", "space_id"}
+            and state == "saved"
+            and _text(result["capture_id"], 128)
+            and (result["space_id"] is None or _text(result["space_id"], 128))
+        )
+    if operation not in {"page.save", "annotation.add", "operation.status"}:
+        return False
+    if state in ("pending", "refused"):
+        return set(result) == {"state"}
+    if state != "accepted" or not _text(result.get("capture_id"), 128):
+        return False
+    if operation == "annotation.add":
+        return (
+            set(result) == {"state", "capture_id", "annotation_id"}
+            and result["capture_id"] == args["capture_id"]
+            and result["annotation_id"] == args["annotation_id"]
+            and _uuid(result["annotation_id"])
+        )
+    if operation == "operation.status" and "annotation_id" in result:
+        return set(result) == {"state", "capture_id", "annotation_id"} and _uuid(
+            result["annotation_id"]
+        )
+    return set(result) == {"state", "capture_id"}
+
+
 async def exchange(
     policy: RemotePolicy, value: dict[str, object], command: list[str]
 ) -> dict[str, object]:
@@ -167,14 +276,11 @@ async def exchange(
                 raise ValueError("remote identity mismatch")
             if set(reply) == set(expected) | {"error"}:
                 code = reply["error"]
-                if (
-                    isinstance(code, str)
-                    and code.isidentifier()
-                    and code.isascii()
-                    and len(code) <= 64
-                ):
+                if isinstance(code, str) and code in _HANDLER_ERRORS:
                     raise Refused(code)
-            if set(reply) != set(expected) | {"result"} or not isinstance(reply["result"], dict):
+            if set(reply) != set(expected) | {"result"} or not validate_result(
+                str(value["operation"]), cast(dict[str, object], value["args"]), reply["result"]
+            ):
                 raise ValueError("invalid remote response")
             return cast(dict[str, object], reply["result"])
     except TimeoutError, OSError, EOFError, ValueError, RecursionError:
