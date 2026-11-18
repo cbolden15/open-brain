@@ -628,7 +628,9 @@ class LiveCaptureService:
             intakes=intakes,
         )
 
-    def _submit(self, intake: SourceRecordIntake) -> tuple[str, str | None]:
+    def _submit(
+        self, intake: SourceRecordIntake, selection: SourceResourceSelection
+    ) -> tuple[str, str | None]:
         if self._sink is not None:
             result = self._sink(intake)
             if getattr(result, "outcome", None) == "history_only":
@@ -668,7 +670,7 @@ class LiveCaptureService:
         )
         from open_brain_collector.lifecycle import EngineCaptureSink
 
-        receipt = EngineCaptureSink(sink).submit(revised)
+        receipt = EngineCaptureSink(sink).submit(revised, selection=selection)
         if isinstance(receipt, CaptureCustodyReceipt):
             return ("captured", receipt.ingestion_id)
         if not isinstance(receipt, CaptureReceipt):
@@ -705,7 +707,7 @@ class LiveCaptureService:
             self._save(current)
             intake = self._custody.intake(receipt_id)
             try:
-                outcome, capture_id = self._submit(intake)
+                outcome, capture_id = self._submit(intake, _selection(current["selection"]))
             except Exception as error:
                 if self._is_item_conflict(error):
                     current["retry_receipts"] = [
@@ -815,7 +817,7 @@ class LiveCaptureService:
                         )
                         continue
                     try:
-                        outcome, capture_id = self._submit(intake)
+                        outcome, capture_id = self._submit(intake, _selection(latest["selection"]))
                     except Exception as error:
                         if not self._is_item_conflict(error):
                             raise

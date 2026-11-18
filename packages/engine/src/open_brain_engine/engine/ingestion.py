@@ -215,6 +215,9 @@ class IngestionJournal:
                     )
                 outcome = custody
                 new_delivery = True
+            if submission.saved_item_evidence is not None:
+                source, _item_key = submission.saved_item_evidence
+                source.register(connection)
         if guard is not None:
             if custody_plan is not None:
                 guard.protect(self._engine, custody_plan)

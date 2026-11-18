@@ -8,7 +8,7 @@ import unicodedata
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
 from html import unescape
@@ -50,6 +50,7 @@ from .normalization import (
     _text,
 )
 from .privacy_projection import _NARROWED_REASON
+from .saved_item_identity import SavedItemSource
 from .t03_contracts import EffectiveAuthority, SourceRouteRequest, SourceRouteResponse
 
 if TYPE_CHECKING:
@@ -827,6 +828,7 @@ class PortabilityReceipt:
             16,
             17,
             18,
+            19,
         }:
             raise ValueError("invalid portability receipt schema version")
         if self.index_generation is not None and (
@@ -1785,6 +1787,9 @@ class CaptureSubmission:
     destination_brain_id: str | None = None
     issuer_epoch: int | None = None
 
+    # Trusted collector selection, persisted atomically with custody outside the envelope.
+    saved_item_evidence: tuple[SavedItemSource, str] | None = field(default=None, compare=False)
+
     def __post_init__(self) -> None:
         if not isinstance(
             self.payload,
@@ -1794,6 +1799,14 @@ class CaptureSubmission:
         _delivery_id(self.delivery_id)
         object.__setattr__(self, "action", CaptureAction(self.action))
         object.__setattr__(self, "submission_path", CaptureSubmissionPath(self.submission_path))
+        if self.saved_item_evidence is not None:
+            source, item_key = self.saved_item_evidence
+            if (
+                self.submission_path is not CaptureSubmissionPath.PUBLIC_JOB
+                or not isinstance(source, SavedItemSource)
+                or source.delivery_id(item_key) != self.delivery_id
+            ):
+                raise ValueError("saved-item delivery does not match configured source")
         if self.schema_version != 1:
             raise ValueError("invalid capture submission schema version")
         if (self.destination_brain_id is None) != (self.issuer_epoch is None):
@@ -1950,6 +1963,7 @@ class CaptureSubmission:
         privacy: PrivacyDecision,
         intent: Intent | str | None = None,
         title: str | None = None,
+        saved_item_evidence: tuple[SavedItemSource, str] | None = None,
     ) -> CaptureSubmission:
         if not isinstance(context, PublicJobCaptureContext):
             raise ValueError("invalid public-job context")
@@ -1970,6 +1984,7 @@ class CaptureSubmission:
             role_claim=context.role_claim,
             intent=_intent(intent),
             capture_why_origin=CaptureWhyOrigin.AUTOMATION_ABSENT,
+            saved_item_evidence=saved_item_evidence,
             title=title,
             occurrence_at=occurrence_at,
             submission_path=CaptureSubmissionPath.PUBLIC_JOB,
@@ -3183,6 +3198,7 @@ class PublicJobCaptureSink:
         privacy: PrivacyDecision,
         intent: Intent | str | None = None,
         title: str | None = None,
+        saved_item_evidence: tuple[SavedItemSource, str] | None = None,
     ) -> CaptureOutcome:
         return self._capture.submit(
             CaptureSubmission.for_public_job(
@@ -3194,6 +3210,7 @@ class PublicJobCaptureSink:
                 provenance=provenance,
                 privacy=privacy,
                 intent=intent,
+                saved_item_evidence=saved_item_evidence,
                 title=title,
             )
         )

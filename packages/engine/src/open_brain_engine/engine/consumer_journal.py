@@ -373,6 +373,7 @@ class LifecycleJournalV2(LifecycleJournal):
                 (21, [(1, 16, 21)]),
                 (22, [(1, 16, 22)]),
                 (23, [(1, 16, 23)]),
+                (24, [(1, 16, 24)]),
             )
             or identity is None
             or tuple(identity) != (brain_id, issuer_epoch)
