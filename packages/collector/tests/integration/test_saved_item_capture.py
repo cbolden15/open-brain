@@ -66,9 +66,7 @@ def test_saved_folder_flows_from_cli_selection_to_search(tmp_path: Path) -> None
     records = cast(list[dict[str, object]], preview["records"])
     assert records[0]["source_reference"] == "https://example.com/post/123"
     preview_id = cast(str, preview["preview_id"])
-    code, imported = _cli(
-        [*base, "import", "--source-id", source_id, "--preview-id", preview_id]
-    )
+    code, imported = _cli([*base, "import", "--source-id", source_id, "--preview-id", preview_id])
     assert code == 0 and imported["captured_count"] == 1
     engine = open_local_engine(profile)
     for query in ("Charredlemon", "Quietharbor"):
@@ -147,3 +145,51 @@ def test_mixed_folder_refuses_surrogates_before_custody(
     hits = open_local_engine(profile).retrieval.search("Validharbor")
     assert len(hits) == 1 and hits[0].trust == "third_party"
     assert service.preview("saved")["count"] == 0
+
+
+def test_v18_saved_item_recovery_evidence(tmp_path: Path) -> None:
+    import sqlite3
+    from zipfile import ZipFile
+
+    from open_brain_connectors.runtime.saved_item import identity_url, item_key
+    from open_brain_connectors.runtime.source_intake import SourceRecordKey
+
+    from open_brain.services.local_entrypoints import run_cli
+
+    folder = "folder:62fc0a49f952534a96a8a1ef8e6f34cf"
+    resource = "items:1f922d4e9e0568ec069490bbcee38798"
+    archive = tmp_path / "archive"
+    with ZipFile(Path(__file__).parents[1] / "fixtures/saved-item-v18.zip") as fixture:
+        for name in fixture.namelist():
+            raw = fixture.read(name)
+            assert folder.encode() not in raw and resource.encode() not in raw
+        fixture.extractall(archive)
+    archive.chmod(0o700)
+    restored = tmp_path / "restored"
+    assert (
+        run_cli(
+            (
+                "restore",
+                str(archive),
+                str(restored),
+                "--import-id",
+                "import_11111111-1111-4111-8111-111111111119",
+            )
+        )
+        == 0
+    )
+    engine = open_local_engine(compile_single_user_local(restored))
+    hits = engine.retrieval.search("Legacyharbor")
+    assert len(hits) == 2
+    with sqlite3.connect(restored / ".open-brain/state/phase1.sqlite3") as db:
+        expected = {
+            SourceRecordKey(
+                "saved_item",
+                folder,
+                resource,
+                item_key(identity_url(f"https://example.org/saved#{i}")[0]),
+                "v1",
+            ).delivery_id()
+            for i in range(2)
+        }
+        assert expected == {row[0] for row in db.execute("SELECT delivery_id FROM captures")}
