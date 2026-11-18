@@ -4,6 +4,7 @@ dev = [
   "jsonschema>=4.26.0,<5",
   "mypy>=2.4.0,<3",
   "open-brain==0.2.4",
+  "open-brain-browser-host==0.2.4",
   "open-brain-connectors==0.2.4",
   "open-brain-engine==0.2.4",
   "pytest>=9.1.1,<10",
@@ -19,6 +20,7 @@ native-build = [
 [tool.uv.workspace]
 members = [
   "packages/app",
+  "packages/browser-host",
   "packages/collector",
   "packages/connectors",
   "packages/engine",
@@ -26,6 +28,7 @@ members = [
 
 [tool.uv.sources]
 open-brain = { workspace = true }
+open-brain-browser-host = { workspace = true }
 open-brain-collector = { workspace = true }
 open-brain-connectors = { workspace = true }
 open-brain-engine = { workspace = true }
@@ -38,6 +41,7 @@ markers = [
 pythonpath = [
   ".",
   "packages/app/src",
+  "packages/browser-host/src",
   "packages/collector/src",
   "packages/connectors/src",
   "packages/engine/src",
@@ -45,6 +49,7 @@ pythonpath = [
 testpaths = [
   "tests",
   "packages/app/tests",
+  "packages/browser-host/tests",
   "packages/collector/tests",
   "packages/connectors/tests",
   "packages/engine/tests",
@@ -59,7 +64,7 @@ extend-exclude = ["archive", "release/open-brain-graphify/overrides"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["open_brain", "open_brain_collector", "open_brain_connectors", "tools"]
+known-first-party = ["open_brain", "open_brain_browser_host", "open_brain_collector", "open_brain_connectors", "tools"]
 known-third-party = ["open_brain_engine"]
 
 [tool.mypy]
@@ -68,6 +73,7 @@ strict = true
 explicit_package_bases = true
 mypy_path = [
   "packages/app/src",
+  "packages/browser-host/src",
   "packages/collector/src",
   "packages/connectors/src",
   "packages/engine/src",

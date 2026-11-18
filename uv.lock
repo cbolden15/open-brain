@@ -5,6 +5,7 @@ requires-python = "==3.14.*"
 [manifest]
 members = [
     "open-brain",
+    "open-brain-browser-host",
     "open-brain-collector",
     "open-brain-connectors",
     "open-brain-engine",
@@ -16,6 +17,7 @@ dev = [
     { name = "jsonschema", specifier = ">=4.26.0,<5" },
     { name = "mypy", specifier = ">=2.4.0,<3" },
     { name = "open-brain", editable = "packages/app" },
+    { name = "open-brain-browser-host", editable = "packages/browser-host" },
     { name = "open-brain-connectors", editable = "packages/connectors" },
     { name = "open-brain-engine", editable = "packages/engine" },
     { name = "pytest", specifier = ">=9.1.1,<10" },
@@ -297,6 +299,23 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "open-brain-engine", editable = "packages/engine" }]
+
+[[package]]
+name = "open-brain-browser-host"
+version = "0.2.4"
+source = { editable = "packages/browser-host" }
+dependencies = [
+    { name = "open-brain" },
+    { name = "open-brain-connectors" },
+    { name = "open-brain-engine" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "open-brain", editable = "packages/app" },
+    { name = "open-brain-connectors", editable = "packages/connectors" },
+    { name = "open-brain-engine", editable = "packages/engine" },
+]
 
 [[package]]
 name = "open-brain-collector"
