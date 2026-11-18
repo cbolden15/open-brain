@@ -12,7 +12,7 @@ export function sameDocument(a, b) {
 
 export function saveArgs(page, input) {
   const reason = input.trim();
-  if (!reason || reason.length > 280) throw new Error('reason');
+  if (!reason || [...reason].length > 280 || !reason.isWellFormed() || reason.includes('\0')) throw new Error('reason');
   return {url: page.url, reason, ...(page.title.trim() && {title: page.title}),
     ...(page.passage.trim() && {passage: page.passage})};
 }

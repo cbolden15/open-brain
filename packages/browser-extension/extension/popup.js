@@ -3,10 +3,11 @@ const descriptions = {
   changed:'The page or selection changed. Reopen the extension to confirm it again.',
   unsupported:'Open an HTTPS page to save it.', restricted:'Chrome could not read this page.',
   selection:'Choose a passage of 4,096 characters or fewer.',
+  invalid:'The helper rejected the page details. Check the URL and text before trying again.',
   reason:'Enter a reason of up to 280 characters.', unavailable:'The Open Brain helper is unavailable.',
   refused:'The helper refused this request. Check your local grant.',
   full:'Resolve or abandon an earlier save before starting another.',
-  saved:'Saved to Open Brain.', pending:'Pending. The helper has received this save.',
+  saved:'Page is saved. Repeat saves keep the original reason.', pending:'Pending. The helper has received this save.',
   unknown:'Outcome unknown. Check status before starting another save.',
   cleared:'This save has already been resolved.'
 };
@@ -62,6 +63,8 @@ async function open() {
   const page = await preview;
   gesture = {windowId:tab.windowId, nonce:page.nonce};
   for (const key of ['title','url','passage','destination']) el(key).textContent = page[key];
+  document.querySelector('form').hidden = page.lookup === 'saved';
+  el('existing').hidden = page.lookup !== 'saved';
   if (el('status').textContent === 'Checking this page…')
     el('status').textContent = page.lookup === 'saved' ? 'Already saved in this source.' : 'No saved page in this scope.';
   el('preview').hidden = false;

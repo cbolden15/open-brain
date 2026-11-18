@@ -40,9 +40,10 @@ async function workerFixture() {
         if (operation !== 'binding.describe') assert.equal(message.binding_id, binding);
         let result;
         if (operation === 'binding.describe') result = {binding_id:binding,destination:'This computer'};
-        if (operation === 'page.lookup') result = {state:'absent'};
+        if (operation === 'page.lookup') result = {state:env.lookup ?? 'absent'};
         if (operation === 'operation.status') result = receipts.get(id) ?? {state:'refused'};
         if (operation === 'page.save') {
+          if (env.nativeError) return {version:'browser.v1',error:{code:env.nativeError}};
           if (env.delivery === 'never') throw new Error('before admission');
           result = env.delivery === 'pending' ? {state:'pending'} : {state:'accepted',capture_id:'fixture'};
           receipts.set(id,result);
@@ -50,9 +51,9 @@ async function workerFixture() {
         }
         return {version:'browser.v1',result};
       }},
-    tabs:{async get(){return {url:page.url, windowId:1, active:env.active};}},
-    windows:{async get(){return {focused:true};}},
-    scripting:{async executeScript(){return [{documentId:env.documentId,
+    tabs:{onActivated:{addListener(fn){env.activate = fn;}},onUpdated:{addListener(fn){env.update = fn;}},async query(){return env.active ? [{id:7,url:page.url}] : [{id:8}];},async get(){return {url:page.url, windowId:1, active:env.active};}},
+    windows:{onRemoved:{addListener(){}},async get(){return {focused:true};}},
+    scripting:{async executeScript({func}){env.readPage = func; await env.injection?.(); return [{documentId:env.documentId,
       result:{url:page.url,title:page.title,passage:page.passage}}];}},
     contextMenus:{onClicked:{addListener(){}}},
     storage:{local:{async setAccessLevel(value){trusted = value.accessLevel === 'TRUSTED_CONTEXTS';},
@@ -112,4 +113,70 @@ test('changed document cancels before native save and missing helper surfaces se
   assert.equal(f.calls.filter(x => x.operation === 'page.save').length,0);
   f.env.online = false;
   assert.equal((await f.request('begin',{tabId:7,windowId:1})).error,'unavailable');
+});
+
+test('a known saved page grants no new save gesture', async () => {
+  const f = await workerFixture();
+  f.env.lookup = 'saved';
+  const preview = await f.begin();
+  assert.equal(preview.lookup,'saved');
+  assert.equal(preview.nonce,null);
+  assert.equal((await f.save(preview.nonce)).error,'changed');
+  assert.equal(f.calls.filter(message => message.operation === 'page.save').length,0);
+});
+
+test('switching tabs during the final script read cancels dispatch', async () => {
+  const f = await workerFixture();
+  const {nonce} = await f.begin();
+  const entered = Promise.withResolvers();
+  const resume = Promise.withResolvers();
+  f.env.injection = () => { entered.resolve(); return resume.promise; };
+  const saving = f.save(nonce);
+  await entered.promise;
+  f.env.active = false;
+  resume.resolve();
+  assert.equal((await saving).error,'changed');
+  assert.deepEqual(f.storage.pending,[]);
+  assert.equal(f.calls.filter(message => message.operation === 'page.save').length,0);
+});
+
+test('returning to the original tab cannot revive an invalidated confirmation', async () => {
+  const f = await workerFixture();
+  const {nonce} = await f.begin();
+  f.env.activate({windowId:1,tabId:8});
+  f.env.activate({windowId:1,tabId:7});
+  assert.equal((await f.save(nonce)).error,'changed');
+  assert.deepEqual(f.storage.pending,[]);
+  assert.equal(f.calls.filter(message => message.operation === 'page.save').length,0);
+});
+
+test('reason bounds count Unicode code points', () => {
+  assert.equal(saveArgs(page,'😀'.repeat(280)).reason,'😀'.repeat(280));
+  assert.throws(() => saveArgs(page,'😀'.repeat(281)));
+});
+test('malformed requests clear their new ID, deadline failures retain it', async () => {
+  const f = await workerFixture();
+  f.env.nativeError = 'invalid_request';
+  assert.equal((await f.save((await f.begin()).nonce)).error,'invalid');
+  assert.deepEqual(f.storage.pending,[]);
+  f.env.nativeError = 'deadline_exceeded';
+  assert.equal((await f.save((await f.begin()).nonce)).value.state,'unknown');
+  assert.equal(f.storage.pending.length,1);
+});
+
+test('top-frame reader preserves astral title and selection at the native limits', async () => {
+  const f = await workerFixture();
+  await f.begin();
+  globalThis.document = {title:'a'.repeat(299) + '😀b'};
+  globalThis.location = {href:page.url};
+  globalThis.window = {getSelection:() => '😀'.repeat(4096)};
+  try {
+    const result = f.env.readPage();
+    assert.equal(result.title,'a'.repeat(299) + '😀');
+    assert.equal(result.passage,'😀'.repeat(4096));
+  } finally {
+    delete globalThis.document;
+    delete globalThis.location;
+    delete globalThis.window;
+  }
 });
