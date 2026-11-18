@@ -152,7 +152,7 @@ def _input_rows(raw: bytes, format: str, reason: str) -> list[tuple[str | None, 
         urls = [line.strip() for line in text.splitlines() if line.strip()]
         if len(urls) > MAX_ROWS:
             raise Refused("import_too_large")
-    rows = []
+    rows: list[tuple[str | None, str, str]] = []
     observed: set[str] = set()
     for url in urls:
         try:
@@ -294,6 +294,24 @@ def _clear_content(db: sqlite3.Connection, batch_id: str, state: str) -> None:
     db.execute("UPDATE batches SET state=?,reason=NULL WHERE batch_id=?", (state, batch_id))
 
 
+def _reconcile_pending(
+    db: sqlite3.Connection,
+    batch_id: str,
+    reconcile_row: Callable[[str], str | None],
+) -> None:
+    # Only the bounded attempted slice can have unrecorded canonical outcomes.
+    for row in db.execute(
+        "SELECT idx,operation_id FROM rows WHERE batch_id=? AND state='pending' "
+        "ORDER BY idx LIMIT ?",
+        (batch_id, _STEP_ROWS),
+    ).fetchall():
+        outcome = reconcile_row(row["operation_id"])
+        db.execute(
+            "UPDATE rows SET state=? WHERE batch_id=? AND idx=?",
+            (outcome or "canceled", batch_id, row["idx"]),
+        )
+
+
 def execute(
     operation: str,
     args: dict[str, Any],
@@ -365,21 +383,15 @@ def execute(
                 **_page(db, batch_id, args["offset"], args["limit"], preview=True),
             }
         if operation == "import.status":
+            if state in {"complete", "canceled"}:
+                _reconcile_pending(db, batch_id, reconcile_row)
             return {
                 **_progress(db, batch_id),
                 **_page(db, batch_id, args["offset"], args["limit"], preview=False),
             }
         if operation == "import.cancel":
             if state not in {"complete", "canceled"}:
-                for row in db.execute(
-                    "SELECT idx,operation_id FROM rows WHERE batch_id=? AND state='pending'",
-                    (batch_id,),
-                ).fetchall():
-                    outcome = reconcile_row(row["operation_id"])
-                    db.execute(
-                        "UPDATE rows SET state=? WHERE batch_id=? AND idx=?",
-                        (outcome or "canceled", batch_id, row["idx"]),
-                    )
+                _reconcile_pending(db, batch_id, reconcile_row)
                 db.execute(
                     "UPDATE rows SET state='canceled' WHERE batch_id=? AND state='ready'",
                     (batch_id,),
@@ -458,7 +470,7 @@ def validate_import_result(operation: str, args: dict[str, Any], result: object)
         return set(result) == {"state"} and state in ("complete", "canceled")
 
     total = result.get("total")
-    if not _number(total, 0, MAX_ROWS):
+    if type(total) is not int or not 0 <= total <= MAX_ROWS:
         return False
     fields = {"total"}
     if operation == "import.preview":
@@ -467,10 +479,11 @@ def validate_import_result(operation: str, args: dict[str, Any], result: object)
             return False
     else:
         fields.update(("state", "processed"))
-        states = ("active", "complete", "canceled")
-        if operation == "import.status":
-            states += ("upload", "preview")
-        if state not in states or not _number(result.get("processed"), 0, total):
+        batch_states = ("active", "complete", "canceled")
+        allowed_states = (
+            (*batch_states, "upload", "preview") if operation == "import.status" else batch_states
+        )
+        if state not in allowed_states or not _number(result.get("processed"), 0, total):
             return False
     if operation == "import.step":
         return set(result) == fields
@@ -492,7 +505,7 @@ def validate_import_result(operation: str, args: dict[str, Any], result: object)
         if not isinstance(row, dict) or type(row.get("index")) is not int or row["index"] != index:
             return False
         row_state = row.get("state")
-        states = ("ready", "duplicate", "skipped")
+        states: tuple[str, ...] = ("ready", "duplicate", "skipped")
         keys = {"index", "state"}
         if operation == "import.preview":
             keys.add("url")

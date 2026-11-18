@@ -324,3 +324,51 @@ def test_bookmark_apply_and_folder_worker_share_first_save(
             if producer == "browser"
             else "Synthetic concurrent folder reason"
         ) in rows[0][1]
+
+
+def test_status_reconciles_canceled_pending_row_after_canonical_recovery(
+    installation: Policy, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from open_brain_engine.engine import BrainEngine, CaptureFault, InjectedFault
+    from open_brain_engine.engine.contracts import ManagedWorkspaceFault, PortabilityFault
+
+    url = "https://example.test/canceled-after-commit"
+    batch = _upload(installation, (url + "\n").encode())
+    _confirm(installation, batch)
+    previous_fault = BrainEngine._fault
+
+    def interrupt(
+        self: BrainEngine, point: CaptureFault | PortabilityFault | ManagedWorkspaceFault
+    ) -> None:
+        if point is CaptureFault.AFTER_JOURNAL_COMMIT:
+            raise InjectedFault(point)
+        previous_fault(self, point)
+
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(BrainEngine, "_fault", interrupt)
+        with pytest.raises(InjectedFault):
+            _call(installation, "import.step", batch_id=batch)
+    assert _call(installation, "import.cancel", batch_id=batch) == {"state": "canceled"}
+    assert _call(installation, "import.status", batch_id=batch, offset=0, limit=1)["rows"] == [
+        {"index": 0, "state": "pending"}
+    ]
+    root = installation.brain_root
+    profile = open_existing_single_user_local(root)
+    assert BrainEngine.open(profile, recover_on_open=False).recover() == 1
+
+    expected = {
+        "state": "canceled",
+        "total": 1,
+        "processed": 1,
+        "rows": [{"index": 0, "state": "accepted"}],
+        "next_offset": None,
+    }
+    assert _call(installation, "import.status", batch_id=batch, offset=0, limit=1) == expected
+    assert _call(installation, "import.status", batch_id=batch, offset=0, limit=1) == expected
+    with sqlite3.connect(root / ".open-brain/state/phase1.sqlite3") as db:
+        assert db.execute("SELECT count(*) FROM captures").fetchone() == (1,)
+        assert db.execute("SELECT count(*) FROM browser_operations").fetchone() == (1,)
+    with sqlite3.connect(Path.home() / ".open-brain-browser/imports/bookmarks.sqlite3") as db:
+        assert db.execute("SELECT url,display FROM rows").fetchone() == (None, None)
+        assert db.execute("SELECT reason FROM batches").fetchone() == (None,)
+        assert db.execute("SELECT count(*) FROM chunks").fetchone() == (0,)
