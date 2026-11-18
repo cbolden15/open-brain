@@ -20,10 +20,14 @@ python3.14 -m tools.open_brain_dev.browser_installed_acceptance \
   --host-archive "$HOST_ARCHIVE" --zip build/browser/open-brain-bookmarks.zip
 ```
 
-The final installed run upgraded the prior Core from schema 23 to schema 28. Its SHA-256 digests were:
+The release candidates were rebuilt from revision `8ebe710`. The installed run upgraded the prior Core from schema 23 to schema 28. All five Chrome scenarios passed with the rebuilt binaries. Page capture and highlight tests verified that the extension files matched the packaged ZIP. The organizer recovered seven imported bookmarks and the original filing space after a fresh restore. Keyboard tests covered capture, import, filing, highlight, a restored due date, dismissal and clearing. Chrome exposed the polite live region.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| Native host archive | `46b6dcde9fdd3473a10f370bf516d498fd61dbc0ef04093307e5ee2b24aa7711` |
+| Native host archive | `21c463a62347a4222a025dec4cb333879d6fa01a23fceb3f57cf6a4ce93d969e` |
+| Native host executable | `2fb538b78aecaf74b69ae83e48d396f434e14e5a16afda0caff3772d111aa56e` |
 | Extension ZIP | `11ae63465c1b2e4a5e7aeb5654efee741cccc814f92597142206312b03db4ee1` |
-| Core executable | `c4f02637149eeca6c48e65512db73a826aeaf57ee3f0714cb831a93bc3c43325` |
+| Core executable | `6a2d943bdd46f0195e0b2f5b1cfa0e1b12eef34ea6d84060b91cd33ecaf8173a` |
+| Core archive | `52cfcd5fb9bddedd1c05cdf8931491edc67495c18b1b89453526c8e68c08241d` |
+
+The native audit passed. The Homebrew integration smoke test used the same audited Core, verified the owner journey and preserved the existing product. The optional embedding component was absent and its archive audit was skipped.

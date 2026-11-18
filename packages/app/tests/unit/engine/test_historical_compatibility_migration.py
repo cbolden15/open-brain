@@ -31,11 +31,12 @@ def test_schema_fourteen_preserves_thirteen_migration_checksums(tmp_path: Path) 
     assert {m.name: m.checksum for m in LOCAL_MIGRATIONS[:13]} == frozen
     engine = BrainEngine.open(compile_single_user_local(tmp_path / "brain"))
     with engine._store.connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 28
+        schema = connection.execute("PRAGMA user_version").fetchone()[0]
+        assert schema == 28
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
             16,
-            27,
+            schema,
         )
 
 

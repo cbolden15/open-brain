@@ -907,11 +907,12 @@ def test_current_schema_owner_recovery_retains_current_writer_floor(tmp_path: Pa
     assert moved.read_bytes() == before
     reopened = open_local_engine(engine.profile)
     with open_local_database_read_only(reopened.profile) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 28
+        schema = connection.execute("PRAGMA user_version").fetchone()[0]
+        assert schema == 28
         assert tuple(connection.execute("SELECT * FROM runtime_compatibility").fetchone()) == (
             1,
             16,
-            27,
+            schema,
         )
 
 
