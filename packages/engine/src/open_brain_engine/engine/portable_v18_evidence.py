@@ -89,12 +89,13 @@ def serialize_portable_v18_state(
     profile: LocalEngineContext,
     *,
     relationship_sidecar_present: bool,
+    _expected_schema: int = 23,
 ) -> PortableV5StateEvidence:
     base = serialize_portable_v17_state(
         connection,
         profile,
         relationship_sidecar_present=relationship_sidecar_present,
-        _expected_schema=23,
+        _expected_schema=_expected_schema,
     )
     raw = followups_sidecar(*followup_portable_rows(connection))
     semantic = {

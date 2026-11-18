@@ -4335,6 +4335,7 @@ def _record_verified_export(
         16,
         17,
         18,
+        19,
     }:
         raise ValueError("Portable export manifest is unavailable")
     session.prepared.revalidate()
