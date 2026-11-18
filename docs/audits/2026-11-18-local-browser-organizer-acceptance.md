@@ -10,7 +10,7 @@ Chrome for Testing 153.0.8010.12 on macOS 26.3 arm64 exercised the unpacked exte
 | Revoke the grant after preview | Confirmation received a canonical denial. Owner search returned zero captures for the import reason. Canceling after reauthorization also left zero. |
 | Restart during a confirmed import | The test relay withheld the first active step's reply after four captures. The reopened popup resumed the original batch and produced seven distinct searchable captures. All seven IDs survived a verified export and fresh restore. |
 
-A follow-up run on the schema 28 checkout added a tenth bookmark pointing to the already-filed page. Chrome displayed two duplicates before confirmation. The resumed batch still produced seven searchable captures, and all seven survived a fresh restore.
+A follow-up run with the frozen schema 28 Core and native host added a tenth bookmark pointing to the already-filed page. Chrome displayed two duplicates before confirmation. The resumed batch still produced seven searchable captures, and all seven survived a fresh restore.
 
 The contributor harness uses Playwright and a local Chrome for Testing executable. From the repository root:
 

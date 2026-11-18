@@ -20,4 +20,10 @@ python3.14 -m tools.open_brain_dev.browser_installed_acceptance \
   --host-archive "$HOST_ARCHIVE" --zip build/browser/open-brain-bookmarks.zip
 ```
 
-The first full installed run upgraded Core to schema 27. The native host archive SHA-256 was `c4263584fc2eac5968d242d96461b1d9897fc11e326eb08653dc9f3831c5f19d`. The extension ZIP SHA-256 was `42d7434ac465cbdd5f249a8387e52301856db30ca249847ddfab84d25b91a3fe`. Other platform and remote-host qualifications are separate.
+The final installed run upgraded the prior Core from schema 23 to schema 28. Its SHA-256 digests were:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Native host archive | `46b6dcde9fdd3473a10f370bf516d498fd61dbc0ef04093307e5ee2b24aa7711` |
+| Extension ZIP | `11ae63465c1b2e4a5e7aeb5654efee741cccc814f92597142206312b03db4ee1` |
+| Core executable | `c4f02637149eeca6c48e65512db73a826aeaf57ee3f0714cb831a93bc3c43325` |
