@@ -39,6 +39,15 @@ class Annotation:
     suffix: str
     note: str | None = None
 
+    def canonical(self) -> Annotation:
+        return Annotation(
+            self.annotation_id,
+            unicodedata.normalize("NFC", self.quote),
+            unicodedata.normalize("NFC", self.prefix),
+            unicodedata.normalize("NFC", self.suffix),
+            unicodedata.normalize("NFC", self.note) if self.note is not None else None,
+        )
+
     def validate(self, source_reference: str) -> None:
         uuid4_id(self.annotation_id)
         fields = [(self.quote, 4096), (self.prefix, 128), (self.suffix, 128)]
@@ -113,6 +122,7 @@ class BrowserAnnotations(BrowserPages):
                 "SELECT source_reference FROM captures WHERE capture_id=?", (capture_id,)
             ).fetchone()[0]
             annotation.validate(reference)
+            annotation = annotation.canonical()
             payload = {**asdict(annotation), "capture_id": capture_id, "item_key": item_key}
             digest = sha256(
                 json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -121,7 +131,18 @@ class BrowserAnnotations(BrowserPages):
             prior = operation_row(db, grant, operation_id)
             if prior:
                 if prior["request_sha256"] != digest:
-                    raise ValueError("browser_operation_conflict")
+                    # Early schema26 rows retained the caller's Unicode form. Accept
+                    # their original valid bytes after canonical-equivalence checking.
+                    legacy = Annotation(*(prior[field] for field in asdict(annotation)))
+                    original = {**asdict(legacy), "capture_id": capture_id, "item_key": item_key}
+                    original_sha = sha256(
+                        json.dumps(original, sort_keys=True, separators=(",", ":")).encode()
+                    ).hexdigest()
+                    if (
+                        prior["state"] != "accepted" or original_sha != prior["request_sha256"]
+                        or legacy.canonical() != annotation or legacy == annotation
+                    ):
+                        raise ValueError("browser_operation_conflict")
                 if prior["state"] != "accepted":
                     return BrowserResult("refused")
             else:
