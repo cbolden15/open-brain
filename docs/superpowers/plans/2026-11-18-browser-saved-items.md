@@ -111,7 +111,7 @@ The local Chrome proofs cover actual DOM painting, the file chooser, interrupted
 
 The macOS release candidate completes tasks 1–3 and 5–8. Task 4 has a working transport and local integration coverage. Its two-machine SSH test awaits an owner-supplied host.
 
-At commit `c62ea9a`, `make verify` passed 10,248 Python tests (9 skipped), 704 Obsidian tests and 27 extension tests. The native audit and Homebrew smoke passed on the artifacts identified in the installed evidence.
+After integrating Core 0.2.5, `make verify` at `a553c27` passed 10,282 Python tests (9 skipped), 704 Obsidian tests and 27 extension tests. The native audit and Homebrew smoke passed on the artifacts identified in the installed evidence.
 
 | Environment | Result |
 | --- | --- |
