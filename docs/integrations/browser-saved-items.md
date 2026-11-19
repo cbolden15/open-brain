@@ -52,4 +52,4 @@ Use `"$HOST" unregister --chrome-user-data-dir "$PROFILE"` to remove its verifie
 
 ## Optional remote destination
 
-The laptop can be configured to use one owner-pinned SSH destination. Its label is shown in the popup, including when disconnected. Operations stay bound to the configured Brain and source. Separate-machine qualification is pending. The host guide contains the dedicated key, forced-command and known-host requirements. [Native host guide](../../packages/browser-host/README.md)
+The laptop can be configured to use one owner-pinned SSH destination. Its label is shown in the popup, including when disconnected. Operations stay bound to the configured Brain and source. Page capture and recovery passed on [two arm64 Macs](../audits/2026-11-18-browser-ssh-acceptance.md). The host guide contains the dedicated key, forced-command and known-host requirements. [Native host guide](../../packages/browser-host/README.md)
