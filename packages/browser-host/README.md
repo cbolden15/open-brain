@@ -67,12 +67,9 @@ indicates durable admission with reconciliation still outstanding.
 
 [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging)
 
-## Remote destination (qualification pending)
+## Optional SSH destination
 
-The local setup above is the default. The remote transport has a synthetic
-two-installation test. Real Chrome over SSH still requires a separately
-authorized disposable laptop and canonical host. No remote platform has
-qualified for release.
+The local setup above is the default. Page capture over SSH passed between two arm64 Macs with separate disposable Brains. The browser recovered the original save after the remote host lost its reply. [Two-machine acceptance](../../docs/audits/2026-11-18-browser-ssh-acceptance.md)
 
 The canonical host runs the same owner setup and holds the grant. Its setup
 output supplies the canonical `binding_id`. The restricted SSH credential
@@ -107,4 +104,4 @@ For the actual Chrome popup on the same two-root fixture, run
 `python3.14 tools/open_brain_dev/browser_remote_acceptance.py --chrome "$CHROME"`
 from the repository root with Playwright installed. It verifies the configured
 destination while disconnected, a lost reply, restart, and the canonical
-capture count. Two-machine SSH qualification is pending.
+capture count.

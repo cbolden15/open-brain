@@ -68,10 +68,10 @@ The local page handoff passed twice on macOS. Task 5 owns the annotation-specifi
 
 - [x] Add `packages/browser-host/tests/test_remote.py` and a `remote` scenario in the acceptance harness. Freeze the same request/reply contract. Pin unknown host identity, wrong Brain binding, refused connection, timeout before write, lost terminal reply and reconnect. Both before and after retry, assert the laptop Brain has zero records for the synthetic input.
 - [x] Run `uv run --frozen pytest -q packages/browser-host/tests/test_remote.py`. Implement `host/remote.py` against a fixed, owner-configured destination and restricted remote handler. Start the process with a fixed argument vector; operation contents travel on stdin. Enforce policy on the canonical host. Use a versioned, length-bounded remote protocol with fixed byte order, explicit format marker and strict response identity. Reject extra stdout, bad framing, host identity change and truncated replies. Separate a bounded SSH connect timeout from the handler deadline; a timeout after admission means unknown outcome until status reconciliation. Keep diagnostics on stderr free of page content. Show the configured destination on failure and keep any pending operation bound to it.
-- [ ] On an explicitly authorized disposable two-host setup, verify SSH availability and pinned host identities on the target pair, then save to the remote Brain from real Chrome, interrupt the reply, reconnect and replay the original ID. Verify exact count and destination on both machines. Check the same scoped miss, unauthorized write, and changed-grant cases as local. Record the two independent host identities as synthetic labels.
+- [x] On an explicitly authorized disposable two-host setup, verify SSH availability and pinned host identities on the target pair, then save to the remote Brain from real Chrome, interrupt the reply, reconnect and replay the original ID. Verify exact count and destination on both machines. Check the same scoped miss, unauthorized write, and changed-grant cases as local. Record the two independent host identities as synthetic labels.
 - [x] Commit the transport and results. With only a loopback fixture or unavailable second host, retain remote status as unqualified, with local qualification independent.
 
-The macOS Chrome fixture passed with one canonical capture, zero laptop captures, and reconciliation of the original operation after browser restart. Run `python3.14 tools/open_brain_dev/browser_remote_acceptance.py --chrome "$CHROME"`. It replaces SSH with local process pipes. The separate-machine and SSH qualification remains pending until the owner supplies a test host.
+The macOS Chrome fixture passed with one canonical capture, zero laptop captures, and reconciliation of the original operation after browser restart. Run `python3.14 tools/open_brain_dev/browser_remote_acceptance.py --chrome "$CHROME"`. It replaces SSH with local process pipes. A separate [two-Mac test](../../audits/2026-11-18-browser-ssh-acceptance.md) passed with the shipping SSH transport.
 
 ### 5. Persist, search and restore multiple highlights
 
@@ -109,7 +109,7 @@ The local Chrome proofs cover actual DOM painting, the file chooser, interrupted
 
 ## Qualification record
 
-The macOS release candidate completes tasks 1–3 and 5–8. Task 4 has a working transport and local integration coverage. Its two-machine SSH test awaits an owner-supplied host.
+The macOS release candidate completes all eight tasks. Task 4 passed between two separate arm64 Macs with a pinned SSH destination and disposable Brains.
 
 After integrating Core 0.2.5, `make verify` at `a553c27` passed 10,282 Python tests (9 skipped), 704 Obsidian tests and 27 extension tests. The native audit and Homebrew smoke passed on the artifacts identified in the installed evidence.
 
@@ -117,8 +117,9 @@ After integrating Core 0.2.5, `make verify` at `a553c27` passed 10,282 Python te
 | --- | --- |
 | macOS arm64, Chrome for Testing, installed native host | Passed page capture, highlights, filing, bookmark import, revisits, upgrade, reinstall, and removal. [Installed evidence](../../audits/2026-11-18-installed-browser-macos.md) |
 | macOS, two disposable local Brains | Chrome saved once to the configured destination, reconciled the lost reply after restart, and left the laptop Brain empty. A local process pipe supplied transport in this test. |
+| macOS, two machines over SSH | The remote handler accepted a page and withheld its reply. After Chrome restarted, status and replay returned the original capture. [Two-machine evidence](../../audits/2026-11-18-browser-ssh-acceptance.md) |
 | Keyboard and accessibility | Passed the keyboard journey and Chrome accessibility-tree status checks. Live screen-reader speech remains unverified. [Keyboard evidence](../../audits/2026-11-18-local-browser-keyboard-acceptance.md) |
 
-- [ ] Qualify real SSH on a separate machine after the owner supplies a disposable test host (task 4).
+- [x] Qualify real SSH on a separate machine for macOS page capture and recovery (task 4).
 - [ ] Perform clean install, upgrade and removal on Linux x86_64 before claiming Linux support.
 - [ ] When separately authorized, use the same item in a private trusted-tester release to test normal-profile install and same-ID updates on supported targets. Until a reviewed build can actually be installed, report consumer distribution as pending; do not block a locally tested candidate on store access. Record the stable store item ID and corresponding public manifest key when available; bind the native allowlist to the exact ID of the artifact under test. If development used a different ID, rerun the full installed journey with the store-signed candidate, including local/remote handoff, update and removal on each claimed target. Public promotion is a separate action. See [Chrome distribution](https://developer.chrome.com/docs/extensions/how-to/distribute) and [private tester visibility](https://developer.chrome.com/docs/webstore/cws-dashboard-distribution).
